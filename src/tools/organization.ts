@@ -258,7 +258,7 @@ export function registerOrganizationTools(server: McpServer, ctx: ServerContext)
             fullName: str(doc["НаименованиеПолное"]) || undefined,
             shortName: str(doc["НаименованиеСокращенное"]) || undefined,
             legalType: legalType || undefined,
-            inn: str(doc["ИНН"]) || str(doc["ИдентификационныйКодЛичности"]) || str(doc["БИН"]) || str(doc["ИИН"]) || undefined,
+            inn: str(doc["ИНН"]) || str(doc["ИдентификационныйКодЛичности"]) || str(doc["ИдентификационныйНомер"]) || str(doc["БИН"]) || str(doc["ИИН"]) || undefined,
             kpp: str(doc["КПП"]) || undefined,
             ogrn: str(doc["ОГРН"]) || undefined,
             registrationDate: dateOnly(doc["ДатаРегистрации"]),

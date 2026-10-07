@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { InputError } from "../errors.js";
 import { guard,ok,databaseField } from "./_shared.js";
+import { KZ_WRITE_TOOLS } from "./write-kz.js";
 
 // Balances and turnovers read the Kazakhstan Типовой register (odata_accounting); these still assume Russian
 // accounts, posting fields or tax-payment operations and stay blocked there.
@@ -10,7 +11,9 @@ const russianAccounting = new Set([
   "read.analytics.get_inventory","read.accounting.get_document_postings","read.analytics.get_taxes_paid",
 ]);
 const kzReadReason = "Этот инструмент использует российский план счетов/налоговые правила. Для казахстанской базы нужен проверенный профиль учета; не предлагайте опубликовать российский Хозрасчетный и не считайте отказ нулевым остатком.";
-const kzWriteReason = "Запись в казахстанскую базу пока заблокирована: российские настройки НДС, валюты и счетов не соответствуют этой конфигурации. Нужен проверенный профиль записи Казахстана. Предпросмотр на тестовой базе не подтверждает совместимость реальной записи.";
+// Kazakhstan writes cover the invoice path (counterparty, nomenclature, contract, invoice); documents with
+// postings (shipments, receipts, payments) still assume Russian accounts and VAT.
+const kzWriteReason = `В казахстанской базе пока доступна запись: ${KZ_WRITE_TOOLS.join(", ")}. Документы с проводками (реализация, поступление, деньги и др.) ещё не настроены под казахстанские счета и НДС.`;
 
 export async function capabilities(ctx: ServerContext,database?:string) {
   const conn=ctx.db(database);
@@ -20,7 +23,8 @@ export async function capabilities(ctx: ServerContext,database?:string) {
   const kz=meta.entities.has("ChartOfAccounts_Типовой") || !!cp?.properties.some(p=>p.name==="ИдентификационныйКодЛичности");
   return {database:conn.cfg.name,profile:kz?"kazakhstan":"upstream-russian-or-custom",
     blockedReads:kz?[...russianAccounting]:[],
-    writePolicy:kz?"blocked-unconfigured-kazakhstan":"preview-and-confirmation",
+    writePolicy:kz?"kazakhstan-limited":"preview-and-confirmation",
+    ...(kz?{kazakhstanWrites:[...KZ_WRITE_TOOLS]}:{}),
     reasons:{accounting:kzReadReason,write:kzWriteReason},
     usage:{organization:"database выбирает подключение; organization — юридическое лицо внутри выбранной базы. Не подменяйте одно другим.",period:"Периоды задавайте явными датами. Нулевой результат относится только к выбранному периоду/фильтру.",pages:"Если truncated=true, результат неполный; используйте nextOffset при наличии либо уточняйте фильтр.",references:"Ref_Key берите из результата чтения; не придумывайте GUID. Нет примера документа — не означает отсутствие инструмента."},
     ...(kz?{kazakhstanAccounts:"Задолженность — по Типовому плану счетов: get_debtors (1210 покупатели), get_account_turnover account=3310 (поставщики), 31 (налоги), 32 (соцплатежи). Кредитовое сальдо на конец по 31/32/3310 — наш долг, дебетовое — переплата или аванс. Указывайте дату или период, на который получено сальдо. Для ответа по конкретным сотрудникам, контрагентам или налогам и при «красном» сальдо передавайте byAnalytics=true: итог может скрывать долг одному и переплату другому."}:{}),
@@ -32,13 +36,13 @@ export async function preflightTool(ctx:ServerContext,name:string,args:Record<st
   if(name==="read.system.list_databases" || name.startsWith("read.schema.") || name==="read.system.health_check" || name==="read.system.capabilities" || name==="write.operation.status") return;
   const cap=await capabilities(ctx,typeof args.database==="string" && args.database ? args.database : undefined);
   if(cap.blockedReads.includes(name)) throw new InputError(kzReadReason);
-  if(name.startsWith("write.") && cap.writePolicy==="blocked-unconfigured-kazakhstan") throw new InputError(kzWriteReason);
+  if(name.startsWith("write.") && cap.writePolicy==="kazakhstan-limited" && !(KZ_WRITE_TOOLS as readonly string[]).includes(name)) throw new InputError(kzWriteReason);
 }
 
 export function registerCapabilities(server:McpServer,ctx:ServerContext) {
   server.registerTool("read.system.capabilities",{
     title:"Доступные возможности и ограничения 1С",
-    description:"Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads и не обещайте запись при blocked-unconfigured-kazakhstan.",
+    description:"Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads; при kazakhstan-limited записывайте только инструментами из kazakhstanWrites.",
     inputSchema:{database:databaseField},outputSchema:z.object({database:z.string(),profile:z.string(),blockedReads:z.array(z.string()),writePolicy:z.string()}).passthrough(),
   },({database})=>guard("read.system.capabilities",async()=>ok(await capabilities(ctx,database))));
 }

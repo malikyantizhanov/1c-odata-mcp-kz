@@ -24,6 +24,14 @@ import {
 } from "../schemas/output.js";
 import { currentWriteOperationId } from "../odata/write-operation-context.js";
 import { InputError } from "../errors.js";
+import {
+  isKazakhstan,
+  kzCounterpartyPayload,
+  kzInvoiceRows,
+  KZ_VAT_RATES,
+  tengeRef,
+  unitRef,
+} from "./write-kz.js";
 import { ODataError } from "../odata/errors.js";
 import { getDocumentPostings } from "./registers.js";
 
@@ -92,7 +100,15 @@ async function counterpartyExtras(
 const CONTRACT_KINDS = ["СПокупателем", "СПоставщиком", "Прочее", "СКомиссионером", "СКомитентом"] as const;
 
 /** Ставки НДС (Enum_СтавкиНДС), подмножество ходовых. */
-const VAT_RATES = ["БезНДС", "НДС0", "НДС5", "НДС7", "НДС10", "НДС20", "НДС22"] as const;
+const RU_VAT_RATES = ["БезНДС", "НДС0", "НДС5", "НДС7", "НДС10", "НДС20", "НДС22"] as const;
+/** Российские ставки — значения перечисления; казахстанские — наименования справочника «Ставки НДС». */
+const VAT_RATES = [...RU_VAT_RATES, ...KZ_VAT_RATES] as const;
+
+/** Ставка для российской базы: казахстанская («16%») сюда не подходит — говорим об этом, а не шлём в 1С. */
+function ruVatRate(rate: string): string {
+  if ((RU_VAT_RATES as readonly string[]).includes(rate)) return rate;
+  throw new InputError(`Ставка «${rate}» — для казахстанской базы. В этой базе: ${RU_VAT_RATES.join(", ")}.`);
+}
 
 /**
  * Дата → формат 1С Edm.DateTime ('YYYY-MM-DDTHH:mm:ss', без зоны).
@@ -105,7 +121,7 @@ export function odataDate(d: Date): string {
 }
 
 /** Резолвит организацию: по названию, либо авто, если в базе ровно одна. */
-async function resolveOrg(
+export async function resolveOrg(
   conn: Connection,
   organization: string | undefined,
 ): Promise<{ key: string; name: string }> {
@@ -137,7 +153,7 @@ async function resolveWarehouse(conn: Connection, name: string | undefined): Pro
  * Резолвит элемент справочника по точному коду или части наименования.
  * Публикацию проверяет (requireEntity). Бросает Error, если не найдено.
  */
-async function resolveCatalogItem(
+export async function resolveCatalogItem(
   conn: Connection,
   candidates: readonly string[],
   label: string,
@@ -199,7 +215,7 @@ async function resolveFolder(
 }
 
 /** Папка по ref (GUID) или по имени (резолв). undefined → без родителя. */
-async function folderRefOf(
+export async function folderRefOf(
   conn: Connection,
   entitySet: string,
   folder: string | undefined,
@@ -288,7 +304,7 @@ export function buildGoodsRows(
       Количество: l.quantity,
       Цена: l.price,
       Сумма: lineSum(l),
-      СтавкаНДС: l.vatRate,
+      СтавкаНДС: ruVatRate(l.vatRate),
       ...lineAccountsFor(l),
     }),
   );
@@ -307,7 +323,7 @@ export function buildInvoiceRows(lines: GoodsLine[]): Array<Record<string, unkno
       Количество: l.quantity,
       Цена: l.price,
       Сумма: lineSum(l),
-      СтавкаНДС: l.vatRate,
+      СтавкаНДС: ruVatRate(l.vatRate),
     }),
   );
 }
@@ -790,7 +806,7 @@ async function buildSectionRows(
  * произвольный счёт (rows[0] без сортировки) — на счёте и в акте печатались
  * реквизиты не того банка.
  */
-async function resolveOrgBankAccount(
+export async function resolveOrgBankAccount(
   conn: Connection,
   orgKey: string,
   query: string | undefined,
@@ -965,7 +981,7 @@ const saleLine = z.object({
 const purchaseLine = z.object(baseLineShape);
 
 /** Убирает undefined-поля, чтобы не слать их в 1С. */
-function clean(obj: Record<string, unknown>): Record<string, unknown> {
+export function clean(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== ""));
 }
 
@@ -1122,7 +1138,7 @@ export async function withEnumValues(conn: Connection, e: unknown): Promise<unkn
  * Общий путь создания: при confirm=false возвращает предпросмотр (не пишет в 1С),
  * при confirm=true выполняет POST. Гард записи (READ_ONLY + WRITABLE) — в клиенте.
  */
-async function createOrPreview(
+export async function createOrPreview(
   conn: Connection,
   entitySet: string,
   payload: Record<string, unknown>,
@@ -1453,8 +1469,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
       inputSchema: {
         database: databaseField,
         name: z.string().min(1).describe("Наименование контрагента (Description)"),
-        inn: z.string().optional().describe("ИНН"),
-        kpp: z.string().optional().describe("КПП"),
+        inn: z.string().optional().describe("ИНН (Россия) или БИН/ИИН — 12 цифр (Казахстан)"),
+        kpp: z.string().optional().describe("КПП (только Россия)"),
+        kbe: z.string().optional().describe("КБЕ — код бенефициара, две цифры (только Казахстан, напр. 17)"),
         fullName: z.string().optional().describe("Полное наименование"),
         legalType: z
           .enum(["ЮридическоеЛицо", "ФизическоеЛицо"])
@@ -1468,10 +1485,15 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
       },
       outputSchema: createResultSchema,
     },
-    ({ database, name, inn, kpp, fullName, legalType, phone, email, address, ogrn, confirm }) =>
+    ({ database, name, inn, kpp, kbe, fullName, legalType, phone, email, address, ogrn, confirm }) =>
       guard("write.counterparty.create_counterparty", async () => {
         const conn = ctx.db(database);
         const set = await resolveSet(conn, CATALOGS.counterparties, "Контрагенты");
+        if (await isKazakhstan(conn)) {
+          const kz = kzCounterpartyPayload({ name, inn, kpp, ogrn, kbe, fullName, legalType, phone, email, address });
+          return createOrPreview(conn, set, clean(kz.payload), confirm, kz.notes);
+        }
+        if (kbe) throw new InputError("КБЕ есть только в казахстанской базе.");
         const { fields, notes } = await counterpartyExtras(conn, { phone, email, address, ogrn });
         const payload = clean({
           Description: name,
@@ -1561,6 +1583,8 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           Артикул: article,
           Parent_Key: parentRef,
           ...(isService ? { Услуга: true } : {}),
+          // В Казахстане единица — в карточке: без неё строки счёта уходят без единицы измерения.
+          ...((await isKazakhstan(conn)) ? { НаименованиеПолное: fullName ?? name, БазоваяЕдиницаИзмерения_Key: await unitRef(conn) } : {}),
         });
         return createOrPreview(conn, set, payload, confirm);
       }),
@@ -1636,8 +1660,26 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
               priceType,
             )
           : undefined;
-        const foreign = cur ? cur.code !== "643" : undefined; // 643 = рубль
         const num = number ?? "б/н";
+        if (await isKazakhstan(conn)) {
+          const notes =
+            headName || headPosition
+              ? ["Руководитель контрагента в казахстанском договоре не хранится — поля пропущены."]
+              : [];
+          const payload = clean({
+            Description: name ?? `Договор ${num}`,
+            НомерДоговора: num,
+            ДатаДоговора: odataDate(date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0))),
+            Owner_Key: counterpartyRef,
+            ВидДоговора: kind,
+            Организация_Key: org.key,
+            ВалютаВзаиморасчетов_Key: cur?.ref ?? (await tengeRef(conn)),
+            ТипЦен_Key: pt?.ref,
+            ВедениеВзаиморасчетов: "ПоДоговоруВЦелом",
+          });
+          return createOrPreview(conn, set, payload, confirm, notes);
+        }
+        const foreign = cur ? cur.code !== "643" : undefined; // 643 = рубль
 
         const payload = clean({
           Description: name ?? `Договор ${num}`,
@@ -1700,6 +1742,31 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         );
         const org = await resolveOrg(conn, organization);
         const bank = await resolveOrgBankAccount(conn, org.key, orgBankAccount);
+        if (await isKazakhstan(conn)) {
+          const kz = await kzInvoiceRows(conn, lines, sumIncludesVat);
+          const payload = clean({
+            Date: odataDate(date ? new Date(`${date}T00:00:00`) : new Date()),
+            Posted: false,
+            Организация_Key: org.key,
+            Контрагент_Key: counterpartyRef,
+            ДоговорКонтрагента_Key: contractRef,
+            ВалютаДокумента_Key: await tengeRef(conn),
+            КурсВзаиморасчетов: 1,
+            КратностьВзаиморасчетов: 1,
+            // Без НДС у всех строк — документ без учёта НДС (как у неплательщиков), ставка в строках пустая.
+            УчитыватьНДС: kz.withVat,
+            СуммаВключаетНДС: kz.withVat && sumIncludesVat,
+            СуммаДокумента: kz.total,
+            // Банковский счёт организации — составная ссылка «Структурная единица».
+            ...(bank ? { СтруктурнаяЕдиница: bank, СтруктурнаяЕдиница_Type: "StandardODATA.Catalog_БанковскиеСчета" } : {}),
+            ...(kz.goods.length ? { Товары: kz.goods } : {}),
+            ...(kz.services.length ? { Услуги: kz.services } : {}),
+          });
+          const notes = bank
+            ? []
+            : ["У организации нет банковского счёта — в счёте не будет реквизитов для оплаты. Добавьте счёт в 1С."];
+          return createOrPreview(conn, set, payload, confirm, notes);
+        }
         const rows = buildInvoiceRows(lines);
         const payload = clean({
           Date: odataDate(date ? new Date(`${date}T00:00:00`) : new Date()),
@@ -2154,7 +2221,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           СчетКонтрагента_Key: counterpartyAccountRef,
           ДоговорКонтрагента_Key: contractRef,
           СуммаДокумента: amount,
-          СтавкаНДС: vatRate,
+          СтавкаНДС: ruVatRate(vatRate),
           ВидОперации: operationKind,
           ОчередностьПлатежа: priority,
           НазначениеПлатежа: purposeText,
@@ -2913,7 +2980,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             Количество: l.quantity,
             Цена: l.price,
             Сумма: lineSum(l),
-            СтавкаНДС: l.vatRate,
+            СтавкаНДС: ruVatRate(l.vatRate),
             НоменклатурнаяГруппа_Key: nomenclatureGroupRef,
             ...grpSubconto,
             ...lineAccountsFor(l),

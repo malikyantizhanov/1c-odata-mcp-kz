@@ -82,3 +82,14 @@ export function buildQuery(opts: QueryOptions): string {
 
   return `?${parts.join("&")}`;
 }
+
+/**
+ * Параметр Period для остатков «на конец дня»: Balance(Period) в 1С — остаток на НАЧАЛО момента, поэтому
+ * движения документов с временем 23:59:59 (так 1С датирует документы конца месяца) в Period=…T23:59:59
+ * не попадают. Берём начало следующего дня. date — 'YYYY-MM-DD'.
+ */
+export function endOfDayBalancePeriod(date: string): string {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return `datetime'${next.toISOString().slice(0, 10)}T00:00:00'`;
+}

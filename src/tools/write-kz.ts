@@ -242,3 +242,23 @@ export async function kzInvoiceRows(
   }
   return { goods, services, withVat, total: roundMoney(total) };
 }
+
+/**
+ * Проверка проводок «Отражения зарплаты»: агент однажды отразил одни взносы — выплата закрыла долг перед
+ * работником, которого в учёте не было, а ОПВ и ВОСМС работника ушли в расходы. Не отменяем проведение,
+ * а говорим, чего не хватает.
+ */
+export function kzPostingWarnings(
+  entitySet: string,
+  correspondence: ReadonlyArray<{ debitAccount?: string | null; creditAccount?: string | null }>,
+): string[] {
+  if (entitySet !== "Document_ОтражениеЗарплатыВРеглУчете") return [];
+  const warnings: string[] = [];
+  if (!correspondence.some((c) => c.creditAccount === "3350")) {
+    warnings.push("В отражении нет начисления зарплаты (Кт 3350, Дт — счёт затрат сотрудника): долг перед работником в учёте не возникнет.");
+  }
+  if (!correspondence.some((c) => c.debitAccount === "3350")) {
+    warnings.push("В отражении нет удержаний из зарплаты (Дт 3350 — Кт 3120 ИПН, 3220 ОПВ, 3212 ВОСМС; при едином платеже — Кт 3231): налоги работника не отражены или ушли в расходы.");
+  }
+  return warnings;
+}

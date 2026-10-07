@@ -3,9 +3,10 @@ import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
 import { InputError } from "../errors.js";
 import { ensurePublished } from "../odata/publication.js";
-import { buildQuery } from "../odata/query.js";
+import { fetchAll } from "../odata/pagination.js";
+import { and, buildQuery, cmp, odataGuid } from "../odata/query.js";
 import { createResultSchema, patchResultSchema } from "../schemas/output.js";
-import type { EntityMeta } from "../types/odata.js";
+import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { databaseField, fail, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
@@ -96,6 +97,103 @@ export async function normalizeTables(
   return out;
 }
 
+const ACCRUAL_DOC = "Document_НачислениеЗарплатыРаботникамОрганизаций";
+const EMPTY_REF = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Начисления тех же сотрудников за тот же месяц. Агент однажды начислил оклад повторно, не проверив месяц.
+ * Не запрещаем — премия или доплата отдельным документом законны, — но говорим об этом в предпросмотре.
+ */
+async function sameMonthAccruals(conn: Connection, payload: Record<string, unknown>): Promise<string[]> {
+  const period = payload["ПериодРегистрации"];
+  const lines = payload["Начисления"];
+  if (typeof period !== "string" || !Array.isArray(lines)) return [];
+  const people = new Set(
+    (lines as Array<Record<string, unknown>>)
+      .flatMap((r) => [r["Сотрудник_Key"], r["Физлицо_Key"]])
+      .filter((v): v is string => typeof v === "string" && v !== EMPTY_REF),
+  );
+  if (!people.size) return [];
+  const org = payload["Организация_Key"];
+  const { rows } = await fetchAll(
+    conn.client,
+    ACCRUAL_DOC,
+    {
+      filter: and(
+        cmp("ПериодРегистрации", "eq", `datetime'${period}'`),
+        cmp("DeletionMark", "eq", "false"),
+        typeof org === "string" ? cmp("Организация_Key", "eq", odataGuid(org)) : undefined,
+      ),
+      select: ["Number", "Date", "Posted", "Начисления"],
+    },
+    50,
+    200,
+  );
+  const found = rows
+    .filter((d) =>
+      ((d["Начисления"] as ODataEntity[] | undefined) ?? []).some(
+        (r) => people.has(String(r["Сотрудник_Key"])) || people.has(String(r["Физлицо_Key"])),
+      ),
+    )
+    .map((d) => `№ ${String(d["Number"])} от ${String(d["Date"]).slice(0, 10)}${d["Posted"] === true ? " (проведён)" : ""}`);
+  return found.length
+    ? [
+        `У этих сотрудников уже есть начисление за этот месяц: ${found.join(", ")}. Оклад повторно не начисляйте — ` +
+          "отдельный документ нужен только для другого начисления (премия, доплата). Проверьте read.payroll.get_accruals.",
+      ]
+    : [];
+}
+
+const SINGLE_PAYMENT_DOC = "Document_РасчетЕдиногоПлатежа";
+/** Классические расчёты налогов с зарплаты: при едином платеже (ЕП) эти налоги уже в нём. */
+const CLASSIC_TAX_DOCS = ["Document_РасчетУдержанийРаботниковОрганизаций", "Document_РасчетСНиСО"];
+
+/**
+ * Классический расчёт налогов для сотрудника, у которого за месяц уже проведён единый платёж: агент однажды
+ * посчитал ИПН/ОПВ/ВОСМС и СО/СН поверх ЕП, и налоги задвоились. Предупреждаем в предпросмотре.
+ */
+async function singlePaymentForMonth(conn: Connection, payload: Record<string, unknown>): Promise<string[]> {
+  const period = payload["ПериодРегистрации"];
+  const lines = payload["ФизическиеЛица"];
+  if (typeof period !== "string" || !Array.isArray(lines)) return [];
+  const people = new Set(
+    (lines as Array<Record<string, unknown>>)
+      .map((r) => r["ФизическоеЛицо_Key"])
+      .filter((v): v is string => typeof v === "string" && v !== EMPTY_REF),
+  );
+  if (!people.size || !(await conn.available()).has(SINGLE_PAYMENT_DOC)) return [];
+  const org = payload["Организация_Key"];
+  const { rows } = await fetchAll(
+    conn.client,
+    SINGLE_PAYMENT_DOC,
+    {
+      filter: and(
+        cmp("ПериодРегистрации", "eq", `datetime'${period}'`),
+        cmp("Posted", "eq", "true"),
+        typeof org === "string" ? cmp("Организация_Key", "eq", odataGuid(org)) : undefined,
+      ),
+      select: ["Number", "Date", "ИсчисленныйЕП"],
+    },
+    50,
+    200,
+  );
+  // Пустой расчёт ЕП (сумма 0) налогов не содержит — его не считаем.
+  const found = rows
+    .filter((d) =>
+      ((d["ИсчисленныйЕП"] as ODataEntity[] | undefined) ?? []).some(
+        (r) => people.has(String(r["ФизЛицо_Key"])) && Number(r["СуммаПлатежа"] ?? 0) !== 0,
+      ),
+    )
+    .map((d) => `№ ${String(d["Number"])} от ${String(d["Date"]).slice(0, 10)}`);
+  return found.length
+    ? [
+        `За этот месяц у сотрудника уже проведён расчёт единого платежа (${found.join(", ")}): ИПН, ОПВ, ВОСМС, СО, ` +
+          "ООСМС и ОПВР входят в ЕП, отдельный расчёт задвоит налоги. В отражении ЕП: Дт 3350 Кт 3231 (часть работника), " +
+          "Дт <счёт затрат> Кт 3231 (часть работодателя).",
+      ]
+    : [];
+}
+
 /** Документ казахстанской базы, опубликованный в OData. Список разрешённых документов — в preflightTool. */
 async function documentMeta(conn: Connection, entitySet: string): Promise<EntityMeta> {
   if (!(await isKazakhstan(conn))) {
@@ -118,7 +216,9 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         "ведомость к выплате, платёжное поручение, перечисления в фонды, расходный кассовый ордер. Суммы и ставки " +
         "считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по " +
         "'<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа " +
-        "того же вида. Документ создаётся непроведённым; провести — write.document.post_document. " +
+        "того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц " +
+        "(read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на " +
+        "удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. " +
         "По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
       inputSchema: {
         database: databaseField,
@@ -146,7 +246,13 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
           ...(org ? { Организация_Key: org.key } : {}),
           ...(await normalizeTables(conn, em, tables)),
         };
-        return createOrPreview(conn, entitySet, payload, confirm);
+        const notes =
+          entitySet === ACCRUAL_DOC
+            ? await sameMonthAccruals(conn, payload)
+            : CLASSIC_TAX_DOCS.includes(entitySet)
+              ? await singlePaymentForMonth(conn, payload)
+              : [];
+        return createOrPreview(conn, entitySet, payload, confirm, notes);
       }),
   );
 
@@ -176,7 +282,10 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         if (!Object.keys(fields).length && !Object.keys(tables).length) return fail("Не заданы fields или tables для изменения.");
         const patch = { ...normalizeFields(em, fields, entitySet), ...(await normalizeTables(conn, em, tables)) };
         const guid = ref.replace(/[{}']/g, "");
-        const doc = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted"] })}`);
+        const doc = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted", "DeletionMark"] })}`);
+        if (doc["DeletionMark"] === true) {
+          return fail("Документ помечен на удаление — не используйте его и не снимайте пометку: создайте новый документ.");
+        }
         if (doc["Posted"] === true) {
           return fail(
             "Документ проведён — так его не меняют. Отмените проведение (write.document.post_document post=false), " +

@@ -1,6 +1,6 @@
 import type { Connection } from "../context.js";
 import { fetchAll } from "./pagination.js";
-import { and, cmp, odataGuid, odataString, or } from "./query.js";
+import { and, cmp, endOfDayBalancePeriod, odataGuid, odataString, or } from "./query.js";
 import { ACCOUNT_PREFIX, CATALOGS, REGISTERS, resolveEntity } from "../config/mapping.js";
 import { ensurePublished, requireEntity } from "./publication.js";
 import { buildQuery } from "./query.js";
@@ -189,9 +189,9 @@ export async function balanceByAccounts(
       orgKey ? cmp("Организация_Key", "eq", odataGuid(orgKey)) : undefined,
     ) || undefined;
   // Параметр Period — НЕ через $filter, а path-параметром у виртуальной таблицы:
-  // .../AccountingRegister_Хозрасчетный/Balance(Period=datetime'YYYY-MM-DDT23:59:59').
-  // Без него виртуальная таблица возвращает текущее сальдо.
-  const balancePath = asOf ? `${reg}/Balance(Period=datetime'${asOf}T23:59:59')` : `${reg}/Balance`;
+  // .../AccountingRegister_Хозрасчетный/Balance(Period=datetime'<следующий день>T00:00:00') — сальдо на конец asOf
+  // (см. endOfDayBalancePeriod). Без него виртуальная таблица возвращает текущее сальдо.
+  const balancePath = asOf ? `${reg}/Balance(Period=${endOfDayBalancePeriod(asOf)})` : `${reg}/Balance`;
   // Через безопасную выборку: сальдо берём ПОЛНОСТЬЮ (иначе дебиторка/остатки
   // занижаются), с громким переполнением вместо тихой обрезки.
   const { rows } = await fetchAllForAggregation(

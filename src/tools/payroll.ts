@@ -5,7 +5,7 @@ import { ok, guard, databaseField, organizationField, dateField } from "./_share
 import { requireEntity } from "../odata/publication.js";
 import { resolveOrgOrDefault } from "../odata/orgs.js";
 import { fetchAll } from "../odata/pagination.js";
-import { and, cmp, contains, odataGuid } from "../odata/query.js";
+import { and, cmp, contains, endOfDayBalancePeriod, odataGuid } from "../odata/query.js";
 import { resolveNames } from "../odata/accounting.js";
 import { CATALOGS } from "../config/mapping.js";
 import type { ODataEntity } from "../types/odata.js";
@@ -119,7 +119,7 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
         const conn = ctx.db(database);
         const reg = await requireEntity(conn, SETTLEMENTS, "Регистр «Взаиморасчёты с работниками организаций»");
         const org = await orgFilterKey(conn, organization);
-        const path = asOf ? `${reg}/Balance(Period=datetime'${asOf}T23:59:59')` : `${reg}/Balance`;
+        const path = asOf ? `${reg}/Balance(Period=${endOfDayBalancePeriod(asOf)})` : `${reg}/Balance`;
         const { rows } = await fetchAll(
           conn.client,
           path,

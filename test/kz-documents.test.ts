@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../src/mcp/server.js";
+import { kzPostingWarnings } from "../src/tools/write-kz.js";
 
 /**
  * Общая запись документов казахстанской базы: зарплата, налоги и выплаты. Поля проверяются по $metadata,
@@ -16,10 +17,12 @@ const ORG = "00000000-0000-4000-8000-000000000001";
 const EMPLOYEE = "00000000-0000-4000-8000-000000000002";
 const DOC = "00000000-0000-4000-8000-000000000003";
 const ACCRUALS = "Document_НачислениеЗарплатыРаботникамОрганизаций";
+const WITHHOLDING = "Document_РасчетУдержанийРаботниковОрганизаций";
+const PERSON = "00000000-0000-4000-8000-000000000004";
 
 const prop = (name: string, type = "Edm.String") => ({ name, type, nullable: true });
 
-function connection({ kazakhstan = true, posted = false } = {}) {
+function connection({ kazakhstan = true, posted = false, deleted = false, accrued = false, singlePayment = false } = {}) {
   const entities = new Map<string, { entitySet: string; properties: ReturnType<typeof prop>[] }>([
     ["Catalog_Контрагенты", { entitySet: "Catalog_Контрагенты", properties: [prop(kazakhstan ? "ИдентификационныйКодЛичности" : "ИНН")] }],
     ["Catalog_Организации", { entitySet: "Catalog_Организации", properties: [prop("Ref_Key", "Edm.Guid"), prop("Description")] }],
@@ -45,6 +48,15 @@ function connection({ kazakhstan = true, posted = false } = {}) {
         properties: [prop("Ref_Key", "Edm.Guid"), prop("LineNumber", "Edm.Int64"), prop("Сотрудник_Key", "Edm.Guid"), prop("Результат", "Edm.Double"), prop("ДатаНачала", "Edm.DateTime")],
       },
     ],
+    [
+      WITHHOLDING,
+      {
+        entitySet: WITHHOLDING,
+        properties: [prop("Организация_Key", "Edm.Guid"), prop("ПериодРегистрации", "Edm.DateTime"), prop("ФизическиеЛица", `Collection(StandardODATA.${WITHHOLDING}_ФизическиеЛица_RowType)`)],
+      },
+    ],
+    [`${WITHHOLDING}_ФизическиеЛица`, { entitySet: `${WITHHOLDING}_ФизическиеЛица`, properties: [prop("ФизическоеЛицо_Key", "Edm.Guid")] }],
+    ...(singlePayment ? [["Document_РасчетЕдиногоПлатежа", { entitySet: "Document_РасчетЕдиногоПлатежа", properties: [] }] as const] : []),
     ["Document_РеализацияТоваровУслуг", { entitySet: "Document_РеализацияТоваровУслуг", properties: [prop("Ref_Key", "Edm.Guid")] }],
     ...(kazakhstan ? [["ChartOfAccounts_Типовой", { entitySet: "ChartOfAccounts_Типовой", properties: [] }] as const] : []),
   ]);
@@ -57,8 +69,19 @@ function connection({ kazakhstan = true, posted = false } = {}) {
     client: {
       prepareCreate: vi.fn(async () => undefined),
       patch,
-      getEntity: async () => ({ Posted: posted }),
-      getCollection: async (path: string) => ({ value: path.startsWith("Catalog_Организации") ? [{ Ref_Key: ORG, Description: "ТОО Тест" }] : [] }),
+      getEntity: async () => ({ Posted: posted, DeletionMark: deleted }),
+      getCollection: async (path: string) => ({
+        value: path.startsWith("Catalog_Организации")
+          ? [{ Ref_Key: ORG, Description: "ТОО Тест" }]
+          : path.startsWith(ACCRUALS) && accrued
+            ? [{ Number: "00000000011", Date: "2026-08-31T23:59:59", Posted: true, Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000 }] }]
+            : path.startsWith("Document_РасчетЕдиногоПлатежа")
+              ? [
+                  { Number: "00000000009", Date: "2026-04-30T23:59:59", ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 148642.2 }] },
+                  { Number: "00000000013", Date: "2026-04-30T23:59:59", ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 0 }] },
+                ]
+              : [],
+      }),
     },
   };
   return { conn, patch };
@@ -88,6 +111,26 @@ describe("write.document.create_document в казахстанской базе"
       Организация_Key: ORG,
       Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000, ДатаНачала: "2026-09-01T00:00:00", LineNumber: 1 }],
     });
+  });
+
+  it("начисление за месяц, где у сотрудника уже есть начисление, — предупреждение в предпросмотре", async () => {
+    const args = {
+      entitySet: ACCRUALS,
+      fields: { ПериодРегистрации: "2026-09-01" },
+      tables: { Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000 }] },
+    };
+    const repeated = await call("write.document.create_document", args, { accrued: true });
+    expect(repeated.sc["notes"]).toEqual([expect.stringContaining("№ 00000000011 от 2026-08-31 (проведён)")]);
+    const first = await call("write.document.create_document", args);
+    expect(first.sc["notes"]).toBeUndefined();
+  });
+
+  it("классический расчёт удержаний при проведённом едином платеже — предупреждение о задвоении", async () => {
+    const args = { entitySet: WITHHOLDING, fields: { ПериодРегистрации: "2026-09-01" }, tables: { ФизическиеЛица: [{ ФизическоеЛицо_Key: PERSON }] } };
+    const withEp = await call("write.document.create_document", args, { singlePayment: true });
+    expect(withEp.sc["notes"]).toEqual([expect.stringContaining("расчёт единого платежа (№ 00000000009 от 2026-04-30)")]);
+    const without = await call("write.document.create_document", args);
+    expect(without.sc["notes"]).toBeUndefined();
   });
 
   it("неизвестное поле — ошибка со списком полей документа", async () => {
@@ -139,6 +182,26 @@ describe("write.document.update_document", () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("post=false");
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("документ, помеченный на удаление, не правится", async () => {
+    const { res } = await call("write.document.update_document", { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } }, { deleted: true });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("помечен на удаление");
+  });
+});
+
+describe("проверка проводок отражения зарплаты", () => {
+  it("без начисления и удержаний — предупреждения, полная схема — без них", () => {
+    const reflection = "Document_ОтражениеЗарплатыВРеглУчете";
+    expect(kzPostingWarnings(reflection, [{ debitAccount: "7210", creditAccount: "3220" }])).toHaveLength(2);
+    expect(
+      kzPostingWarnings(reflection, [
+        { debitAccount: "7210", creditAccount: "3350" },
+        { debitAccount: "3350", creditAccount: "3120" },
+      ]),
+    ).toEqual([]);
+    expect(kzPostingWarnings(ACCRUALS, [])).toEqual([]);
   });
 });
 

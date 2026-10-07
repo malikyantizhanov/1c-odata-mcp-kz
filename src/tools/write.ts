@@ -27,6 +27,7 @@ import { InputError } from "../errors.js";
 import {
   isKazakhstan,
   kzCounterpartyPayload,
+  kzPostingWarnings,
   kzInvoiceRows,
   KZ_VAT_RATES,
   tengeRef,
@@ -1838,6 +1839,8 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
                 ? { postingsNote: "Документ проведён, но проводок по бухгалтерскому учёту не сформировал." }
                 : {}),
             };
+            const warnings = kzPostingWarnings(entitySet, p.byCorrespondence);
+            if (warnings.length) postings["warnings"] = warnings;
           } catch (e) {
             postings = {
               postingsNote: `Проведено; проводки прочитать не удалось: ${e instanceof Error ? e.message : String(e)}`,

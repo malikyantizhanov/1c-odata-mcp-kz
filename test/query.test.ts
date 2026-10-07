@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { odataString, odataGuid, contains, and, or, buildQuery } from "../src/odata/query.js";
+import { odataString, odataGuid, contains, and, or, buildQuery, endOfDayBalancePeriod } from "../src/odata/query.js";
 
 describe("odataString", () => {
   it("оборачивает в одинарные кавычки", () => {
@@ -50,5 +50,13 @@ describe("операторы фильтра", () => {
   });
   it("or оборачивает в скобки при нескольких условиях", () => {
     expect(or("a", "b")).toBe("(a or b)");
+  });
+});
+
+describe("endOfDayBalancePeriod", () => {
+  it("остаток на конец дня — начало следующего (включая документы 23:59:59), через конец месяца и года", () => {
+    expect(endOfDayBalancePeriod("2026-09-30")).toBe("datetime'2026-10-01T00:00:00'");
+    expect(endOfDayBalancePeriod("2026-12-31")).toBe("datetime'2027-01-01T00:00:00'");
+    expect(endOfDayBalancePeriod("2028-02-28")).toBe("datetime'2028-02-29T00:00:00'");
   });
 });

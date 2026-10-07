@@ -57,7 +57,7 @@ function connection({ kazakhstan = true, posted = false, deleted = false, accrue
     ],
     [`${WITHHOLDING}_ФизическиеЛица`, { entitySet: `${WITHHOLDING}_ФизическиеЛица`, properties: [prop("ФизическоеЛицо_Key", "Edm.Guid")] }],
     ...(singlePayment ? [["Document_РасчетЕдиногоПлатежа", { entitySet: "Document_РасчетЕдиногоПлатежа", properties: [] }] as const] : []),
-    ["Document_РеализацияТоваровУслуг", { entitySet: "Document_РеализацияТоваровУслуг", properties: [prop("Ref_Key", "Edm.Guid")] }],
+    ["Document_ЧекККМ", { entitySet: "Document_ЧекККМ", properties: [prop("Ref_Key", "Edm.Guid")] }],
     ...(kazakhstan ? [["ChartOfAccounts_Типовой", { entitySet: "ChartOfAccounts_Типовой", properties: [] }] as const] : []),
   ]);
   const patch = vi.fn(async () => ({ Ref_Key: DOC }));
@@ -133,6 +133,22 @@ describe("write.document.create_document в казахстанской базе"
     expect(without.sc["notes"]).toBeUndefined();
   });
 
+  it("образец другого вида — только документ (sampleEntitySet = Document_…)", async () => {
+    const { res } = await call("write.document.create_document", {
+      entitySet: ACCRUALS,
+      sampleRef: DOC,
+      sampleEntitySet: "Catalog_Номенклатура",
+    });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("sampleEntitySet должен быть документом");
+  });
+
+  it("образец, помеченный на удаление, не принимается", async () => {
+    const { res } = await call("write.document.create_document", { entitySet: ACCRUALS, sampleRef: DOC }, { deleted: true });
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("Образец помечен на удаление");
+  });
+
   it("неизвестное поле — ошибка со списком полей документа", async () => {
     const { res } = await call("write.document.create_document", { entitySet: ACCRUALS, fields: { Месяц: "2026-09-01" } });
     expect(res.isError).toBe(true);
@@ -149,8 +165,8 @@ describe("write.document.create_document в казахстанской базе"
     expect(text(row.res)).toContain("Начисления, строка 1: нет полей Сумма");
   });
 
-  it("документ не из списка зарплаты и выплат — отказ со списком доступных", async () => {
-    const { res } = await call("write.document.create_document", { entitySet: "Document_РеализацияТоваровУслуг" });
+  it("документ не из флоу бухгалтера — отказ со списком доступных", async () => {
+    const { res } = await call("write.document.create_document", { entitySet: "Document_ЧекККМ" });
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("Document_ПлатежноеПоручениеИсходящее");
   });
@@ -184,6 +200,11 @@ describe("write.document.update_document", () => {
     expect(patch).not.toHaveBeenCalled();
   });
 
+  it("предпросмотр поясняет, что operationId для правки не нужен", async () => {
+    const { sc } = await call("write.document.update_document", { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } });
+    expect(sc["notes"]).toEqual([expect.stringContaining("operationId для update_document не нужен")]);
+  });
+
   it("документ, помеченный на удаление, не правится", async () => {
     const { res } = await call("write.document.update_document", { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } }, { deleted: true });
     expect(res.isError).toBe(true);
@@ -206,11 +227,11 @@ describe("проверка проводок отражения зарплаты"
 });
 
 describe("write.document.post_document в казахстанской базе", () => {
-  it("документы зарплаты проводятся, остальные — отказ", async () => {
+  it("документы флоу проводятся, остальные — отказ", async () => {
     const ok = await call("write.document.post_document", { entitySet: ACCRUALS, ref: DOC });
     expect(ok.res.isError).toBeFalsy();
     expect(ok.sc["dryRun"]).toBe(true);
-    const other = await call("write.document.post_document", { entitySet: "Document_РеализацияТоваровУслуг", ref: DOC });
+    const other = await call("write.document.post_document", { entitySet: "Document_ЧекККМ", ref: DOC });
     expect(other.res.isError).toBe(true);
   });
 });

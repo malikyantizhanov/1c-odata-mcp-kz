@@ -6,6 +6,7 @@ import { CATALOGS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
 import { resolveOrgOrDefault } from "../odata/orgs.js";
 import { ensurePublished, requireEntity } from "../odata/publication.js";
 import { accountsByCode, nomenclatureAccounts, type NomAccounts } from "../odata/accounting.js";
+import { KZ_FLOW_BY_SET, kzFlowPostingWarnings } from "./kz-flow.js";
 import {
   contactKindsForCounterparties,
   resolveBankByBik,
@@ -1093,6 +1094,9 @@ export async function withDefaultContract(
   };
 }
 
+/** Документы, где договор необязателен (сверка по всем договорам контрагента). */
+const CONTRACT_OPTIONAL = new Set(["Document_АктСверкиВзаиморасчетов"]);
+
 /**
  * Перед проведением: документ с контрагентом, но без договора 1С (БП 3.0) не проводит, причём падает
  * невнятной ошибкой модуля прослеживаемости. Говорим причину заранее, понятным текстом.
@@ -1102,6 +1106,7 @@ async function missingContract(
   entitySet: string,
   guid: string,
 ): Promise<string | undefined> {
+  if (CONTRACT_OPTIONAL.has(entitySet)) return undefined;
   const em = (await conn.getMetadata()).entities.get(entitySet);
   const props = new Set(em?.properties.map((p) => p.name) ?? []);
   if (!props.has("ДоговорКонтрагента_Key") || !props.has("Контрагент_Key")) return undefined;
@@ -1112,7 +1117,7 @@ async function missingContract(
   if (empty(doc["Контрагент_Key"]) || !empty(doc["ДоговорКонтрагента_Key"])) return undefined;
   return (
     "В документе не заполнен договор с контрагентом — 1С его не проведёт. Укажите договор " +
-    '(write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
+    '(write.document.update_document или write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
     "если договора нет — создайте его (write.catalog.create_contract, вид уточните у пользователя)."
   );
 }
@@ -1302,6 +1307,19 @@ async function createSubordinate(
     description: created["Description"],
     ...(main ? { setAsMain: true } : {}),
   });
+}
+
+/** Тело ответа 1С для сообщения: HTML-страницу сервиса не вываливаем целиком. */
+export function describeBody(body: string | undefined | null): string {
+  if (!body) return "(пустое тело)";
+  if (/^\s*<!DOCTYPE HTML|^\s*<html/i.test(body)) {
+    const title = /<title>([^<]*)<\/title>/i.exec(body)?.[1]?.trim();
+    return (
+      `HTML-страница сервиса${title ? ` «${title}»` : ""} вместо ответа OData — 1С прервала проведение исключением, ` +
+      "текст ошибки через OData не передаётся. Причину видно при проведении документа в интерфейсе 1С."
+    );
+  }
+  return body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
 }
 
 export function registerWriteTools(server: McpServer, ctx: ServerContext): void {
@@ -1816,10 +1834,28 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         const action = post ? "Post" : "Unpost";
         const path = `${entitySet}(guid'${guid}')/${action}?$format=json`;
         if (!confirm) {
+          const notes: string[] = [];
+          if (post && PAYMENT_ORDER_SETS.has(entitySet)) {
+            try {
+              const st = await conn.client.getEntity(`${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`);
+              if (st["Оплачено"] !== true)
+                notes.push(
+                  "Оплачено=false — 1С ответит 200, но платёжку не проведёт. Проводят по факту выписки банка: " +
+                    "Оплачено=true и ДатаВыписки (write.document.update_document) с согласия пользователя.",
+                );
+            } catch {
+              /* подсказка необязательна */
+            }
+          }
+          if (post) {
+            const missing = await missingContract(conn, entitySet, guid);
+            if (missing) notes.push(missing);
+          }
           return ok({
             dryRun: true,
             database: conn.cfg.name,
             willCall: `${entitySet}(${guid})/${action}`,
+            ...(notes.length ? { notes } : {}),
             note: "Предпросмотр. Чтобы применить, повторите с confirm=true.",
           });
         }
@@ -1860,11 +1896,15 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
               /* подсказка необязательна */
             }
           }
+          if (!hint && post) {
+            const flow = KZ_FLOW_BY_SET.get(entitySet);
+            if (flow?.postFailureHint) hint = ` ${flow.postFailureHint}`;
+          }
           return fail(
             `1С ответила HTTP ${raw.status} на ${action}, но документ ${post ? "НЕ проведён" : "остался проведённым"} ` +
               `(Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}).` +
               hint +
-              ` Ответ 1С: ${http.body ? http.body : "(пустое тело)"}`,
+              ` Ответ 1С: ${describeBody(http.body)}`,
           );
         }
         // Что провёл документ — сразу в ответе: проводки по регистру Хозрасчетный.
@@ -1884,7 +1924,10 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
                 ? { postingsNote: "Документ проведён, но проводок по бухгалтерскому учёту не сформировал." }
                 : {}),
             };
-            const warnings = kzPostingWarnings(entitySet, p.byCorrespondence);
+            const warnings = [
+              ...kzPostingWarnings(entitySet, p.byCorrespondence),
+              ...((await isKazakhstan(conn)) ? kzFlowPostingWarnings(entitySet, p.byCorrespondence) : []),
+            ];
             if (warnings.length) postings["warnings"] = warnings;
           } catch (e) {
             postings = {

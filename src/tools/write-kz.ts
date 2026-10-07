@@ -11,6 +11,7 @@ import { CATALOGS } from "../config/mapping.js";
 import { fetchAll } from "../odata/pagination.js";
 import { cmp, odataGuid, odataString, or } from "../odata/query.js";
 import { requireEntity } from "../odata/publication.js";
+import { KZ_FLOW } from "./kz-flow.js";
 
 /** Казахстанская конфигурация: план счетов «Типовой» или БИН/ИИН у контрагентов. */
 export async function isKazakhstan(conn: Connection): Promise<boolean> {
@@ -31,6 +32,7 @@ export const KZ_WRITE_TOOLS = [
   "write.catalog.create_contract",
   "write.sales.create_invoice",
   "write.entity.mark_for_deletion",
+  "write.entity.update_entity",
   "write.operation.status",
   "write.document.create_document",
   "write.document.update_document",
@@ -39,24 +41,11 @@ export const KZ_WRITE_TOOLS = [
 
 /**
  * Документы, которые в казахстанской базе пишутся общими инструментами (create_document, update_document,
- * post_document): зарплата, налоги и взносы с неё, выплата. Суммы и ставки задаёт вызывающий — MCP их
- * не рассчитывает, а только проверяет поля по $metadata базы.
+ * post_document): весь флоу бухгалтера — продажи, закупки, деньги, зарплата, кадры, склад, ОС/НМА, подотчёт,
+ * сверка, закрытие месяца, налоги. Реестр со схемами проводок и нормами — kz-flow.ts. Суммы и ставки задаёт
+ * вызывающий — MCP их не рассчитывает, а проверяет поля по $metadata и предупреждает в notes.
  */
-export const KZ_DOCUMENTS = [
-  "Document_НачислениеЗарплатыРаботникамОрганизаций",
-  "Document_РасчетУдержанийРаботниковОрганизаций",
-  "Document_РасчетСНиСО",
-  "Document_РасчетЕдиногоПлатежа",
-  "Document_ОтражениеЗарплатыВРеглУчете",
-  "Document_ЗарплатаКВыплатеОрганизаций",
-  "Document_ПлатежноеПоручениеИсходящее",
-  "Document_ОПВПеречислениеВФонды",
-  "Document_СОПеречислениеВФонды",
-  "Document_ЕППеречислениеВФонды",
-  "Document_РасходныйКассовыйОрдер",
-  "Document_СчетНаОплатуПокупателю",
-  "Document_АктСверкиВзаиморасчетов",
-] as const;
+export const KZ_DOCUMENTS: readonly string[] = KZ_FLOW.map((d) => d.entitySet);
 
 /** Общие инструменты записи документов: в казахстанской базе — только для KZ_DOCUMENTS. */
 export const KZ_DOCUMENT_TOOLS = [

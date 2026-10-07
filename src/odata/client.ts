@@ -101,6 +101,17 @@ export class ODataClient {
         logger.debug({ url, status: res.status, ms }, "odata ok");
         // Действия (Post/Unpost) могут вернуть пустое тело — это не ошибка.
         const text = await res.text();
+        if (/^\s*</.test(text)) {
+          // 1cfresh на ошибки прав/исключения 1С иногда отвечает HTML-страницей с кодом 200.
+          throw new ODataError({
+            kind: "parse",
+            status: res.status,
+            url,
+            message:
+              `Сервис вернул HTML-страницу вместо ответа OData (HTTP ${res.status}). Обычно это нет прав пользователя OData ` +
+              "на объект (роль/«Доступ запрещен») или исключение 1С при записи. Для записи исход неизвестен — проверьте объект в 1С.",
+          });
+        }
         return (text ? JSON.parse(text) : undefined) as T;
       } catch (e) {
         const err = normalize(e, url);

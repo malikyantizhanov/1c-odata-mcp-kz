@@ -69,6 +69,10 @@
 - **Зарплата**: `read.payroll.list_employees`, `read.payroll.get_salary_debts` (долг перед каждым работником по
   регистру «Взаиморасчёты с работниками организаций», по месяцам), `read.payroll.get_accruals` (начисления).
 - **ЭСФ**: `read.esf.list_esf` — список и статусы электронных счетов-фактур.
+- **Настоящая печатная форма счёта (PDF)** — через OData печать 1С не вызвать, поэтому в базу ставится небольшое
+  расширение [`extensions/1c-print-attachments`](extensions/1c-print-attachments/README.md): после записи счёта 1С
+  сама формирует стандартную печатную форму, сохраняет PDF и прикрепляет к документу; MCP забирает его
+  `read.files.list_attachments` / `read.files.get_attachment`.
 - **Цены** (`read.nomenclature.get_prices`) и **присоединённые файлы** (`read.files.list_attachments`,
   `read.files.get_attachment`) — работают и в российской базе.
 

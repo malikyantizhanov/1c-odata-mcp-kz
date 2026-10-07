@@ -81,7 +81,9 @@ export async function loadMetadata(client: ODataClient): Promise<MetadataMap> {
 
   // Association: имя → тип по роли (End Role="End" Type="StandardODATA.ChartOfAccounts_Типовой").
   const associations = new Map<string, Map<string, string>>();
-  for (const a of asArray<RawAssociation>((schema as { Association?: RawAssociation | RawAssociation[] } | undefined)?.Association)) {
+  for (const a of asArray<RawAssociation>(
+    (schema as { Association?: RawAssociation | RawAssociation[] } | undefined)?.Association,
+  )) {
     associations.set(
       a["@_Name"],
       new Map(asArray(a.End).map((e) => [e["@_Role"], stripNamespace(e["@_Type"])])),

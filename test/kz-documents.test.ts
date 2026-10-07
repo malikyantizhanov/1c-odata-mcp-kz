@@ -8,7 +8,9 @@ import { kzPostingWarnings } from "../src/tools/write-kz.js";
  * суммы задаёт вызывающий; проведённый документ не правится, лишние документы отклоняются.
  */
 
-type Tool = { handler: (args: Record<string, unknown>, extra: Record<string, unknown>) => Promise<CallToolResult> };
+type Tool = {
+  handler: (args: Record<string, unknown>, extra: Record<string, unknown>) => Promise<CallToolResult>;
+};
 const toolsOf = (connection: unknown): Record<string, Tool> =>
   (createServer({ db: () => connection } as never) as unknown as { _registeredTools: Record<string, Tool> })
     ._registeredTools;
@@ -22,10 +24,25 @@ const PERSON = "00000000-0000-4000-8000-000000000004";
 
 const prop = (name: string, type = "Edm.String") => ({ name, type, nullable: true });
 
-function connection({ kazakhstan = true, posted = false, deleted = false, accrued = false, singlePayment = false } = {}) {
+function connection({
+  kazakhstan = true,
+  posted = false,
+  deleted = false,
+  accrued = false,
+  singlePayment = false,
+} = {}) {
   const entities = new Map<string, { entitySet: string; properties: ReturnType<typeof prop>[] }>([
-    ["Catalog_Контрагенты", { entitySet: "Catalog_Контрагенты", properties: [prop(kazakhstan ? "ИдентификационныйКодЛичности" : "ИНН")] }],
-    ["Catalog_Организации", { entitySet: "Catalog_Организации", properties: [prop("Ref_Key", "Edm.Guid"), prop("Description")] }],
+    [
+      "Catalog_Контрагенты",
+      {
+        entitySet: "Catalog_Контрагенты",
+        properties: [prop(kazakhstan ? "ИдентификационныйКодЛичности" : "ИНН")],
+      },
+    ],
+    [
+      "Catalog_Организации",
+      { entitySet: "Catalog_Организации", properties: [prop("Ref_Key", "Edm.Guid"), prop("Description")] },
+    ],
     [
       ACCRUALS,
       {
@@ -45,20 +62,42 @@ function connection({ kazakhstan = true, posted = false, deleted = false, accrue
       `${ACCRUALS}_Начисления`,
       {
         entitySet: `${ACCRUALS}_Начисления`,
-        properties: [prop("Ref_Key", "Edm.Guid"), prop("LineNumber", "Edm.Int64"), prop("Сотрудник_Key", "Edm.Guid"), prop("Результат", "Edm.Double"), prop("ДатаНачала", "Edm.DateTime")],
+        properties: [
+          prop("Ref_Key", "Edm.Guid"),
+          prop("LineNumber", "Edm.Int64"),
+          prop("Сотрудник_Key", "Edm.Guid"),
+          prop("Результат", "Edm.Double"),
+          prop("ДатаНачала", "Edm.DateTime"),
+        ],
       },
     ],
     [
       WITHHOLDING,
       {
         entitySet: WITHHOLDING,
-        properties: [prop("Организация_Key", "Edm.Guid"), prop("ПериодРегистрации", "Edm.DateTime"), prop("ФизическиеЛица", `Collection(StandardODATA.${WITHHOLDING}_ФизическиеЛица_RowType)`)],
+        properties: [
+          prop("Организация_Key", "Edm.Guid"),
+          prop("ПериодРегистрации", "Edm.DateTime"),
+          prop("ФизическиеЛица", `Collection(StandardODATA.${WITHHOLDING}_ФизическиеЛица_RowType)`),
+        ],
       },
     ],
-    [`${WITHHOLDING}_ФизическиеЛица`, { entitySet: `${WITHHOLDING}_ФизическиеЛица`, properties: [prop("ФизическоеЛицо_Key", "Edm.Guid")] }],
-    ...(singlePayment ? [["Document_РасчетЕдиногоПлатежа", { entitySet: "Document_РасчетЕдиногоПлатежа", properties: [] }] as const] : []),
+    [
+      `${WITHHOLDING}_ФизическиеЛица`,
+      { entitySet: `${WITHHOLDING}_ФизическиеЛица`, properties: [prop("ФизическоеЛицо_Key", "Edm.Guid")] },
+    ],
+    ...(singlePayment
+      ? [
+          [
+            "Document_РасчетЕдиногоПлатежа",
+            { entitySet: "Document_РасчетЕдиногоПлатежа", properties: [] },
+          ] as const,
+        ]
+      : []),
     ["Document_ЧекККМ", { entitySet: "Document_ЧекККМ", properties: [prop("Ref_Key", "Edm.Guid")] }],
-    ...(kazakhstan ? [["ChartOfAccounts_Типовой", { entitySet: "ChartOfAccounts_Типовой", properties: [] }] as const] : []),
+    ...(kazakhstan
+      ? [["ChartOfAccounts_Типовой", { entitySet: "ChartOfAccounts_Типовой", properties: [] }] as const]
+      : []),
   ]);
   const patch = vi.fn(async () => ({ Ref_Key: DOC }));
   const conn = {
@@ -74,11 +113,26 @@ function connection({ kazakhstan = true, posted = false, deleted = false, accrue
         value: path.startsWith("Catalog_Организации")
           ? [{ Ref_Key: ORG, Description: "ТОО Тест" }]
           : path.startsWith(ACCRUALS) && accrued
-            ? [{ Number: "00000000011", Date: "2026-08-31T23:59:59", Posted: true, Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000 }] }]
+            ? [
+                {
+                  Number: "00000000011",
+                  Date: "2026-08-31T23:59:59",
+                  Posted: true,
+                  Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000 }],
+                },
+              ]
             : path.startsWith("Document_РасчетЕдиногоПлатежа")
               ? [
-                  { Number: "00000000009", Date: "2026-04-30T23:59:59", ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 148642.2 }] },
-                  { Number: "00000000013", Date: "2026-04-30T23:59:59", ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 0 }] },
+                  {
+                    Number: "00000000009",
+                    Date: "2026-04-30T23:59:59",
+                    ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 148642.2 }],
+                  },
+                  {
+                    Number: "00000000013",
+                    Date: "2026-04-30T23:59:59",
+                    ИсчисленныйЕП: [{ ФизЛицо_Key: PERSON, СуммаПлатежа: 0 }],
+                  },
                 ]
               : [],
       }),
@@ -109,7 +163,9 @@ describe("write.document.create_document в казахстанской базе"
       Date: "2026-09-30T00:00:00",
       Posted: false,
       Организация_Key: ORG,
-      Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 600000, ДатаНачала: "2026-09-01T00:00:00", LineNumber: 1 }],
+      Начисления: [
+        { Сотрудник_Key: EMPLOYEE, Результат: 600000, ДатаНачала: "2026-09-01T00:00:00", LineNumber: 1 },
+      ],
     });
   });
 
@@ -126,9 +182,15 @@ describe("write.document.create_document в казахстанской базе"
   });
 
   it("классический расчёт удержаний при проведённом едином платеже — предупреждение о задвоении", async () => {
-    const args = { entitySet: WITHHOLDING, fields: { ПериодРегистрации: "2026-09-01" }, tables: { ФизическиеЛица: [{ ФизическоеЛицо_Key: PERSON }] } };
+    const args = {
+      entitySet: WITHHOLDING,
+      fields: { ПериодРегистрации: "2026-09-01" },
+      tables: { ФизическиеЛица: [{ ФизическоеЛицо_Key: PERSON }] },
+    };
     const withEp = await call("write.document.create_document", args, { singlePayment: true });
-    expect(withEp.sc["notes"]).toEqual([expect.stringContaining("расчёт единого платежа (№ 00000000009 от 2026-04-30)")]);
+    expect(withEp.sc["notes"]).toEqual([
+      expect.stringContaining("расчёт единого платежа (№ 00000000009 от 2026-04-30)"),
+    ]);
     const without = await call("write.document.create_document", args);
     expect(without.sc["notes"]).toBeUndefined();
   });
@@ -144,24 +206,40 @@ describe("write.document.create_document в казахстанской базе"
   });
 
   it("образец, помеченный на удаление, не принимается", async () => {
-    const { res } = await call("write.document.create_document", { entitySet: ACCRUALS, sampleRef: DOC }, { deleted: true });
+    const { res } = await call(
+      "write.document.create_document",
+      { entitySet: ACCRUALS, sampleRef: DOC },
+      { deleted: true },
+    );
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("Образец помечен на удаление");
   });
 
   it("неизвестное поле — ошибка со списком полей документа", async () => {
-    const { res } = await call("write.document.create_document", { entitySet: ACCRUALS, fields: { Месяц: "2026-09-01" } });
+    const { res } = await call("write.document.create_document", {
+      entitySet: ACCRUALS,
+      fields: { Месяц: "2026-09-01" },
+    });
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("нет полей Месяц");
     expect(text(res)).toContain("ПериодРегистрации");
   });
 
   it("служебные поля и неизвестная табличная часть — понятный отказ", async () => {
-    const posted = await call("write.document.create_document", { entitySet: ACCRUALS, fields: { Posted: true } });
+    const posted = await call("write.document.create_document", {
+      entitySet: ACCRUALS,
+      fields: { Posted: true },
+    });
     expect(text(posted.res)).toContain("write.document.post_document");
-    const table = await call("write.document.create_document", { entitySet: ACCRUALS, tables: { Удержания: [] } });
+    const table = await call("write.document.create_document", {
+      entitySet: ACCRUALS,
+      tables: { Удержания: [] },
+    });
     expect(text(table.res)).toContain("нет табличной части «Удержания»; есть: Начисления");
-    const row = await call("write.document.create_document", { entitySet: ACCRUALS, tables: { Начисления: [{ Сумма: 1 }] } });
+    const row = await call("write.document.create_document", {
+      entitySet: ACCRUALS,
+      tables: { Начисления: [{ Сумма: 1 }] },
+    });
     expect(text(row.res)).toContain("Начисления, строка 1: нет полей Сумма");
   });
 
@@ -172,7 +250,11 @@ describe("write.document.create_document в казахстанской базе"
   });
 
   it("в российской базе общий инструмент не работает", async () => {
-    const { res } = await call("write.document.create_document", { entitySet: ACCRUALS }, { kazakhstan: false });
+    const { res } = await call(
+      "write.document.create_document",
+      { entitySet: ACCRUALS },
+      { kazakhstan: false },
+    );
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("для казахстанской базы");
   });
@@ -186,7 +268,9 @@ describe("write.document.update_document", () => {
       tables: { Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000 }] },
     });
     expect(res.isError).toBeFalsy();
-    expect(sc["fields"]).toEqual({ Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000, LineNumber: 1 }] });
+    expect(sc["fields"]).toEqual({
+      Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000, LineNumber: 1 }],
+    });
   });
 
   it("проведённый документ не правится — сначала отмена проведения", async () => {
@@ -201,12 +285,20 @@ describe("write.document.update_document", () => {
   });
 
   it("предпросмотр поясняет, что operationId для правки не нужен", async () => {
-    const { sc } = await call("write.document.update_document", { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } });
+    const { sc } = await call("write.document.update_document", {
+      entitySet: ACCRUALS,
+      ref: DOC,
+      fields: { Комментарий: "x" },
+    });
     expect(sc["notes"]).toEqual([expect.stringContaining("operationId для update_document не нужен")]);
   });
 
   it("документ, помеченный на удаление, не правится", async () => {
-    const { res } = await call("write.document.update_document", { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } }, { deleted: true });
+    const { res } = await call(
+      "write.document.update_document",
+      { entitySet: ACCRUALS, ref: DOC, fields: { Комментарий: "x" } },
+      { deleted: true },
+    );
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("помечен на удаление");
   });

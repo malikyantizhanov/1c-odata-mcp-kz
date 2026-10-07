@@ -676,7 +676,9 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
             ref: a.key,
             ...turnoverToRub(sums),
           })),
-          ...(analytics ? { analytics: analytics.items, ...(analytics.truncated ? { analyticsTruncated: true } : {}) } : {}),
+          ...(analytics
+            ? { analytics: analytics.items, ...(analytics.truncated ? { analyticsTruncated: true } : {}) }
+            : {}),
           openingNet: (agg.total.openingDr - agg.total.openingCr) / 100,
           closingNet: (agg.total.closingDr - agg.total.closingCr) / 100,
           ...(rows.length === 0
@@ -795,7 +797,6 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
   );
 }
 
-
 /** Строк разбивки по аналитике в ответе; остальное — флаг analyticsTruncated. */
 const ANALYTICS_LIMIT = 100;
 
@@ -810,10 +811,16 @@ async function turnoverAnalytics(
 ): Promise<{ items: Array<Record<string, unknown>>; truncated: boolean }> {
   const f = BALANCE_AND_TURNOVERS.fields;
   const codes = new Map(accounts.map((a) => [a.key, a.code]));
-  const groups = new Map<string, { account: string; dims: Array<{ ref: string; type: string }>; sums: TurnoverCents }>();
+  const groups = new Map<
+    string,
+    { account: string; dims: Array<{ ref: string; type: string }>; sums: TurnoverCents }
+  >();
   for (const r of rows) {
     const dims = [1, 2]
-      .map((i) => ({ ref: String(r[`ExtDimension${i}`] ?? ""), type: String(r[`ExtDimension${i}_Type`] ?? "") }))
+      .map((i) => ({
+        ref: String(r[`ExtDimension${i}`] ?? ""),
+        type: String(r[`ExtDimension${i}_Type`] ?? ""),
+      }))
       .filter((d) => d.ref !== "" && d.ref !== EMPTY_GUID);
     const accountKey = String(r["Account_Key"] ?? "");
     const account = codes.get(accountKey) ?? accountKey;
@@ -833,7 +840,8 @@ async function turnoverAnalytics(
   for (const g of groups.values()) {
     for (const d of g.dims) {
       const set = d.type.slice(d.type.lastIndexOf(".") + 1);
-      if (GUID_RE.test(d.ref) && set.startsWith("Catalog_")) bySet.set(set, (bySet.get(set) ?? new Set<string>()).add(d.ref));
+      if (GUID_RE.test(d.ref) && set.startsWith("Catalog_"))
+        bySet.set(set, (bySet.get(set) ?? new Set<string>()).add(d.ref));
     }
   }
   const names = new Map<string, string>();

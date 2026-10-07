@@ -34,7 +34,7 @@ const CLASS_LABEL: Record<EntityClass, string> = {
 
 export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
   registerNomenclatureRead(server, ctx);
-  registerCapabilities(server,ctx);
+  registerCapabilities(server, ctx);
   server.registerTool(
     "read.system.list_databases",
     {

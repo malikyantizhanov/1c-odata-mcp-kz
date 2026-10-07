@@ -45,7 +45,10 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
         "Пример: «найди контрагента Ромашка» или «контрагент с ИНН 7701234567».",
       inputSchema: {
         database: databaseField,
-        query: z.string().default("").describe("Часть названия или ИНН/БИН/ИИН; пустая строка — список контрагентов"),
+        query: z
+          .string()
+          .default("")
+          .describe("Часть названия или ИНН/БИН/ИИН; пустая строка — список контрагентов"),
         limit: z.number().int().positive().max(100).default(20).describe("Сколько вернуть"),
       },
       outputSchema: truncatedList(counterpartySchema),
@@ -57,17 +60,27 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
         const fields = await catalogFields(conn, set);
         const isInn = /^\d{10,12}$/.test(query.trim());
         if (isInn && !fields.inn) throw new InputError("В справочнике не опубликовано поле ИНН/БИН/ИИН.");
-        const filter = !query.trim() ? undefined : isInn ? cmp(fields.inn, "eq", odataString(query.trim())) : contains(fields.name, query);
+        const filter = !query.trim()
+          ? undefined
+          : isInn
+            ? cmp(fields.inn, "eq", odataString(query.trim()))
+            : contains(fields.name, query);
 
         const { rows, truncated } = await fetchAll(
           conn.client,
           set,
-          { filter, select: [fields.ref, fields.name, fields.code, fields.inn, fields.kpp, fields.isFolder].filter(Boolean), orderby: fields.name },
+          {
+            filter,
+            select: [fields.ref, fields.name, fields.code, fields.inn, fields.kpp, fields.isFolder].filter(
+              Boolean,
+            ),
+            orderby: fields.name,
+          },
           conn.behavior.pageSize,
           Math.min(limit, conn.behavior.maxRows),
         );
 
-        const items = rows.map(row => toCounterparty(row, fields)).filter((c) => !c.isFolder);
+        const items = rows.map((row) => toCounterparty(row, fields)).filter((c) => !c.isFolder);
         return ok(withTruncationNote(items, truncated, limit));
       }),
   );

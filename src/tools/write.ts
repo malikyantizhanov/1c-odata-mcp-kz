@@ -1516,7 +1516,18 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         const conn = ctx.db(database);
         const set = await resolveSet(conn, CATALOGS.counterparties, "Контрагенты");
         if (await isKazakhstan(conn)) {
-          const kz = kzCounterpartyPayload({ name, inn, kpp, ogrn, kbe, fullName, legalType, phone, email, address });
+          const kz = kzCounterpartyPayload({
+            name,
+            inn,
+            kpp,
+            ogrn,
+            kbe,
+            fullName,
+            legalType,
+            phone,
+            email,
+            address,
+          });
           return createOrPreview(conn, set, clean(kz.payload), confirm, kz.notes);
         }
         if (kbe) throw new InputError("КБЕ есть только в казахстанской базе.");
@@ -1610,7 +1621,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           Parent_Key: parentRef,
           ...(isService ? { Услуга: true } : {}),
           // В Казахстане единица — в карточке: без неё строки счёта уходят без единицы измерения.
-          ...((await isKazakhstan(conn)) ? { НаименованиеПолное: fullName ?? name, БазоваяЕдиницаИзмерения_Key: await unitRef(conn) } : {}),
+          ...((await isKazakhstan(conn))
+            ? { НаименованиеПолное: fullName ?? name, БазоваяЕдиницаИзмерения_Key: await unitRef(conn) }
+            : {}),
         });
         return createOrPreview(conn, set, payload, confirm);
       }),
@@ -1695,7 +1708,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           const payload = clean({
             Description: name ?? `Договор ${num}`,
             НомерДоговора: num,
-            ДатаДоговора: odataDate(date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0))),
+            ДатаДоговора: odataDate(
+              date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0)),
+            ),
             Owner_Key: counterpartyRef,
             ВидДоговора: kind,
             Организация_Key: org.key,
@@ -1784,13 +1799,17 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             СуммаВключаетНДС: kz.withVat && sumIncludesVat,
             СуммаДокумента: kz.total,
             // Банковский счёт организации — составная ссылка «Структурная единица».
-            ...(bank ? { СтруктурнаяЕдиница: bank, СтруктурнаяЕдиница_Type: "StandardODATA.Catalog_БанковскиеСчета" } : {}),
+            ...(bank
+              ? { СтруктурнаяЕдиница: bank, СтруктурнаяЕдиница_Type: "StandardODATA.Catalog_БанковскиеСчета" }
+              : {}),
             ...(kz.goods.length ? { Товары: kz.goods } : {}),
             ...(kz.services.length ? { Услуги: kz.services } : {}),
           });
           const notes = bank
             ? []
-            : ["У организации нет банковского счёта — в счёте не будет реквизитов для оплаты. Добавьте счёт в 1С."];
+            : [
+                "У организации нет банковского счёта — в счёте не будет реквизитов для оплаты. Добавьте счёт в 1С.",
+              ];
           return createOrPreview(conn, set, payload, confirm, notes);
         }
         const rows = buildInvoiceRows(lines);
@@ -1837,7 +1856,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           const notes: string[] = [];
           if (post && PAYMENT_ORDER_SETS.has(entitySet)) {
             try {
-              const st = await conn.client.getEntity(`${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`);
+              const st = await conn.client.getEntity(
+                `${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`,
+              );
               if (st["Оплачено"] !== true)
                 notes.push(
                   "Оплачено=false — 1С ответит 200, но платёжку не проведёт. Проводят по факту выписки банка: " +
@@ -1935,7 +1956,16 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             };
           }
         }
-        return ok({ done: true, database: conn.cfg.name, ref: guid, action, posted: postedAfter, ...versions, http, ...postings });
+        return ok({
+          done: true,
+          database: conn.cfg.name,
+          ref: guid,
+          action,
+          posted: postedAfter,
+          ...versions,
+          http,
+          ...postings,
+        });
       }),
   );
 
@@ -3485,7 +3515,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         ownerKind: z
           .enum(["counterparty", "organization"])
           .default("counterparty")
-          .describe("Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)"),
+          .describe(
+            "Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)",
+          ),
         accountNumber: z.string().min(1).describe("Номер расчётного счёта"),
         bik: z.string().min(1).describe("БИК банка (ищется в справочнике «Банки»)"),
         currency: z.string().optional().describe("Валюта (код/название; РФ — 643, Казахстан — 398/KZT)"),
@@ -3507,9 +3539,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             ? {
                 ref:
                   (await tengeRef(conn)) ??
-                  (
-                    await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "398")
-                  ).ref,
+                  (await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "398")).ref,
               }
             : await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "643");
         const forOrg = ownerKind === "organization";

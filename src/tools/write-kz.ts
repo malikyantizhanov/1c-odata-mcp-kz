@@ -74,15 +74,24 @@ const vatKey = (rate: string): string => {
   return VAT_ALIASES[compact] ?? (/^\d+%$/.test(compact) ? compact : normalize(rate));
 };
 /** Процент ставки: «16%» → 16, «без НДС» → 0. */
-export const vatPercent = (rate: string): number => Number(/^(\d+(?:[.,]\d+)?)%$/.exec(vatKey(rate))?.[1]?.replace(",", ".") ?? 0);
+export const vatPercent = (rate: string): number =>
+  Number(/^(\d+(?:[.,]\d+)?)%$/.exec(vatKey(rate))?.[1]?.replace(",", ".") ?? 0);
 export const isWithoutVat = (rate: string): boolean => vatKey(rate) === "без ндс";
 
 /** Ref_Key ставок НДС базы по нормализованному наименованию («16%», «без ндс»). */
 export async function vatRateRefs(conn: Connection, rates: readonly string[]): Promise<Map<string, string>> {
   const set = await requireEntity(conn, ["Catalog_СтавкиНДС"], "Справочник «Ставки НДС»");
-  const { rows } = await fetchAll(conn.client, set, { select: ["Ref_Key", "Description", "DeletionMark"] }, 50, 200);
+  const { rows } = await fetchAll(
+    conn.client,
+    set,
+    { select: ["Ref_Key", "Description", "DeletionMark"] },
+    50,
+    200,
+  );
   const byName = new Map(
-    rows.filter((r) => r["DeletionMark"] !== true).map((r) => [normalize(String(r["Description"] ?? "")), String(r["Ref_Key"])]),
+    rows
+      .filter((r) => r["DeletionMark"] !== true)
+      .map((r) => [normalize(String(r["Description"] ?? "")), String(r["Ref_Key"])]),
   );
   const out = new Map<string, string>();
   for (const rate of rates) {
@@ -100,7 +109,13 @@ export async function vatRateRefs(conn: Connection, rates: readonly string[]): P
 /** Валюта KZT (код 398) — валюта документов по умолчанию. */
 export async function tengeRef(conn: Connection): Promise<string | undefined> {
   const set = await requireEntity(conn, CATALOGS.currencies, "Справочник «Валюты»");
-  const { rows } = await fetchAll(conn.client, set, { filter: cmp("Code", "eq", odataString("398")), select: ["Ref_Key"] }, 1, 1);
+  const { rows } = await fetchAll(
+    conn.client,
+    set,
+    { filter: cmp("Code", "eq", odataString("398")), select: ["Ref_Key"] },
+    1,
+    1,
+  );
   return rows[0] ? String(rows[0]["Ref_Key"]) : undefined;
 }
 
@@ -114,7 +129,10 @@ export async function unitRef(conn: Connection, name = "шт"): Promise<string> 
   const { rows } = await fetchAll(
     conn.client,
     set,
-    { filter: or(cmp("Description", "eq", odataString(name)), cmp("Code", "eq", odataString("796"))), select: ["Ref_Key", "Description"] },
+    {
+      filter: or(cmp("Description", "eq", odataString(name)), cmp("Code", "eq", odataString("796"))),
+      select: ["Ref_Key", "Description"],
+    },
     5,
     5,
   );
@@ -136,23 +154,34 @@ export interface KzCounterpartyInput {
   address?: string | undefined;
 }
 
-export function kzCounterpartyPayload(input: KzCounterpartyInput): { payload: Record<string, unknown>; notes: string[] } {
+export function kzCounterpartyPayload(input: KzCounterpartyInput): {
+  payload: Record<string, unknown>;
+  notes: string[];
+} {
   if (input.kpp || input.ogrn) {
     throw new InputError("В казахстанской базе нет КПП и ОГРН: передайте БИН/ИИН в inn.");
   }
   const bin = input.inn?.trim();
   if (bin && !/^\d{12}$/.test(bin)) throw new InputError("БИН/ИИН — 12 цифр.");
-  if (input.kbe && !/^\d{2}$/.test(input.kbe.trim())) throw new InputError("КБЕ — две цифры (напр. 17 или 19).");
+  if (input.kbe && !/^\d{2}$/.test(input.kbe.trim()))
+    throw new InputError("КБЕ — две цифры (напр. 17 или 19).");
   const notes =
     input.phone || input.email || input.address
-      ? ["Телефон, email и адрес в казахстанской базе этим инструментом не записываются — добавьте их в карточке в 1С."]
+      ? [
+          "Телефон, email и адрес в казахстанской базе этим инструментом не записываются — добавьте их в карточке в 1С.",
+        ]
       : [];
   return {
     payload: {
       Description: input.name,
       НаименованиеПолное: input.fullName ?? input.name,
       ИдентификационныйКодЛичности: bin,
-      ЮрФизЛицо: input.legalType === "ФизическоеЛицо" ? "ФизЛицо" : input.legalType === "ЮридическоеЛицо" ? "ЮрЛицо" : undefined,
+      ЮрФизЛицо:
+        input.legalType === "ФизическоеЛицо"
+          ? "ФизЛицо"
+          : input.legalType === "ЮридическоеЛицо"
+            ? "ЮрЛицо"
+            : undefined,
       КБЕ: input.kbe?.trim(),
     },
     notes,
@@ -174,7 +203,12 @@ export async function kzInvoiceRows(
   conn: Connection,
   lines: KzInvoiceLine[],
   sumIncludesVat: boolean,
-): Promise<{ goods: Array<Record<string, unknown>>; services: Array<Record<string, unknown>>; withVat: boolean; total: number }> {
+): Promise<{
+  goods: Array<Record<string, unknown>>;
+  services: Array<Record<string, unknown>>;
+  withVat: boolean;
+  total: number;
+}> {
   const set = await requireEntity(conn, CATALOGS.nomenclature, "Справочник «Номенклатура»");
   const refs = [...new Set(lines.map((l) => l.nomenclatureRef.replace(/[{}]/g, "")))];
   const { rows } = await fetchAll(
@@ -193,7 +227,9 @@ export async function kzInvoiceRows(
 
   // Без НДС у всех строк — документ без учёта НДС, как у неплательщиков: ставка в строках пустая.
   const withVat = lines.some((l) => !isWithoutVat(l.vatRate));
-  const vatRefs = withVat ? await vatRateRefs(conn, [...new Set(lines.map((l) => l.vatRate))]) : new Map<string, string>();
+  const vatRefs = withVat
+    ? await vatRateRefs(conn, [...new Set(lines.map((l) => l.vatRate))])
+    : new Map<string, string>();
   const fallbackUnit = lines.some((l) => {
     const item = items.get(l.nomenclatureRef.replace(/[{}]/g, ""));
     return item?.["Услуга"] !== true && !item?.["БазоваяЕдиницаИзмерения_Key"];
@@ -220,7 +256,11 @@ export async function kzInvoiceRows(
       СуммаНДС: vat,
     };
     if (item["Услуга"] === true) {
-      services.push({ LineNumber: services.length + 1, ...common, Содержание: l.content ?? String(item["Description"] ?? "") });
+      services.push({
+        LineNumber: services.length + 1,
+        ...common,
+        Содержание: l.content ?? String(item["Description"] ?? ""),
+      });
     } else {
       const unit = item["БазоваяЕдиницаИзмерения_Key"];
       goods.push({
@@ -246,10 +286,14 @@ export function kzPostingWarnings(
   if (entitySet !== "Document_ОтражениеЗарплатыВРеглУчете") return [];
   const warnings: string[] = [];
   if (!correspondence.some((c) => c.creditAccount === "3350")) {
-    warnings.push("В отражении нет начисления зарплаты (Кт 3350, Дт — счёт затрат сотрудника): долг перед работником в учёте не возникнет.");
+    warnings.push(
+      "В отражении нет начисления зарплаты (Кт 3350, Дт — счёт затрат сотрудника): долг перед работником в учёте не возникнет.",
+    );
   }
   if (!correspondence.some((c) => c.debitAccount === "3350")) {
-    warnings.push("В отражении нет удержаний из зарплаты (Дт 3350 — Кт 3120 ИПН, 3220 ОПВ, 3212 ВОСМС; при едином платеже — Кт 3231): налоги работника не отражены или ушли в расходы.");
+    warnings.push(
+      "В отражении нет удержаний из зарплаты (Дт 3350 — Кт 3120 ИПН, 3220 ОПВ, 3212 ВОСМС; при едином платеже — Кт 3231): налоги работника не отражены или ушли в расходы.",
+    );
   }
   return warnings;
 }

@@ -23,10 +23,14 @@ const EMPTY_DATE = "0001-01-01T00:00:00";
 
 const toCents = (v: unknown): number => Math.round(Number(v ?? 0) * 100);
 const fromCents = (c: number): number => c / 100;
-const day = (v: unknown): string | undefined => (typeof v === "string" && v !== EMPTY_DATE ? v.slice(0, 10) : undefined);
+const day = (v: unknown): string | undefined =>
+  typeof v === "string" && v !== EMPTY_DATE ? v.slice(0, 10) : undefined;
 
 /** Организация для фильтра: указана — по названию; нет — без фильтра (все организации базы). */
-async function orgFilterKey(conn: Connection, organization: string | undefined): Promise<{ key?: string; name?: string }> {
+async function orgFilterKey(
+  conn: Connection,
+  organization: string | undefined,
+): Promise<{ key?: string; name?: string }> {
   if (!organization) return {};
   const o = await resolveOrgOrDefault(conn, organization);
   return { key: o.ref, name: o.name };
@@ -86,7 +90,13 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
             dismissed: day(r["ДатаУвольнения"]),
           }))
           .filter((e) => includeDismissed || !e.dismissed || e.dismissed > today);
-        return ok({ database: conn.cfg.name, ...(org.name ? { organization: org.name } : {}), count: employees.length, truncated, employees });
+        return ok({
+          database: conn.cfg.name,
+          ...(org.name ? { organization: org.name } : {}),
+          count: employees.length,
+          truncated,
+          employees,
+        });
       }),
   );
 
@@ -110,14 +120,20 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
           database: z.string(),
           totalOwed: z.number(),
           count: z.number(),
-          people: z.array(z.object({ person: z.string(), ref: z.string(), amount: z.number() }).passthrough()),
+          people: z.array(
+            z.object({ person: z.string(), ref: z.string(), amount: z.number() }).passthrough(),
+          ),
         })
         .passthrough(),
     },
     ({ database, organization, asOf, byMonth }) =>
       guard("read.payroll.get_salary_debts", async () => {
         const conn = ctx.db(database);
-        const reg = await requireEntity(conn, SETTLEMENTS, "Регистр «Взаиморасчёты с работниками организаций»");
+        const reg = await requireEntity(
+          conn,
+          SETTLEMENTS,
+          "Регистр «Взаиморасчёты с работниками организаций»",
+        );
         const org = await orgFilterKey(conn, organization);
         const path = asOf ? `${reg}/Balance(Period=${endOfDayBalancePeriod(asOf)})` : `${reg}/Balance`;
         const { rows } = await fetchAll(
@@ -138,7 +154,11 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
           acc.months.set(month, (acc.months.get(month) ?? 0) + cents);
           byPerson.set(ref, acc);
         }
-        const names = await resolveNames(conn, (await requireEntity(conn, CATALOGS.physicalPersons, "Справочник «Физические лица»")), byPerson.keys());
+        const names = await resolveNames(
+          conn,
+          await requireEntity(conn, CATALOGS.physicalPersons, "Справочник «Физические лица»"),
+          byPerson.keys(),
+        );
         const people = [...byPerson.entries()]
           .filter(([, v]) => v.cents !== 0)
           .map(([ref, v]) => ({
@@ -146,7 +166,12 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
             ref,
             amount: fromCents(v.cents),
             ...(byMonth
-              ? { months: [...v.months.entries()].filter(([, c]) => c !== 0).sort().map(([month, c]) => ({ month, amount: fromCents(c) })) }
+              ? {
+                  months: [...v.months.entries()]
+                    .filter(([, c]) => c !== 0)
+                    .sort()
+                    .map(([month, c]) => ({ month, amount: fromCents(c) })),
+                }
               : {}),
           }))
           .sort((a, b) => b.amount - a.amount);
@@ -182,14 +207,20 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
           period: z.object({ from: z.string(), to: z.string() }),
           total: z.number(),
           documents: z.number(),
-          employees: z.array(z.object({ employee: z.string(), ref: z.string(), total: z.number() }).passthrough()),
+          employees: z.array(
+            z.object({ employee: z.string(), ref: z.string(), total: z.number() }).passthrough(),
+          ),
         })
         .passthrough(),
     },
     ({ database, organization, from, to }) =>
       guard("read.payroll.get_accruals", async () => {
         const conn = ctx.db(database);
-        const set = await requireEntity(conn, ACCRUALS, "Документ «Начисление зарплаты работникам организаций»");
+        const set = await requireEntity(
+          conn,
+          ACCRUALS,
+          "Документ «Начисление зарплаты работникам организаций»",
+        );
         const org = await orgFilterKey(conn, organization);
         const { rows: docs } = await fetchAll(
           conn.client,
@@ -221,7 +252,11 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
             perEmployee.set(ref, acc);
           }
         }
-        const employeeNames = await resolveNames(conn, (await requireEntity(conn, EMPLOYEES, "Справочник «Сотрудники организаций»")), perEmployee.keys());
+        const employeeNames = await resolveNames(
+          conn,
+          await requireEntity(conn, EMPLOYEES, "Справочник «Сотрудники организаций»"),
+          perEmployee.keys(),
+        );
         const kindRefs = new Set([...perEmployee.values()].flatMap((v) => [...v.kinds.keys()]));
         const kindSet = (await conn.available()).has(ACCRUAL_KINDS[0]) ? ACCRUAL_KINDS[0] : undefined;
         const kindNames = kindSet ? await resolveNames(conn, kindSet, kindRefs) : new Map<string, string>();
@@ -230,7 +265,10 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
             employee: (employeeNames.get(ref) ?? ref).replace(/\.$/, ""),
             ref,
             total: fromCents(v.cents),
-            kinds: [...v.kinds.entries()].map(([k, c]) => ({ kind: kindNames.get(k) ?? k, amount: fromCents(c) })),
+            kinds: [...v.kinds.entries()].map(([k, c]) => ({
+              kind: kindNames.get(k) ?? k,
+              amount: fromCents(c),
+            })),
           }))
           .sort((a, b) => b.total - a.total);
         return ok({
@@ -244,4 +282,3 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
       }),
   );
 }
-

@@ -10,6 +10,14 @@ import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { databaseField, fail, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
+import {
+  enumNotes,
+  fillFromSample,
+  kzCreateNotes,
+  paymentCodeNotes,
+  resolveAccountCodes,
+  vatRateNotes,
+} from "./kz-flow.js";
 
 /**
  * Общая запись документов казахстанской базы: создать, изменить шапку и табличные части. Проведение —
@@ -52,7 +60,11 @@ const tableNames = (em: EntityMeta): string[] =>
   em.properties.filter((p) => rowEntitySet(p.type)).map((p) => p.name);
 
 /** Проверяет имена полей по $metadata и приводит даты к формату 1С. */
-export function normalizeFields(em: EntityMeta, fields: Record<string, Scalar>, where: string): Record<string, unknown> {
+export function normalizeFields(
+  em: EntityMeta,
+  fields: Record<string, Scalar>,
+  where: string,
+): Record<string, unknown> {
   const props = new Map(em.properties.map((p) => [p.name, p]));
   const out: Record<string, unknown> = {};
   const problems: string[] = [];
@@ -62,7 +74,11 @@ export function normalizeFields(em: EntityMeta, fields: Record<string, Scalar>, 
     if (SERVICE_FIELDS[name]) problems.push(`${name} — ${SERVICE_FIELDS[name]}`);
     else if (!prop) unknown.push(name);
     else if (rowEntitySet(prop.type)) problems.push(`${name} — табличная часть, передайте её в tables`);
-    else out[name] = prop.type === "Edm.DateTime" && typeof value === "string" && DATE_ONLY.test(value) ? `${value}T00:00:00` : value;
+    else
+      out[name] =
+        prop.type === "Edm.DateTime" && typeof value === "string" && DATE_ONLY.test(value)
+          ? `${value}T00:00:00`
+          : value;
   }
   if (unknown.length) {
     const known = em.properties
@@ -86,7 +102,9 @@ export async function normalizeTables(
     const prop = em.properties.find((p) => p.name === name);
     const rowSet = prop ? rowEntitySet(prop.type) : undefined;
     if (!rowSet) {
-      throw new InputError(`${em.entitySet}: нет табличной части «${name}»; есть: ${tableNames(em).join(", ") || "нет"}.`);
+      throw new InputError(
+        `${em.entitySet}: нет табличной части «${name}»; есть: ${tableNames(em).join(", ") || "нет"}.`,
+      );
     }
     const rowMeta = meta.entities.get(rowSet);
     out[name] = rows.map((row, i) => ({
@@ -135,7 +153,10 @@ async function sameMonthAccruals(conn: Connection, payload: Record<string, unkno
         (r) => people.has(String(r["Сотрудник_Key"])) || people.has(String(r["Физлицо_Key"])),
       ),
     )
-    .map((d) => `№ ${String(d["Number"])} от ${String(d["Date"]).slice(0, 10)}${d["Posted"] === true ? " (проведён)" : ""}`);
+    .map(
+      (d) =>
+        `№ ${String(d["Number"])} от ${String(d["Date"]).slice(0, 10)}${d["Posted"] === true ? " (проведён)" : ""}`,
+    );
   return found.length
     ? [
         `У этих сотрудников уже есть начисление за этот месяц: ${found.join(", ")}. Оклад повторно не начисляйте — ` +
@@ -197,7 +218,9 @@ async function singlePaymentForMonth(conn: Connection, payload: Record<string, u
 /** Документ казахстанской базы, опубликованный в OData. Список разрешённых документов — в preflightTool. */
 async function documentMeta(conn: Connection, entitySet: string): Promise<EntityMeta> {
   if (!(await isKazakhstan(conn))) {
-    throw new InputError("Общая запись документов — для казахстанской базы. В этой базе используйте профильные инструменты write.*.");
+    throw new InputError(
+      "Общая запись документов — для казахстанской базы. В этой базе используйте профильные инструменты write.*.",
+    );
   }
   ensurePublished(await conn.available(), entitySet);
   const em = (await conn.getMetadata()).entities.get(entitySet);
@@ -209,11 +232,13 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
   server.registerTool(
     "write.document.create_document",
     {
-      title: "Создать документ (зарплата, налоги, выплата)",
+      title: "Создать документ (флоу бухгалтера: продажи, закупки, деньги, склад, зарплата, налоги)",
       description:
-        "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: начисление " +
-        "зарплаты, расчёт удержаний (ИПН/ОПВ/ВОСМС), расчёт СН и СО, единый платёж, отражение зарплаты в учёте, " +
-        "ведомость к выплате, платёжное поручение, перечисления в фонды, расходный кассовый ордер. Суммы и ставки " +
+        "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: реализация, " +
+        "поступление, возвраты, счета-фактуры, ПП/платёжные ордера, ПКО/РКО, склад, авансовый отчёт, акт сверки, " +
+        "закрытие месяца, зарплата и кадры — список, схемы проводок и нормы НК РК: read.system.kz_document_guide. " +
+        "Счета учёта можно передать кодами Типового плана ('1330', для НУ — счёт Налогового плана) — сервер " +
+        "подставит ссылки; или взять из образца (sampleRef, другого вида — sampleEntitySet). Суммы и ставки " +
         "считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по " +
         "'<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа " +
         "того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц " +
@@ -224,14 +249,43 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         database: databaseField,
         organization: organizationField,
         entitySet: z.string().describe("Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций"),
-        date: z.string().optional().describe("Дата документа 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss' (по умолчанию — сейчас)"),
+        date: z
+          .string()
+          .optional()
+          .describe("Дата документа 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss' (по умолчанию — сейчас)"),
         fields: fieldsShape.default({}),
         tables: tablesShape.default({}),
+        sampleRef: z
+          .string()
+          .optional()
+          .describe(
+            "Ref_Key образца — проведённого документа того же вида, сделанного в 1С. Из него берутся только настройки " +
+              "учёта, которые вы не передали: счета (СчетУчета…, СчетДоходов…, СчетЗатрат…), субконто, ВидУчетаНУ, " +
+              "вид операции НДС — в шапке и в строках (строка образца с той же номенклатурой, иначе первая). " +
+              "Контрагент, суммы, даты, склад из образца НЕ берутся. Помеченный на удаление образец не принимается.",
+          ),
+        sampleEntitySet: z
+          .string()
+          .optional()
+          .describe(
+            "Вид документа образца, если он другой (напр. для возврата от покупателя — Document_РеализацияТоваровУслуг). " +
+              "Берутся только одноимённые поля учёта. По умолчанию — тот же entitySet.",
+          ),
         confirm: confirmField,
       },
       outputSchema: createResultSchema,
     },
-    ({ database, organization, entitySet, date, fields = {}, tables = {}, confirm }) =>
+    ({
+      database,
+      organization,
+      entitySet,
+      date,
+      fields = {},
+      tables = {},
+      sampleRef,
+      sampleEntitySet,
+      confirm,
+    }) =>
       guard("write.document.create_document", async () => {
         const conn = ctx.db(database);
         const em = await documentMeta(conn, entitySet);
@@ -239,7 +293,7 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         const hasOrg = em.properties.some((p) => p.name === "Организация_Key");
         const org = hasOrg && !header["Организация_Key"] ? await resolveOrg(conn, organization) : undefined;
         const when = date ? (DATE_ONLY.test(date) ? `${date}T00:00:00` : date) : odataDate(new Date());
-        const payload = {
+        let payload: Record<string, unknown> = {
           ...header,
           Date: when,
           Posted: false,
@@ -252,6 +306,35 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
             : CLASSIC_TAX_DOCS.includes(entitySet)
               ? await singlePaymentForMonth(conn, payload)
               : [];
+        const codes = await resolveAccountCodes(conn, em, payload);
+        payload = codes.payload;
+        if (codes.resolved.length)
+          notes.push(`Счета по кодам Типового плана заменены на ссылки: ${codes.resolved.join(", ")}.`);
+        if (sampleRef) {
+          const sguid = sampleRef.replace(/[{}']/g, "");
+          const sampleSet = sampleEntitySet ?? entitySet;
+          if (!/^Document_[\p{L}\p{N}_]+$/u.test(sampleSet))
+            return fail(`sampleEntitySet должен быть документом (Document_…), получено: ${sampleSet}.`);
+          const sample = await conn.client.getEntity(`${sampleSet}(guid'${sguid}')${buildQuery({})}`);
+          if (sample["DeletionMark"] === true) {
+            return fail(
+              "Образец помечен на удаление — такие документы не используют. Возьмите другой проведённый документ того же вида.",
+            );
+          }
+          const filled = fillFromSample(await conn.getMetadata(), em, payload, sample);
+          payload = filled.payload;
+          notes.push(
+            filled.filled.length
+              ? `Из образца № ${String(sample["Number"] ?? "")} от ${String(sample["Date"] ?? "").slice(0, 10)} взяты настройки учёта: ${filled.filled.join("; ")}.`
+              : `Образец № ${String(sample["Number"] ?? "")}: все настройки учёта уже заданы или в образце пусты — ничего не подставлено.`,
+          );
+          if (sample["Posted"] !== true)
+            notes.push(
+              "Образец не проведён — его счета 1С не проверяла; надёжнее взять проведённый документ.",
+            );
+        }
+        notes.push(...(await kzCreateNotes(conn, em, payload, { sampleUsed: !!sampleRef })));
+        notes.push(...vatRateNotes(when, payload, em, await vatRateNames(conn)));
         return createOrPreview(conn, entitySet, payload, confirm, notes);
       }),
   );
@@ -279,12 +362,22 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
       guard("write.document.update_document", async () => {
         const conn = ctx.db(database);
         const em = await documentMeta(conn, entitySet);
-        if (!Object.keys(fields).length && !Object.keys(tables).length) return fail("Не заданы fields или tables для изменения.");
-        const patch = { ...normalizeFields(em, fields, entitySet), ...(await normalizeTables(conn, em, tables)) };
+        if (!Object.keys(fields).length && !Object.keys(tables).length)
+          return fail("Не заданы fields или tables для изменения.");
+        const patch = (
+          await resolveAccountCodes(conn, em, {
+            ...normalizeFields(em, fields, entitySet),
+            ...(await normalizeTables(conn, em, tables)),
+          })
+        ).payload;
         const guid = ref.replace(/[{}']/g, "");
-        const doc = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted", "DeletionMark"] })}`);
+        const doc = await conn.client.getEntity(
+          `${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted", "DeletionMark"] })}`,
+        );
         if (doc["DeletionMark"] === true) {
-          return fail("Документ помечен на удаление — не используйте его и не снимайте пометку: создайте новый документ.");
+          return fail(
+            "Документ помечен на удаление — не используйте его и не снимайте пометку: создайте новый документ.",
+          );
         }
         if (doc["Posted"] === true) {
           return fail(
@@ -292,7 +385,47 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
               "внесите изменения и проведите снова.",
           );
         }
-        return patchOrPreview(conn, entitySet, guid, patch, confirm);
+        const notes: string[] = [];
+        if (entitySet === "Document_ПлатежноеПоручениеИсходящее") {
+          const codes = Object.keys(patch).some(
+            (k) => k === "КодБК" || k === "КодНазначенияПлатежа" || k === "ВидОперации",
+          );
+          if (codes) {
+            const cur = await conn.client.getEntity(
+              `${entitySet}(guid'${guid}')${buildQuery({ select: ["КодБК", "КодНазначенияПлатежа", "ВидОперации"] })}`,
+            );
+            notes.push(...paymentCodeNotes({ ...cur, ...patch }));
+          }
+        }
+        notes.push(...enumNotes(entitySet, patch));
+        if (patch["Оплачено"] === true && !patch["ДатаВыписки"]) {
+          notes.push(
+            "Оплачено=true ставят по факту списания/зачисления по выписке и с согласия пользователя; проверьте, что ДатаВыписки заполнена.",
+          );
+        }
+        if (!confirm) {
+          notes.push(
+            "operationId для update_document не нужен: изменение идемпотентно — повтор с confirm=true запишет те же поля.",
+          );
+        }
+        return patchOrPreview(conn, entitySet, guid, patch, confirm, notes);
       }),
   );
+}
+
+/** Наименования ставок НДС по Ref_Key (для проверки ставки по дате). Нет справочника — пустая карта. */
+async function vatRateNames(conn: Connection): Promise<Map<string, string>> {
+  try {
+    if (!(await conn.available()).has("Catalog_СтавкиНДС")) return new Map();
+    const { rows } = await fetchAll(
+      conn.client,
+      "Catalog_СтавкиНДС",
+      { select: ["Ref_Key", "Description"] },
+      50,
+      200,
+    );
+    return new Map(rows.map((r) => [String(r["Ref_Key"]), String(r["Description"] ?? "")]));
+  } catch {
+    return new Map();
+  }
 }

@@ -79,7 +79,11 @@ export function createServer(ctx: ServerContext): McpServer {
     cb: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>,
   ) => {
     const execute = cb;
-    cb = (args,extra) => guard(name,async()=>{await preflightTool(ctx,name,args);return execute(args,extra);});
+    cb = (args, extra) =>
+      guard(name, async () => {
+        await preflightTool(ctx, name, args);
+        return execute(args, extra);
+      });
     const annotatedConfig = {
       ...config,
       annotations: {

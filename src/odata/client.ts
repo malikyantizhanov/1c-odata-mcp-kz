@@ -101,6 +101,17 @@ export class ODataClient {
         logger.debug({ url, status: res.status, ms }, "odata ok");
         // Действия (Post/Unpost) могут вернуть пустое тело — это не ошибка.
         const text = await res.text();
+        if (/^\s*</.test(text)) {
+          // 1cfresh на ошибки прав/исключения 1С иногда отвечает HTML-страницей с кодом 200.
+          throw new ODataError({
+            kind: "parse",
+            status: res.status,
+            url,
+            message:
+              `Сервис вернул HTML-страницу вместо ответа OData (HTTP ${res.status}). Обычно это нет прав пользователя OData ` +
+              "на объект (роль/«Доступ запрещен») или исключение 1С при записи. Для записи исход неизвестен — проверьте объект в 1С.",
+          });
+        }
         return (text ? JSON.parse(text) : undefined) as T;
       } catch (e) {
         const err = normalize(e, url);
@@ -244,6 +255,33 @@ export class ODataClient {
   /** Вызывает bound-действие (напр. .../Post). POST без тела. */
   async action<T = unknown>(path: string): Promise<T> {
     return this.request<T>(path, "POST");
+  }
+
+  /**
+   * Bound-действие с сырым ответом: HTTP-статус и текст тела как есть (без JSON.parse).
+   * Ошибка HTTP (не 2xx) бросается как обычно — с сообщением 1С. Нужен, чтобы post_document
+   * мог показать, что именно ответила 1С, когда действие «прошло», а документ не провёлся.
+   */
+  async actionRaw(path: string): Promise<{ status: number; body: string }> {
+    this.assertWritable("POST");
+    const url = this.url(path);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: this.authHeader, Accept: "application/json" },
+        signal: controller.signal,
+      });
+      const body = await res.text().catch(() => "");
+      if (!res.ok) throw fromHttpStatus(res.status, url, body);
+      logger.debug({ url, status: res.status }, "odata action ok");
+      return { status: res.status, body };
+    } catch (e) {
+      throw normalize(e, url);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Сырой текст (для $metadata — это XML, не JSON). */

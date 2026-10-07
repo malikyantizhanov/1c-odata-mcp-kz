@@ -9,7 +9,9 @@ import { isWithoutVat, kzCounterpartyPayload, vatPercent } from "../src/tools/wr
  * единица из карточки номенклатуры, валюта KZT.
  */
 
-type Tool = { handler: (args: Record<string, unknown>, extra: Record<string, unknown>) => Promise<CallToolResult> };
+type Tool = {
+  handler: (args: Record<string, unknown>, extra: Record<string, unknown>) => Promise<CallToolResult>;
+};
 const toolsOf = (connection: unknown): Record<string, Tool> =>
   (createServer({ db: () => connection } as never) as unknown as { _registeredTools: Record<string, Tool> })
     ._registeredTools;
@@ -27,7 +29,10 @@ const props = (...names: string[]) => ({ properties: names.map((name) => ({ name
 
 function kzConnection(kazakhstan = true) {
   const entities = new Map<string, { properties: { name: string }[] }>([
-    ["Catalog_Контрагенты", props("Ref_Key", "Description", kazakhstan ? "ИдентификационныйКодЛичности" : "ИНН")],
+    [
+      "Catalog_Контрагенты",
+      props("Ref_Key", "Description", kazakhstan ? "ИдентификационныйКодЛичности" : "ИНН"),
+    ],
     ["Catalog_Организации", props("Ref_Key", "Description", kazakhstan ? "ИдентификационныйНомер" : "ИНН")],
     ["Catalog_Номенклатура", props("Ref_Key", "Description", "Услуга", "БазоваяЕдиницаИзмерения_Key")],
     ["Catalog_ДоговорыКонтрагентов", props("Ref_Key", "Description", "Owner_Key", "ВидДоговора")],
@@ -56,7 +61,9 @@ function kzConnection(kazakhstan = true) {
     client: {
       prepareCreate,
       getEntity: async () => ({}),
-      getCollection: async (path: string) => ({ value: rows[Object.keys(rows).find((set) => path.startsWith(set)) ?? ""] ?? [] }),
+      getCollection: async (path: string) => ({
+        value: rows[Object.keys(rows).find((set) => path.startsWith(set)) ?? ""] ?? [],
+      }),
     },
   };
   return { connection, prepareCreate };
@@ -67,7 +74,8 @@ async function preview(tool: string, args: Record<string, unknown>, kazakhstan =
   const res = await toolsOf(connection)[tool]!.handler({ database: "default", confirm: false, ...args }, {});
   return res;
 }
-const payloadOf = (res: CallToolResult) => (res.structuredContent as { payload: Record<string, unknown> }).payload;
+const payloadOf = (res: CallToolResult) =>
+  (res.structuredContent as { payload: Record<string, unknown> }).payload;
 
 describe("ставки НДС Казахстана", () => {
   it("понимает казахстанские и российские имена ставок", () => {
@@ -83,9 +91,19 @@ describe("ставки НДС Казахстана", () => {
 describe("контрагент в казахстанской базе", () => {
   it("пишет БИН/ИИН, вид лица и КБЕ вместо ИНН/КПП", async () => {
     const p = payloadOf(
-      await preview("write.counterparty.create_counterparty", { name: "ТОО Покупатель", inn: "990140000001", legalType: "ЮридическоеЛицо", kbe: "17" }),
+      await preview("write.counterparty.create_counterparty", {
+        name: "ТОО Покупатель",
+        inn: "990140000001",
+        legalType: "ЮридическоеЛицо",
+        kbe: "17",
+      }),
     );
-    expect(p).toMatchObject({ Description: "ТОО Покупатель", ИдентификационныйКодЛичности: "990140000001", ЮрФизЛицо: "ЮрЛицо", КБЕ: "17" });
+    expect(p).toMatchObject({
+      Description: "ТОО Покупатель",
+      ИдентификационныйКодЛичности: "990140000001",
+      ЮрФизЛицо: "ЮрЛицо",
+      КБЕ: "17",
+    });
     expect(p).not.toHaveProperty("ИНН");
   });
 
@@ -97,13 +115,27 @@ describe("контрагент в казахстанской базе", () => {
 
 describe("договор и номенклатура в казахстанской базе", () => {
   it("договор: НомерДоговора/ДатаДоговора и валюта KZT", async () => {
-    const p = payloadOf(await preview("write.catalog.create_contract", { counterpartyRef: BUYER, kind: "СПокупателем", number: "7", date: "2026-10-01" }));
-    expect(p).toMatchObject({ НомерДоговора: "7", ДатаДоговора: "2026-10-01T00:00:00", ВалютаВзаиморасчетов_Key: KZT, Организация_Key: ORG });
+    const p = payloadOf(
+      await preview("write.catalog.create_contract", {
+        counterpartyRef: BUYER,
+        kind: "СПокупателем",
+        number: "7",
+        date: "2026-10-01",
+      }),
+    );
+    expect(p).toMatchObject({
+      НомерДоговора: "7",
+      ДатаДоговора: "2026-10-01T00:00:00",
+      ВалютаВзаиморасчетов_Key: KZT,
+      Организация_Key: ORG,
+    });
     expect(p).not.toHaveProperty("Номер");
   });
 
   it("номенклатура получает единицу измерения «шт»", async () => {
-    const p = payloadOf(await preview("write.catalog.create_nomenclature", { name: "Услуга", isService: true }));
+    const p = payloadOf(
+      await preview("write.catalog.create_nomenclature", { name: "Услуга", isService: true }),
+    );
     expect(p).toMatchObject({ Услуга: true, БазоваяЕдиницаИзмерения_Key: UNIT });
   });
 });
@@ -116,16 +148,44 @@ describe("счёт на оплату в казахстанской базе", ()
         sumIncludesVat: true,
         lines: [
           { nomenclatureRef: GOODS, quantity: 2, price: 5000, vatRate: "без НДС" },
-          { nomenclatureRef: SERVICE, quantity: 1, price: 10000, vatRate: "без НДС", content: "Консультация за октябрь" },
+          {
+            nomenclatureRef: SERVICE,
+            quantity: 1,
+            price: 10000,
+            vatRate: "без НДС",
+            content: "Консультация за октябрь",
+          },
         ],
       }),
     );
-    expect(p).toMatchObject({ УчитыватьНДС: false, СуммаВключаетНДС: false, СуммаДокумента: 20000, ВалютаДокумента_Key: KZT });
+    expect(p).toMatchObject({
+      УчитыватьНДС: false,
+      СуммаВключаетНДС: false,
+      СуммаДокумента: 20000,
+      ВалютаДокумента_Key: KZT,
+    });
     expect(p["Товары"]).toEqual([
-      { LineNumber: 1, Номенклатура_Key: GOODS, Количество: 2, Цена: 5000, Сумма: 10000, СуммаНДС: 0, ЕдиницаИзмерения_Key: UNIT, Коэффициент: 1 },
+      {
+        LineNumber: 1,
+        Номенклатура_Key: GOODS,
+        Количество: 2,
+        Цена: 5000,
+        Сумма: 10000,
+        СуммаНДС: 0,
+        ЕдиницаИзмерения_Key: UNIT,
+        Коэффициент: 1,
+      },
     ]);
     expect(p["Услуги"]).toEqual([
-      { LineNumber: 1, Номенклатура_Key: SERVICE, Количество: 1, Цена: 10000, Сумма: 10000, СуммаНДС: 0, Содержание: "Консультация за октябрь" },
+      {
+        LineNumber: 1,
+        Номенклатура_Key: SERVICE,
+        Количество: 1,
+        Цена: 10000,
+        Сумма: 10000,
+        СуммаНДС: 0,
+        Содержание: "Консультация за октябрь",
+      },
     ]);
   });
 
@@ -138,7 +198,10 @@ describe("счёт на оплату в казахстанской базе", ()
       }),
     );
     expect(included).toMatchObject({ УчитыватьНДС: true, СуммаВключаетНДС: true, СуммаДокумента: 11600 });
-    expect((included["Товары"] as Array<Record<string, unknown>>)[0]).toMatchObject({ СтавкаНДС_Key: VAT16, СуммаНДС: 1600 });
+    expect((included["Товары"] as Array<Record<string, unknown>>)[0]).toMatchObject({
+      СтавкаНДС_Key: VAT16,
+      СуммаНДС: 1600,
+    });
 
     const onTop = payloadOf(
       await preview("write.sales.create_invoice", {
@@ -174,7 +237,11 @@ describe("политика записи по профилю базы", () => {
   it("в российской базе казахстанская ставка не уходит в 1С", async () => {
     const res = await preview(
       "write.sales.create_invoice",
-      { counterpartyRef: BUYER, sumIncludesVat: true, lines: [{ nomenclatureRef: GOODS, quantity: 1, price: 100, vatRate: "16%" }] },
+      {
+        counterpartyRef: BUYER,
+        sumIncludesVat: true,
+        lines: [{ nomenclatureRef: GOODS, quantity: 1, price: 100, vatRate: "16%" }],
+      },
       false,
     );
     expect(res.isError).toBe(true);

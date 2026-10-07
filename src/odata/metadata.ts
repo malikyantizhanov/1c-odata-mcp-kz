@@ -46,6 +46,10 @@ interface RawEntityType {
   Property?: RawProp | RawProp[];
   NavigationProperty?: RawNav | RawNav[];
 }
+interface RawAssociation {
+  "@_Name": string;
+  End?: { "@_Role": string; "@_Type": string } | Array<{ "@_Role": string; "@_Type": string }>;
+}
 interface RawEntitySet {
   "@_Name": string;
   "@_EntityType": string;
@@ -75,6 +79,19 @@ export async function loadMetadata(client: ODataClient): Promise<MetadataMap> {
     typeByName.set(t["@_Name"], t);
   }
 
+  // Association: имя → тип по роли (End Role="End" Type="StandardODATA.ChartOfAccounts_Типовой").
+  const associations = new Map<string, Map<string, string>>();
+  for (const a of asArray<RawAssociation>(
+    (schema as { Association?: RawAssociation | RawAssociation[] } | undefined)?.Association,
+  )) {
+    associations.set(
+      a["@_Name"],
+      new Map(asArray(a.End).map((e) => [e["@_Role"], stripNamespace(e["@_Type"])])),
+    );
+  }
+  const associationEnd = (relationship?: string, role?: string): string | undefined =>
+    relationship && role ? associations.get(stripNamespace(relationship))?.get(role) : undefined;
+
   const sets = asArray<RawEntitySet>(
     (schema?.EntityContainer as { EntitySet?: RawEntitySet | RawEntitySet[] })?.EntitySet,
   );
@@ -94,7 +111,8 @@ export async function loadMetadata(client: ODataClient): Promise<MetadataMap> {
 
     const navigations: MetaNavigation[] = asArray<RawNav>(raw?.NavigationProperty).map((n) => ({
       name: n["@_Name"],
-      toType: stripNamespace(n["@_ToRole"] ?? ""),
+      // 1С пишет ToRole="End", а тип конца связи — в Association; без него берём роль как есть.
+      toType: associationEnd(n["@_Relationship"], n["@_ToRole"]) ?? stripNamespace(n["@_ToRole"] ?? ""),
       collection: false, // уточняется по Association; для карты достаточно имени
     }));
 

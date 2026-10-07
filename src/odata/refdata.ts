@@ -69,23 +69,44 @@ export async function contactKindsForCounterparties(conn: Connection): Promise<C
   return out;
 }
 
-/** Банк по БИК (Code в справочнике Банки; берём не-папку). */
+/**
+ * Банк по БИК. В РФ БИК обычно в Code; в казахстанской базе — в реквизите «БИК»
+ * (Code тогда порядковый). Ищем по Code, при отсутствии — по «БИК», если поле есть в $metadata.
+ */
 export async function resolveBankByBik(
   conn: Connection,
   bik: string,
 ): Promise<{ ref: string; name: string }> {
   const set = await requireEntity(conn, BANKS, "Справочник «Банки»");
-  const { rows } = await fetchAll(
+  const notFolder = cmp("IsFolder", "eq", "false");
+  const byCode = await fetchAll(
     conn.client,
     set,
     {
-      filter: and(cmp("Code", "eq", odataString(bik)), cmp("IsFolder", "eq", "false")),
+      filter: and(cmp("Code", "eq", odataString(bik)), notFolder),
       select: ["Ref_Key", "Description"],
     },
     3,
     3,
   );
-  const first = rows[0];
+  let first = byCode.rows[0];
+  if (!first) {
+    const meta = await conn.getMetadata();
+    const hasBik = !!meta.entities.get(set)?.properties.some((p) => p.name === "БИК");
+    if (hasBik) {
+      const byBik = await fetchAll(
+        conn.client,
+        set,
+        {
+          filter: and(cmp("БИК", "eq", odataString(bik)), notFolder),
+          select: ["Ref_Key", "Description"],
+        },
+        3,
+        3,
+      );
+      first = byBik.rows[0];
+    }
+  }
   if (!first) throw new InputError(`Банк с БИК ${bik} не найден в справочнике «Банки».`);
   return { ref: String(first["Ref_Key"]), name: String(first["Description"] ?? "") };
 }

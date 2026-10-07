@@ -6,6 +6,7 @@ import { CATALOGS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
 import { resolveOrgOrDefault } from "../odata/orgs.js";
 import { ensurePublished, requireEntity } from "../odata/publication.js";
 import { accountsByCode, nomenclatureAccounts, type NomAccounts } from "../odata/accounting.js";
+import { KZ_FLOW_BY_SET, kzFlowPostingWarnings } from "./kz-flow.js";
 import {
   contactKindsForCounterparties,
   resolveBankByBik,
@@ -39,6 +40,12 @@ import { getDocumentPostings } from "./registers.js";
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
 const COUNTERPARTY_TYPE = "StandardODATA.Catalog_Контрагенты";
+const ORGANIZATION_TYPE = "StandardODATA.Catalog_Организации";
+/** Платёжки, которые 1С (KZ) проводит только с «Оплачено» — для подсказки post_document. */
+const PAYMENT_ORDER_SETS = new Set([
+  "Document_ПлатежноеПоручениеИсходящее",
+  "Document_ПлатежноеПоручениеВходящее",
+]);
 
 /** Строит строки табличной части «КонтактнаяИнформация» из телефона/email/адреса. */
 function buildContactRows(
@@ -1087,6 +1094,9 @@ export async function withDefaultContract(
   };
 }
 
+/** Документы, где договор необязателен (сверка по всем договорам контрагента). */
+const CONTRACT_OPTIONAL = new Set(["Document_АктСверкиВзаиморасчетов"]);
+
 /**
  * Перед проведением: документ с контрагентом, но без договора 1С (БП 3.0) не проводит, причём падает
  * невнятной ошибкой модуля прослеживаемости. Говорим причину заранее, понятным текстом.
@@ -1096,6 +1106,7 @@ async function missingContract(
   entitySet: string,
   guid: string,
 ): Promise<string | undefined> {
+  if (CONTRACT_OPTIONAL.has(entitySet)) return undefined;
   const em = (await conn.getMetadata()).entities.get(entitySet);
   const props = new Set(em?.properties.map((p) => p.name) ?? []);
   if (!props.has("ДоговорКонтрагента_Key") || !props.has("Контрагент_Key")) return undefined;
@@ -1106,7 +1117,7 @@ async function missingContract(
   if (empty(doc["Контрагент_Key"]) || !empty(doc["ДоговорКонтрагента_Key"])) return undefined;
   return (
     "В документе не заполнен договор с контрагентом — 1С его не проведёт. Укажите договор " +
-    '(write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
+    '(write.document.update_document или write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
     "если договора нет — создайте его (write.catalog.create_contract, вид уточните у пользователя)."
   );
 }
@@ -1296,6 +1307,19 @@ async function createSubordinate(
     description: created["Description"],
     ...(main ? { setAsMain: true } : {}),
   });
+}
+
+/** Тело ответа 1С для сообщения: HTML-страницу сервиса не вываливаем целиком. */
+export function describeBody(body: string | undefined | null): string {
+  if (!body) return "(пустое тело)";
+  if (/^\s*<!DOCTYPE HTML|^\s*<html/i.test(body)) {
+    const title = /<title>([^<]*)<\/title>/i.exec(body)?.[1]?.trim();
+    return (
+      `HTML-страница сервиса${title ? ` «${title}»` : ""} вместо ответа OData — 1С прервала проведение исключением, ` +
+      "текст ошибки через OData не передаётся. Причину видно при проведении документа в интерфейсе 1С."
+    );
+  }
+  return body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
 }
 
 export function registerWriteTools(server: McpServer, ctx: ServerContext): void {
@@ -1492,7 +1516,18 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         const conn = ctx.db(database);
         const set = await resolveSet(conn, CATALOGS.counterparties, "Контрагенты");
         if (await isKazakhstan(conn)) {
-          const kz = kzCounterpartyPayload({ name, inn, kpp, ogrn, kbe, fullName, legalType, phone, email, address });
+          const kz = kzCounterpartyPayload({
+            name,
+            inn,
+            kpp,
+            ogrn,
+            kbe,
+            fullName,
+            legalType,
+            phone,
+            email,
+            address,
+          });
           return createOrPreview(conn, set, clean(kz.payload), confirm, kz.notes);
         }
         if (kbe) throw new InputError("КБЕ есть только в казахстанской базе.");
@@ -1586,7 +1621,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           Parent_Key: parentRef,
           ...(isService ? { Услуга: true } : {}),
           // В Казахстане единица — в карточке: без неё строки счёта уходят без единицы измерения.
-          ...((await isKazakhstan(conn)) ? { НаименованиеПолное: fullName ?? name, БазоваяЕдиницаИзмерения_Key: await unitRef(conn) } : {}),
+          ...((await isKazakhstan(conn))
+            ? { НаименованиеПолное: fullName ?? name, БазоваяЕдиницаИзмерения_Key: await unitRef(conn) }
+            : {}),
         });
         return createOrPreview(conn, set, payload, confirm);
       }),
@@ -1671,7 +1708,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           const payload = clean({
             Description: name ?? `Договор ${num}`,
             НомерДоговора: num,
-            ДатаДоговора: odataDate(date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0))),
+            ДатаДоговора: odataDate(
+              date ? new Date(`${date}T00:00:00`) : new Date(new Date().setHours(0, 0, 0, 0)),
+            ),
             Owner_Key: counterpartyRef,
             ВидДоговора: kind,
             Организация_Key: org.key,
@@ -1760,13 +1799,17 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             СуммаВключаетНДС: kz.withVat && sumIncludesVat,
             СуммаДокумента: kz.total,
             // Банковский счёт организации — составная ссылка «Структурная единица».
-            ...(bank ? { СтруктурнаяЕдиница: bank, СтруктурнаяЕдиница_Type: "StandardODATA.Catalog_БанковскиеСчета" } : {}),
+            ...(bank
+              ? { СтруктурнаяЕдиница: bank, СтруктурнаяЕдиница_Type: "StandardODATA.Catalog_БанковскиеСчета" }
+              : {}),
             ...(kz.goods.length ? { Товары: kz.goods } : {}),
             ...(kz.services.length ? { Услуги: kz.services } : {}),
           });
           const notes = bank
             ? []
-            : ["У организации нет банковского счёта — в счёте не будет реквизитов для оплаты. Добавьте счёт в 1С."];
+            : [
+                "У организации нет банковского счёта — в счёте не будет реквизитов для оплаты. Добавьте счёт в 1С.",
+              ];
           return createOrPreview(conn, set, payload, confirm, notes);
         }
         const rows = buildInvoiceRows(lines);
@@ -1810,10 +1853,30 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         const action = post ? "Post" : "Unpost";
         const path = `${entitySet}(guid'${guid}')/${action}?$format=json`;
         if (!confirm) {
+          const notes: string[] = [];
+          if (post && PAYMENT_ORDER_SETS.has(entitySet)) {
+            try {
+              const st = await conn.client.getEntity(
+                `${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`,
+              );
+              if (st["Оплачено"] !== true)
+                notes.push(
+                  "Оплачено=false — 1С ответит 200, но платёжку не проведёт. Проводят по факту выписки банка: " +
+                    "Оплачено=true и ДатаВыписки (write.document.update_document) с согласия пользователя.",
+                );
+            } catch {
+              /* подсказка необязательна */
+            }
+          }
+          if (post) {
+            const missing = await missingContract(conn, entitySet, guid);
+            if (missing) notes.push(missing);
+          }
           return ok({
             dryRun: true,
             database: conn.cfg.name,
             willCall: `${entitySet}(${guid})/${action}`,
+            ...(notes.length ? { notes } : {}),
             note: "Предпросмотр. Чтобы применить, повторите с confirm=true.",
           });
         }
@@ -1821,7 +1884,50 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           const missing = await missingContract(conn, entitySet, guid);
           if (missing) return fail(missing);
         }
-        await conn.client.action(path);
+        // Состояние до и после действия: 1С может ответить 2xx, но документ не провести
+        // (напр. платёжка без «Оплачено» записывается без проведения). Успех — только по Posted.
+        const docPath = `${entitySet}(guid'${guid}')?$format=json&$select=Posted,DataVersion`;
+        const before = await conn.client.getEntity(docPath);
+        const raw = await conn.client.actionRaw(path);
+        const after = await conn.client.getEntity(docPath);
+        const postedAfter = after["Posted"] === true;
+        const http = {
+          status: raw.status,
+          body: raw.body.length > 2000 ? `${raw.body.slice(0, 2000)}…` : raw.body,
+        };
+        const versions = {
+          postedBefore: before["Posted"] === true,
+          postedAfter,
+          dataVersionBefore: before["DataVersion"],
+          dataVersionAfter: after["DataVersion"],
+        };
+        if (postedAfter !== post) {
+          let hint = "";
+          if (post && PAYMENT_ORDER_SETS.has(entitySet)) {
+            try {
+              const st = await conn.client.getEntity(
+                `${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`,
+              );
+              if (st["Оплачено"] !== true)
+                hint =
+                  ` У платёжного поручения Оплачено=false (ДатаВыписки=${String(st["ДатаВыписки"])}): ` +
+                  "1С записывает такую платёжку без проведения и движений. Оплачено=true ставят только " +
+                  "с согласия пользователя (факт списания по выписке банка), не обходом.";
+            } catch {
+              /* подсказка необязательна */
+            }
+          }
+          if (!hint && post) {
+            const flow = KZ_FLOW_BY_SET.get(entitySet);
+            if (flow?.postFailureHint) hint = ` ${flow.postFailureHint}`;
+          }
+          return fail(
+            `1С ответила HTTP ${raw.status} на ${action}, но документ ${post ? "НЕ проведён" : "остался проведённым"} ` +
+              `(Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}).` +
+              hint +
+              ` Ответ 1С: ${describeBody(http.body)}`,
+          );
+        }
         // Что провёл документ — сразу в ответе: проводки по регистру Хозрасчетный.
         // Сбой чтения проводок не отменяет проведения, только поясняется.
         let postings: Record<string, unknown> = {};
@@ -1839,7 +1945,10 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
                 ? { postingsNote: "Документ проведён, но проводок по бухгалтерскому учёту не сформировал." }
                 : {}),
             };
-            const warnings = kzPostingWarnings(entitySet, p.byCorrespondence);
+            const warnings = [
+              ...kzPostingWarnings(entitySet, p.byCorrespondence),
+              ...((await isKazakhstan(conn)) ? kzFlowPostingWarnings(entitySet, p.byCorrespondence) : []),
+            ];
             if (warnings.length) postings["warnings"] = warnings;
           } catch (e) {
             postings = {
@@ -1847,7 +1956,16 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             };
           }
         }
-        return ok({ done: true, database: conn.cfg.name, ref: guid, action, ...postings });
+        return ok({
+          done: true,
+          database: conn.cfg.name,
+          ref: guid,
+          action,
+          posted: postedAfter,
+          ...versions,
+          http,
+          ...postings,
+        });
       }),
   );
 
@@ -3384,35 +3502,51 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
   server.registerTool(
     "write.counterparty.create_bank_account",
     {
-      title: "Создать банковский счёт контрагента",
+      title: "Создать банковский счёт (контрагент или организация)",
       description:
-        "Заводит расчётный счёт контрагента (подчинённый справочник): банк по БИК + номер счёта. " +
-        "Можно сделать счёт основным. По умолчанию dry-run; создание — при confirm=true. " +
-        "Ref контрагента — из find_counterparty.",
+        "Заводит расчётный счёт в справочнике «Банковские счета»: банк по БИК + номер счёта. " +
+        "Владелец — контрагент (по умолчанию) или организация (ownerKind=organization). " +
+        "Можно сделать счёт основным (ОсновнойБанковскийСчет_Key у владельца). " +
+        "По умолчанию dry-run; создание — при confirm=true. " +
+        "Валюта: код/название; в казахстанской базе без указания — тенге (398).",
       inputSchema: {
         database: databaseField,
-        ownerRef: z.string().describe("Ref_Key контрагента-владельца счёта"),
+        ownerRef: z.string().describe("Ref_Key владельца счёта (контрагент или организация)"),
+        ownerKind: z
+          .enum(["counterparty", "organization"])
+          .default("counterparty")
+          .describe(
+            "Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)",
+          ),
         accountNumber: z.string().min(1).describe("Номер расчётного счёта"),
         bik: z.string().min(1).describe("БИК банка (ищется в справочнике «Банки»)"),
-        currency: z.string().optional().describe("Валюта (код/название; по умолчанию рубль)"),
+        currency: z.string().optional().describe("Валюта (код/название; РФ — 643, Казахстан — 398/KZT)"),
         label: z.string().optional().describe("Наименование счёта (по умолчанию — номер счёта)"),
-        makeMain: z.boolean().default(false).describe("Сделать основным банковским счётом контрагента"),
+        makeMain: z.boolean().default(false).describe("Сделать основным банковским счётом владельца"),
         confirm: confirmField,
       },
       outputSchema: createResultSchema,
     },
-    ({ database, ownerRef, accountNumber, bik, currency, label, makeMain, confirm }) =>
+    ({ database, ownerRef, ownerKind, accountNumber, bik, currency, label, makeMain, confirm }) =>
       guard("write.counterparty.create_bank_account", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, CATALOGS.bankAccounts, "Справочник «Банковские счета»");
         const bank = await resolveBankByBik(conn, bik);
+        const kz = await isKazakhstan(conn);
         const cur = currency
           ? await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", currency)
-          : await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "643");
+          : kz
+            ? {
+                ref:
+                  (await tengeRef(conn)) ??
+                  (await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "398")).ref,
+              }
+            : await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "643");
+        const forOrg = ownerKind === "organization";
         const payload = clean({
           Description: label ?? accountNumber,
           Owner: ownerRef,
-          Owner_Type: COUNTERPARTY_TYPE,
+          Owner_Type: forOrg ? ORGANIZATION_TYPE : COUNTERPARTY_TYPE,
           НомерСчета: accountNumber,
           Банк_Key: bank.ref,
           ВалютаДенежныхСредств_Key: cur.ref,
@@ -3424,7 +3558,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           confirm,
           makeMain
             ? {
-                ownerSet: await resolveSet(conn, CATALOGS.counterparties, "Контрагенты"),
+                ownerSet: forOrg
+                  ? await resolveSet(conn, CATALOGS.organizations, "Организации")
+                  : await resolveSet(conn, CATALOGS.counterparties, "Контрагенты"),
                 ownerRef,
                 field: "ОсновнойБанковскийСчет_Key",
               }

@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 71 инструмент: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 72 инструмента: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -34,9 +34,7 @@
     "entry_point": "dist/index.js",
     "mcp_config": {
       "command": "node",
-      "args": [
-        "${__dirname}/dist/index.js"
-      ],
+      "args": ["${__dirname}/dist/index.js"],
       "env": {
         "ODATA_BASE_URL": "${user_config.base_url}",
         "ODATA_USERNAME": "${user_config.username}",
@@ -83,11 +81,7 @@
   },
   "compatibility": {
     "claude_desktop": ">=0.10.0",
-    "platforms": [
-      "darwin",
-      "win32",
-      "linux"
-    ],
+    "platforms": ["darwin", "win32", "linux"],
     "runtimes": {
       "node": ">=20.0.0"
     }
@@ -154,10 +148,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "ref",
-                "name"
-              ],
+              "required": ["ref", "name"],
               "additionalProperties": {}
             }
           },
@@ -174,12 +165,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "database",
-          "rows",
-          "count",
-          "truncated"
-        ],
+        "required": ["database", "rows", "count", "truncated"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -221,14 +207,37 @@
             "type": "string"
           }
         },
-        "required": [
-          "database",
-          "profile",
-          "blockedReads",
-          "writePolicy"
-        ],
+        "required": ["database", "profile", "blockedReads", "writePolicy"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.system.kz_document_guide",
+      "title": "Справочник флоу бухгалтера (Казахстан): документы, проводки, нормы НК",
+      "description": "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги). Ничего не читает из 1С.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entitySet": {
+            "description": "Документ, напр. Document_РеализацияТоваровУслуг",
+            "type": "string"
+          },
+          "block": {
+            "description": "Блок флоу, напр. «деньги»",
+            "type": "string"
+          },
+          "withRates": {
+            "default": true,
+            "description": "Добавить ставки 2026, КНП и КБК",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -265,17 +274,12 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "name",
-                "isDefault"
-              ],
+              "required": ["name", "isDefault"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "databases"
-        ],
+        "required": ["databases"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -347,22 +351,11 @@
                 "type": "string"
               }
             },
-            "required": [
-              "dir",
-              "writable",
-              "uncertainOperations",
-              "note"
-            ],
+            "required": ["dir", "writable", "uncertainOperations", "note"],
             "additionalProperties": false
           }
         },
-        "required": [
-          "status",
-          "database",
-          "entityCount",
-          "baseUrl",
-          "readOnly"
-        ],
+        "required": ["status", "database", "entityCount", "baseUrl", "readOnly"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -406,18 +399,12 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "ref",
-                "name"
-              ],
+              "required": ["ref", "name"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "count",
-          "organizations"
-        ],
+        "required": ["count", "organizations"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -483,19 +470,13 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "entitySet",
-                  "name"
-                ],
+                "required": ["entitySet", "name"],
                 "additionalProperties": {}
               }
             }
           }
         },
-        "required": [
-          "database",
-          "groups"
-        ],
+        "required": ["database", "groups"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -520,9 +501,7 @@
             "description": "Техническое имя объекта, напр. Catalog_Контрагенты"
           }
         },
-        "required": [
-          "entitySet"
-        ],
+        "required": ["entitySet"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -555,11 +534,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "name",
-                "type",
-                "nullable"
-              ],
+              "required": ["name", "type", "nullable"],
               "additionalProperties": {}
             }
           },
@@ -570,13 +545,7 @@
             }
           }
         },
-        "required": [
-          "entitySet",
-          "class",
-          "keys",
-          "fields",
-          "relations"
-        ],
+        "required": ["entitySet", "class", "keys", "fields", "relations"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -641,10 +610,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "ref",
-                "name"
-              ],
+              "required": ["ref", "name"],
               "additionalProperties": {}
             }
           },
@@ -658,11 +624,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "rows",
-          "count",
-          "truncated"
-        ],
+        "required": ["rows", "count", "truncated"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -687,9 +649,7 @@
             "description": "Ref_Key контрагента (GUID)"
           }
         },
-        "required": [
-          "ref"
-        ],
+        "required": ["ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -717,10 +677,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "ref",
-          "name"
-        ],
+        "required": ["ref", "name"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -764,9 +721,7 @@
             "maximum": 500
           }
         },
-        "required": [
-          "ref"
-        ],
+        "required": ["ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -823,11 +778,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "ref",
-                "type",
-                "entitySet"
-              ],
+              "required": ["ref", "type", "entitySet"],
               "additionalProperties": {}
             }
           },
@@ -841,13 +792,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "counterparty",
-          "period",
-          "rows",
-          "count",
-          "truncated"
-        ],
+        "required": ["counterparty", "period", "rows", "count", "truncated"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -891,9 +836,7 @@
             "maximum": 500
           }
         },
-        "required": [
-          "ref"
-        ],
+        "required": ["ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -950,11 +893,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "ref",
-                "type",
-                "entitySet"
-              ],
+              "required": ["ref", "type", "entitySet"],
               "additionalProperties": {}
             }
           },
@@ -968,13 +907,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "counterparty",
-          "period",
-          "rows",
-          "count",
-          "truncated"
-        ],
+        "required": ["counterparty", "period", "rows", "count", "truncated"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -1031,9 +964,7 @@
             "maximum": 500
           }
         },
-        "required": [
-          "entitySet"
-        ],
+        "required": ["entitySet"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1075,11 +1006,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "ref",
-                "type",
-                "entitySet"
-              ],
+              "required": ["ref", "type", "entitySet"],
               "additionalProperties": {}
             }
           },
@@ -1096,11 +1023,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "rows",
-          "count",
-          "truncated"
-        ],
+        "required": ["rows", "count", "truncated"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -1129,10 +1052,7 @@
             "description": "Ref_Key документа (GUID)"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1172,10 +1092,7 @@
             "description": "Дата конца периода (YYYY-MM-DD)"
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1197,10 +1114,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "total": {
@@ -1231,19 +1145,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "period",
-          "total",
-          "byDocument",
-          "scan"
-        ],
+        "required": ["database", "period", "total", "byDocument", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -1278,10 +1184,7 @@
             "description": "Дата конца периода (YYYY-MM-DD)"
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1303,10 +1206,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "inflow": {
@@ -1343,21 +1243,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "period",
-          "inflow",
-          "outflow",
-          "net",
-          "byDocument",
-          "scan"
-        ],
+        "required": ["database", "period", "inflow", "outflow", "net", "byDocument", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -1435,11 +1325,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "counterparty",
-                "ref",
-                "amount"
-              ],
+              "required": ["counterparty", "ref", "amount"],
               "additionalProperties": {}
             }
           },
@@ -1459,20 +1345,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "accounts",
-          "totalReceivable",
-          "count",
-          "debtors",
-          "scan"
-        ],
+        "required": ["database", "accounts", "totalReceivable", "count", "debtors", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -1519,11 +1396,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "account",
-          "from",
-          "to"
-        ],
+        "required": ["account", "from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1548,10 +1421,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "openingDebit": {
@@ -1647,9 +1517,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -1697,10 +1565,7 @@
             "description": "Ref_Key документа (GUID)"
           }
         },
-        "required": [
-          "documentEntity",
-          "documentRef"
-        ],
+        "required": ["documentEntity", "documentRef"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -1746,10 +1611,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "entitySet",
-              "ref"
-            ],
+            "required": ["entitySet", "ref"],
             "additionalProperties": {}
           },
           "postingsCount": {
@@ -1807,9 +1669,7 @@
                                 "type": "string"
                               }
                             },
-                            "required": [
-                              "index"
-                            ],
+                            "required": ["index"],
                             "additionalProperties": {}
                           }
                         },
@@ -1817,11 +1677,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "accountCode",
-                        "accountName",
-                        "accountRef"
-                      ],
+                      "required": ["accountCode", "accountName", "accountRef"],
                       "additionalProperties": {}
                     },
                     {
@@ -1861,9 +1717,7 @@
                                 "type": "string"
                               }
                             },
-                            "required": [
-                              "index"
-                            ],
+                            "required": ["index"],
                             "additionalProperties": {}
                           }
                         },
@@ -1871,11 +1725,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "accountCode",
-                        "accountName",
-                        "accountRef"
-                      ],
+                      "required": ["accountCode", "accountName", "accountRef"],
                       "additionalProperties": {}
                     },
                     {
@@ -1905,12 +1755,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "period",
-                "debit",
-                "credit",
-                "amount"
-              ],
+              "required": ["period", "debit", "credit", "amount"],
               "additionalProperties": {}
             }
           },
@@ -1920,16 +1765,10 @@
               "type": "object",
               "properties": {
                 "debitAccount": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "creditAccount": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                  "type": ["string", "null"]
                 },
                 "amount": {
                   "type": "number"
@@ -1938,12 +1777,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "debitAccount",
-                "creditAccount",
-                "amount",
-                "entries"
-              ],
+              "required": ["debitAccount", "creditAccount", "amount", "entries"],
               "additionalProperties": {}
             }
           },
@@ -1960,10 +1794,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "entitySet",
-              "filter"
-            ],
+            "required": ["entitySet", "filter"],
             "additionalProperties": {}
           },
           "scan": {
@@ -1982,9 +1813,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -2079,12 +1908,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "item",
-                "ref",
-                "quantity",
-                "amount"
-              ],
+              "required": ["item", "ref", "quantity", "amount"],
               "additionalProperties": {}
             }
           },
@@ -2104,20 +1928,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "accounts",
-          "totalAmount",
-          "count",
-          "items",
-          "scan"
-        ],
+        "required": ["database", "accounts", "totalAmount", "count", "items", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -2155,11 +1970,7 @@
             "default": "both",
             "description": "in — приход, out — расход, both — оба (по умолчанию)",
             "type": "string",
-            "enum": [
-              "in",
-              "out",
-              "both"
-            ]
+            "enum": ["in", "out", "both"]
           },
           "counterpartyRef": {
             "description": "Ref_Key контрагента (из find_counterparty)",
@@ -2168,13 +1979,7 @@
           "counterpartyKind": {
             "description": "Категория контрагента: ИП, ЮрЛицо, ФизЛицо (без ИП), Нерезидент, Госорган. Берётся из справочника по полям ЮридическоеФизическоеЛицо / ИндивидуальныйПредприниматель и т.п.",
             "type": "string",
-            "enum": [
-              "ИП",
-              "ЮрЛицо",
-              "ФизЛицо",
-              "Нерезидент",
-              "Госорган"
-            ]
+            "enum": ["ИП", "ЮрЛицо", "ФизЛицо", "Нерезидент", "Госорган"]
           },
           "cashflowItem": {
             "description": "Статья ДДС: код (напр. «00-000006»), часть наименования (напр. «Аренда») или Ref_Key",
@@ -2192,19 +1997,10 @@
             "default": "operation",
             "description": "Разбивка: operation (вид операции), month (месяц), counterparty (контрагент), cashflowItem (статья ДДС), total (без разбивки)",
             "type": "string",
-            "enum": [
-              "operation",
-              "month",
-              "counterparty",
-              "cashflowItem",
-              "total"
-            ]
+            "enum": ["operation", "month", "counterparty", "cashflowItem", "total"]
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -2226,10 +2022,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "direction": {
@@ -2278,11 +2071,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "label",
-                "count",
-                "sum"
-              ],
+              "required": ["label", "count", "sum"],
               "additionalProperties": {}
             }
           },
@@ -2302,9 +2091,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -2442,12 +2229,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "date",
-                "entitySet",
-                "direction",
-                "amount"
-              ],
+              "required": ["date", "entitySet", "direction", "amount"],
               "additionalProperties": {}
             }
           },
@@ -2470,22 +2252,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "filters",
-          "events",
-          "inflow",
-          "outflow",
-          "net",
-          "items",
-          "scan"
-        ],
+        "required": ["database", "filters", "events", "inflow", "outflow", "net", "items", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -2527,18 +2298,10 @@
             "default": "cashflowItem",
             "description": "Разбивка: cashflowItem (по налогу) / month / counterparty / total",
             "type": "string",
-            "enum": [
-              "cashflowItem",
-              "month",
-              "counterparty",
-              "total"
-            ]
+            "enum": ["cashflowItem", "month", "counterparty", "total"]
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -2560,10 +2323,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "filters": {
@@ -2603,11 +2363,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "label",
-                "count",
-                "sum"
-              ],
+              "required": ["label", "count", "sum"],
               "additionalProperties": {}
             }
           },
@@ -2627,22 +2383,11 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
-        "required": [
-          "database",
-          "period",
-          "filters",
-          "groupBy",
-          "documents",
-          "total",
-          "groups",
-          "scan"
-        ],
+        "required": ["database", "period", "filters", "groupBy", "documents", "total", "groups", "scan"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -2683,13 +2428,7 @@
           "counterpartyKind": {
             "description": "Категория контрагента: ИП, ЮрЛицо, ФизЛицо (без ИП), Нерезидент, Госорган",
             "type": "string",
-            "enum": [
-              "ИП",
-              "ЮрЛицо",
-              "ФизЛицо",
-              "Нерезидент",
-              "Госорган"
-            ]
+            "enum": ["ИП", "ЮрЛицо", "ФизЛицо", "Нерезидент", "Госорган"]
           },
           "contractRef": {
             "description": "Ref_Key договора (точечный фильтр)",
@@ -2699,12 +2438,7 @@
             "default": "counterparty",
             "description": "Разбивка: counterparty (контрагент), month (месяц), contract (договор), total (без разбивки)",
             "type": "string",
-            "enum": [
-              "counterparty",
-              "month",
-              "contract",
-              "total"
-            ]
+            "enum": ["counterparty", "month", "contract", "total"]
           },
           "limit": {
             "default": 50,
@@ -2714,10 +2448,7 @@
             "maximum": 1000
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -2739,10 +2470,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "filters": {
@@ -2785,11 +2513,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "label",
-                "count",
-                "sum"
-              ],
+              "required": ["label", "count", "sum"],
               "additionalProperties": {}
             }
           },
@@ -2809,9 +2533,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -2866,13 +2588,7 @@
           "counterpartyKind": {
             "description": "Категория контрагента: ИП, ЮрЛицо, ФизЛицо (без ИП), Нерезидент, Госорган",
             "type": "string",
-            "enum": [
-              "ИП",
-              "ЮрЛицо",
-              "ФизЛицо",
-              "Нерезидент",
-              "Госорган"
-            ]
+            "enum": ["ИП", "ЮрЛицо", "ФизЛицо", "Нерезидент", "Госорган"]
           },
           "contractRef": {
             "description": "Ref_Key договора (точечный фильтр)",
@@ -2882,12 +2598,7 @@
             "default": "counterparty",
             "description": "Разбивка: counterparty (контрагент), month (месяц), contract (договор), total (без разбивки)",
             "type": "string",
-            "enum": [
-              "counterparty",
-              "month",
-              "contract",
-              "total"
-            ]
+            "enum": ["counterparty", "month", "contract", "total"]
           },
           "limit": {
             "default": 50,
@@ -2897,10 +2608,7 @@
             "maximum": 1000
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -2922,10 +2630,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "filters": {
@@ -2968,11 +2673,7 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "label",
-                "count",
-                "sum"
-              ],
+              "required": ["label", "count", "sum"],
               "additionalProperties": {}
             }
           },
@@ -2992,9 +2693,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -3078,9 +2777,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "code"
-            ],
+            "required": ["code"],
             "additionalProperties": {}
           },
           "taxAuthority": {
@@ -3107,10 +2804,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "kind",
-                "value"
-              ],
+              "required": ["kind", "value"],
               "additionalProperties": {}
             }
           },
@@ -3130,10 +2824,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "name",
-                  "bik"
-                ],
+                "required": ["name", "bik"],
                 "additionalProperties": {}
               },
               "currency": {
@@ -3146,10 +2837,7 @@
                     "type": "string"
                   }
                 },
-                "required": [
-                  "name",
-                  "code"
-                ],
+                "required": ["name", "code"],
                 "additionalProperties": {}
               }
             },
@@ -3162,9 +2850,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "fullName"
-            ],
+            "required": ["fullName"],
             "additionalProperties": {}
           },
           "accountant": {
@@ -3174,9 +2860,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "fullName"
-            ],
+            "required": ["fullName"],
             "additionalProperties": {}
           },
           "notes": {
@@ -3186,10 +2870,7 @@
             }
           }
         },
-        "required": [
-          "database",
-          "ref"
-        ],
+        "required": ["database", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3220,10 +2901,7 @@
             "description": "Ref_Key документа (GUID)"
           }
         },
-        "required": [
-          "documentEntity",
-          "documentRef"
-        ],
+        "required": ["documentEntity", "documentRef"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -3266,10 +2944,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "entitySet",
-              "ref"
-            ],
+            "required": ["entitySet", "ref"],
             "additionalProperties": {}
           },
           "timestamps": {
@@ -3289,21 +2964,13 @@
                   },
                   "confidence": {
                     "type": "string",
-                    "enum": [
-                      "verified",
-                      "derived",
-                      "uncertain"
-                    ]
+                    "enum": ["verified", "derived", "uncertain"]
                   },
                   "description": {
                     "type": "string"
                   }
                 },
-                "required": [
-                  "value",
-                  "source",
-                  "confidence"
-                ],
+                "required": ["value", "source", "confidence"],
                 "additionalProperties": {}
               }
             },
@@ -3320,12 +2987,7 @@
               },
               "resolution": {
                 "type": "string",
-                "enum": [
-                  "resolved",
-                  "not_found",
-                  "catalog_not_published",
-                  "lookup_failed"
-                ]
+                "enum": ["resolved", "not_found", "catalog_not_published", "lookup_failed"]
               },
               "source": {
                 "type": "string"
@@ -3334,11 +2996,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "ref",
-              "resolution",
-              "source"
-            ],
+            "required": ["ref", "resolution", "source"],
             "additionalProperties": {}
           },
           "accountingMovements": {
@@ -3346,12 +3004,7 @@
             "properties": {
               "status": {
                 "type": "string",
-                "enum": [
-                  "exists",
-                  "none",
-                  "unsupported",
-                  "error"
-                ]
+                "enum": ["exists", "none", "unsupported", "error"]
               },
               "exists": {
                 "type": "boolean"
@@ -3366,9 +3019,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "status"
-            ],
+            "required": ["status"],
             "additionalProperties": {}
           },
           "evidence": {
@@ -3399,11 +3050,7 @@
                   "additionalProperties": {}
                 }
               },
-              "required": [
-                "sourceEntity",
-                "sourceField",
-                "description"
-              ],
+              "required": ["sourceEntity", "sourceField", "description"],
               "additionalProperties": {}
             }
           },
@@ -3429,9 +3076,7 @@
                 "type": "number"
               }
             },
-            "required": [
-              "elapsedMs"
-            ],
+            "required": ["elapsedMs"],
             "additionalProperties": {}
           }
         },
@@ -3505,20 +3150,12 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "name",
-                "ref"
-              ],
+              "required": ["name", "ref"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "count",
-          "truncated",
-          "employees"
-        ],
+        "required": ["database", "count", "truncated", "employees"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3582,21 +3219,12 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "person",
-                "ref",
-                "amount"
-              ],
+              "required": ["person", "ref", "amount"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "totalOwed",
-          "count",
-          "people"
-        ],
+        "required": ["database", "totalOwed", "count", "people"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3631,10 +3259,7 @@
             "description": "Конец периода (месяц регистрации) (YYYY-MM-DD)"
           }
         },
-        "required": [
-          "from",
-          "to"
-        ],
+        "required": ["from", "to"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -3653,10 +3278,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "from",
-              "to"
-            ],
+            "required": ["from", "to"],
             "additionalProperties": false
           },
           "total": {
@@ -3680,22 +3302,12 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "employee",
-                "ref",
-                "total"
-              ],
+              "required": ["employee", "ref", "total"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "period",
-          "total",
-          "documents",
-          "employees"
-        ],
+        "required": ["database", "period", "total", "documents", "employees"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3780,19 +3392,12 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "ref"
-              ],
+              "required": ["ref"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "count",
-          "truncated",
-          "esf"
-        ],
+        "required": ["database", "count", "truncated", "esf"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3860,19 +3465,12 @@
                   "type": "number"
                 }
               },
-              "required": [
-                "nomenclature",
-                "price"
-              ],
+              "required": ["nomenclature", "price"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "count",
-          "prices"
-        ],
+        "required": ["database", "count", "prices"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3903,10 +3501,7 @@
             "description": "Ref_Key объекта-владельца"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -3933,20 +3528,12 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "ref",
-                "name"
-              ],
+              "required": ["ref", "name"],
               "additionalProperties": {}
             }
           }
         },
-        "required": [
-          "database",
-          "filesCatalog",
-          "count",
-          "files"
-        ],
+        "required": ["database", "filesCatalog", "count", "files"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -3983,10 +3570,7 @@
             "maximum": 20000000
           }
         },
-        "required": [
-          "filesCatalog",
-          "ref"
-        ],
+        "required": ["filesCatalog", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4008,13 +3592,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "database",
-          "name",
-          "mimeType",
-          "size",
-          "decoded"
-        ],
+        "required": ["database", "name", "mimeType", "size", "decoded"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -4041,9 +3619,7 @@
             "description": "operationId из предпросмотра создания"
           }
         },
-        "required": [
-          "operationId"
-        ],
+        "required": ["operationId"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4083,10 +3659,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "operationId",
-          "status"
-        ],
+        "required": ["operationId", "status"],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },
@@ -4131,10 +3704,7 @@
           "legalType": {
             "description": "Юридическое или физическое лицо",
             "type": "string",
-            "enum": [
-              "ЮридическоеЛицо",
-              "ФизическоеЛицо"
-            ]
+            "enum": ["ЮридическоеЛицо", "ФизическоеЛицо"]
           },
           "phone": {
             "description": "Телефон (в контактную информацию)",
@@ -4164,9 +3734,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4263,10 +3831,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4355,9 +3920,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4445,13 +4008,7 @@
           },
           "kind": {
             "type": "string",
-            "enum": [
-              "СПокупателем",
-              "СПоставщиком",
-              "Прочее",
-              "СКомиссионером",
-              "СКомитентом"
-            ],
+            "enum": ["СПокупателем", "СПоставщиком", "Прочее", "СКомиссионером", "СКомитентом"],
             "description": "Вид договора — ОБЯЗАТЕЛЬНО спросить у пользователя, не выбирать самому"
           },
           "number": {
@@ -4494,10 +4051,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "kind"
-        ],
+        "required": ["counterpartyRef", "kind"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4645,11 +4199,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции счёта"
           },
@@ -4665,10 +4215,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4765,10 +4312,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4818,12 +4362,7 @@
                 }
               }
             },
-            "required": [
-              "count",
-              "debitTotal",
-              "creditTotal",
-              "byCorrespondence"
-            ],
+            "required": ["count", "debitTotal", "creditTotal", "byCorrespondence"],
             "additionalProperties": false
           },
           "postingsNote": {
@@ -4864,12 +4403,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
+              "type": ["string", "number", "boolean", "null"]
             },
             "description": "Поля для изменения: { техническоеИмя: значение }"
           },
@@ -4879,11 +4413,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "entitySet",
-          "ref",
-          "fields"
-        ],
+        "required": ["entitySet", "ref", "fields"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -4997,9 +4527,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "ref"
-        ],
+        "required": ["ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5093,9 +4621,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "ref"
-        ],
+        "required": ["ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5237,11 +4763,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции документа"
           },
@@ -5257,10 +4779,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5420,11 +4939,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции счёта (товары и услуги в одной таблице)"
           },
@@ -5440,10 +4955,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5638,13 +5150,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "amount",
-          "number",
-          "purposeText",
-          "recipientText"
-        ],
+        "required": ["counterpartyRef", "amount", "number", "purposeText", "recipientText"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5808,11 +5314,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции документа"
           },
@@ -5832,10 +5334,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -5974,11 +5473,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Новый полный набор строк (заменяет прежние — реквизиты старых строк не сохраняются, задавайте content и счета заново)"
           },
@@ -5988,11 +5483,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "entitySet",
-          "ref",
-          "lines"
-        ],
+        "required": ["entitySet", "ref", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6150,11 +5641,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции документа"
           },
@@ -6170,10 +5657,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6321,11 +5805,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции документа"
           },
@@ -6341,10 +5821,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6460,10 +5937,7 @@
                   "minimum": 0
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity"
-              ]
+              "required": ["nomenclatureRef", "quantity"]
             },
             "description": "Позиции документа"
           },
@@ -6479,11 +5953,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "fromWarehouse",
-          "toWarehouse",
-          "lines"
-        ],
+        "required": ["fromWarehouse", "toWarehouse", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6599,10 +6069,7 @@
                   "minimum": 0
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity"
-              ]
+              "required": ["nomenclatureRef", "quantity"]
             },
             "description": "Позиции документа"
           },
@@ -6618,9 +6085,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "lines"
-        ],
+        "required": ["lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6736,10 +6201,7 @@
                   "minimum": 0
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity"
-              ]
+              "required": ["nomenclatureRef", "quantity"]
             },
             "description": "Позиции документа"
           },
@@ -6755,9 +6217,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "lines"
-        ],
+        "required": ["lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -6874,11 +6334,7 @@
                   "minimum": 0
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "factQuantity",
-                "accountingQuantity"
-              ]
+              "required": ["nomenclatureRef", "factQuantity", "accountingQuantity"]
             },
             "description": "Позиции инвентаризации"
           },
@@ -6894,9 +6350,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "lines"
-        ],
+        "required": ["lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7032,11 +6486,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "nomenclatureRef",
-              "quantity",
-              "price"
-            ],
+            "required": ["nomenclatureRef", "quantity", "price"],
             "description": "Добавляемая позиция"
           },
           "confirm": {
@@ -7051,11 +6501,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "entitySet",
-          "ref",
-          "line"
-        ],
+        "required": ["entitySet", "ref", "line"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7146,12 +6592,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
+              "type": ["string", "number", "boolean", "null"]
             }
           },
           "lines": {
@@ -7172,20 +6613,12 @@
                     "type": "string"
                   },
                   "additionalProperties": {
-                    "type": [
-                      "string",
-                      "number",
-                      "boolean",
-                      "null"
-                    ]
+                    "type": ["string", "number", "boolean", "null"]
                   },
                   "description": "Поля строки: { техническоеИмя: значение }, напр. {\"Количество\":4.3,\"Сумма\":10750,\"Содержание\":\"...\"}"
                 }
               },
-              "required": [
-                "lineNumber",
-                "fields"
-              ]
+              "required": ["lineNumber", "fields"]
             }
           },
           "confirm": {
@@ -7200,10 +6633,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7307,11 +6737,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "entitySet",
-          "ref",
-          "lineNumber"
-        ],
+        "required": ["entitySet", "ref", "lineNumber"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7469,11 +6895,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции-услуги"
           },
@@ -7489,10 +6911,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7656,11 +7075,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "nomenclatureRef",
-                "quantity",
-                "price"
-              ]
+              "required": ["nomenclatureRef", "quantity", "price"]
             },
             "description": "Позиции-услуги"
           },
@@ -7676,11 +7091,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "nomenclatureGroupRef",
-          "lines"
-        ],
+        "required": ["counterpartyRef", "nomenclatureGroupRef", "lines"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7795,11 +7206,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "counterpartyRef",
-          "contractRef",
-          "amount"
-        ],
+        "required": ["counterpartyRef", "contractRef", "amount"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -7930,10 +7337,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "operationKind",
-          "amount"
-        ],
+        "required": ["operationKind", "amount"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8064,10 +7468,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "operationKind",
-          "amount"
-        ],
+        "required": ["operationKind", "amount"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8198,10 +7599,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "operationKind",
-          "amount"
-        ],
+        "required": ["operationKind", "amount"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8307,9 +7705,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "baseDocumentRef"
-        ],
+        "required": ["baseDocumentRef"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8419,9 +7815,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "baseDocumentRef"
-        ],
+        "required": ["baseDocumentRef"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8490,8 +7884,8 @@
     },
     {
       "name": "write.counterparty.create_bank_account",
-      "title": "Создать банковский счёт контрагента",
-      "description": "Заводит расчётный счёт контрагента (подчинённый справочник): банк по БИК + номер счёта. Можно сделать счёт основным. По умолчанию dry-run; создание — при confirm=true. Ref контрагента — из find_counterparty.",
+      "title": "Создать банковский счёт (контрагент или организация)",
+      "description": "Заводит расчётный счёт в справочнике «Банковские счета»: банк по БИК + номер счёта. Владелец — контрагент (по умолчанию) или организация (ownerKind=organization). Можно сделать счёт основным (ОсновнойБанковскийСчет_Key у владельца). По умолчанию dry-run; создание — при confirm=true. Валюта: код/название; в казахстанской базе без указания — тенге (398).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8501,7 +7895,13 @@
           },
           "ownerRef": {
             "type": "string",
-            "description": "Ref_Key контрагента-владельца счёта"
+            "description": "Ref_Key владельца счёта (контрагент или организация)"
+          },
+          "ownerKind": {
+            "default": "counterparty",
+            "description": "Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)",
+            "type": "string",
+            "enum": ["counterparty", "organization"]
           },
           "accountNumber": {
             "type": "string",
@@ -8514,7 +7914,7 @@
             "description": "БИК банка (ищется в справочнике «Банки»)"
           },
           "currency": {
-            "description": "Валюта (код/название; по умолчанию рубль)",
+            "description": "Валюта (код/название; РФ — 643, Казахстан — 398/KZT)",
             "type": "string"
           },
           "label": {
@@ -8523,7 +7923,7 @@
           },
           "makeMain": {
             "default": false,
-            "description": "Сделать основным банковским счётом контрагента",
+            "description": "Сделать основным банковским счётом владельца",
             "type": "boolean"
           },
           "confirm": {
@@ -8538,11 +7938,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "ownerRef",
-          "accountNumber",
-          "bik"
-        ],
+        "required": ["ownerRef", "accountNumber", "bik"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8658,10 +8054,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "ownerRef",
-          "name"
-        ],
+        "required": ["ownerRef", "name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8765,9 +8158,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "name"
-        ],
+        "required": ["name"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8864,10 +8255,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "ref",
-          "folder"
-        ],
+        "required": ["ref", "folder"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -8930,8 +8318,8 @@
     },
     {
       "name": "write.document.create_document",
-      "title": "Создать документ (зарплата, налоги, выплата)",
-      "description": "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: начисление зарплаты, расчёт удержаний (ИПН/ОПВ/ВОСМС), расчёт СН и СО, единый платёж, отражение зарплаты в учёте, ведомость к выплате, платёжное поручение, перечисления в фонды, расходный кассовый ордер. Суммы и ставки считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц (read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
+      "title": "Создать документ (флоу бухгалтера: продажи, закупки, деньги, склад, зарплата, налоги)",
+      "description": "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: реализация, поступление, возвраты, счета-фактуры, ПП/платёжные ордера, ПКО/РКО, склад, авансовый отчёт, акт сверки, закрытие месяца, зарплата и кадры — список, схемы проводок и нормы НК РК: read.system.kz_document_guide. Счета учёта можно передать кодами Типового плана ('1330', для НУ — счёт Налогового плана) — сервер подставит ссылки; или взять из образца (sampleRef, другого вида — sampleEntitySet). Суммы и ставки считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц (read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8958,12 +8346,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
+              "type": ["string", "number", "boolean", "null"]
             },
             "description": "Реквизиты шапки: { техническоеИмя: значение }, напр. {\"ПериодРегистрации\":\"2026-09-01\",\"Организация_Key\":\"<GUID>\"}. Ссылки — поле <Имя>_Key с Ref_Key; даты — 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss'; перечисления — имя значения."
           },
@@ -8981,16 +8364,19 @@
                   "type": "string"
                 },
                 "additionalProperties": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["string", "number", "boolean", "null"]
                 }
               }
             },
             "description": "Табличные части: { ИмяТабличнойЧасти: [строки] }, напр. {\"Начисления\":[{\"Сотрудник_Key\":\"…\",\"Результат\":600000}]}. LineNumber проставляется сам. Поля строки — describe_entity по '<Документ>_<ТабличнаяЧасть>'."
+          },
+          "sampleRef": {
+            "description": "Ref_Key образца — проведённого документа того же вида, сделанного в 1С. Из него берутся только настройки учёта, которые вы не передали: счета (СчетУчета…, СчетДоходов…, СчетЗатрат…), субконто, ВидУчетаНУ, вид операции НДС — в шапке и в строках (строка образца с той же номенклатурой, иначе первая). Контрагент, суммы, даты, склад из образца НЕ берутся. Помеченный на удаление образец не принимается.",
+            "type": "string"
+          },
+          "sampleEntitySet": {
+            "description": "Вид документа образца, если он другой (напр. для возврата от покупателя — Document_РеализацияТоваровУслуг). Берутся только одноимённые поля учёта. По умолчанию — тот же entitySet.",
+            "type": "string"
           },
           "confirm": {
             "default": false,
@@ -9004,9 +8390,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
-        "required": [
-          "entitySet"
-        ],
+        "required": ["entitySet"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {
@@ -9099,12 +8483,7 @@
               "type": "string"
             },
             "additionalProperties": {
-              "type": [
-                "string",
-                "number",
-                "boolean",
-                "null"
-              ]
+              "type": ["string", "number", "boolean", "null"]
             },
             "description": "Реквизиты шапки: { техническоеИмя: значение }, напр. {\"ПериодРегистрации\":\"2026-09-01\",\"Организация_Key\":\"<GUID>\"}. Ссылки — поле <Имя>_Key с Ref_Key; даты — 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss'; перечисления — имя значения."
           },
@@ -9122,12 +8501,7 @@
                   "type": "string"
                 },
                 "additionalProperties": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["string", "number", "boolean", "null"]
                 }
               }
             },
@@ -9139,10 +8513,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "entitySet",
-          "ref"
-        ],
+        "required": ["entitySet", "ref"],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {

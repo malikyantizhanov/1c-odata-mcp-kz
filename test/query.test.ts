@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { odataString, odataGuid, contains, and, or, buildQuery, endOfDayBalancePeriod } from "../src/odata/query.js";
+import {
+  odataString,
+  odataGuid,
+  contains,
+  and,
+  or,
+  buildQuery,
+  endOfDayBalancePeriod,
+} from "../src/odata/query.js";
 
 describe("odataString", () => {
   it("оборачивает в одинарные кавычки", () => {

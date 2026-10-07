@@ -83,7 +83,12 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         offset: z.number().int().min(0).max(1000000).default(0),
       },
       outputSchema: z
-        .object({ database: z.string(), count: z.number(), truncated: z.boolean(), esf: z.array(z.object({ ref: z.string() }).passthrough()) })
+        .object({
+          database: z.string(),
+          count: z.number(),
+          truncated: z.boolean(),
+          esf: z.array(z.object({ ref: z.string() }).passthrough()),
+        })
         .passthrough(),
     },
     ({ database, organization, from, to, direction, status, counterpartyRef, limit, offset }) =>
@@ -105,8 +110,18 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
               counterpartyRef ? cmp("Контрагент_Key", "eq", odataGuid(guidOf(counterpartyRef))) : undefined,
             ),
             select: [
-              "Ref_Key", "Number", "Date", "РегистрационныйНомер", "Направление", "Статус", "Состояние", "Вид",
-              "ДатаОборота", "Контрагент_Key", "СуммаДокумента", "Причина",
+              "Ref_Key",
+              "Number",
+              "Date",
+              "РегистрационныйНомер",
+              "Направление",
+              "Статус",
+              "Состояние",
+              "Вид",
+              "ДатаОборота",
+              "Контрагент_Key",
+              "СуммаДокумента",
+              "Причина",
             ],
             orderby: "Date desc",
             skip: offset,
@@ -115,7 +130,13 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           limit,
         );
         const cpSet = resolveEntity(CATALOGS.counterparties, await conn.available());
-        const names = cpSet ? await resolveNames(conn, cpSet, rows.map((r) => String(r["Контрагент_Key"] ?? ""))) : new Map<string, string>();
+        const names = cpSet
+          ? await resolveNames(
+              conn,
+              cpSet,
+              rows.map((r) => String(r["Контрагент_Key"] ?? "")),
+            )
+          : new Map<string, string>();
         const esf = rows.map((r) => ({
           ref: String(r["Ref_Key"]),
           number: String(r["Number"] ?? ""),
@@ -130,7 +151,13 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           amount: Number(r["СуммаДокумента"] ?? 0),
           reason: String(r["Причина"] ?? "") || undefined,
         }));
-        return ok({ database: conn.cfg.name, count: esf.length, truncated, ...(truncated ? { nextOffset: offset + esf.length } : {}), esf });
+        return ok({
+          database: conn.cfg.name,
+          count: esf.length,
+          truncated,
+          ...(truncated ? { nextOffset: offset + esf.length } : {}),
+          esf,
+        });
       }),
   );
 
@@ -145,25 +172,43 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
       inputSchema: {
         database: databaseField,
         nomenclatureRefs: z.array(GUID).max(50).optional().describe("Ref_Key позиций номенклатуры"),
-        query: z.string().max(200).optional().describe("Часть названия номенклатуры (если нет nomenclatureRefs)"),
+        query: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Часть названия номенклатуры (если нет nomenclatureRefs)"),
         priceType: z.string().max(200).optional().describe("Тип цен — название (напр. «Розничная»)"),
         asOf: dateField("Дата цены (без параметра — текущая)").optional(),
       },
       outputSchema: z
-        .object({ database: z.string(), count: z.number(), prices: z.array(z.object({ nomenclature: z.string(), price: z.number() }).passthrough()) })
+        .object({
+          database: z.string(),
+          count: z.number(),
+          prices: z.array(z.object({ nomenclature: z.string(), price: z.number() }).passthrough()),
+        })
         .passthrough(),
     },
     ({ database, nomenclatureRefs, query, priceType, asOf }) =>
       guard("read.nomenclature.get_prices", async () => {
         const conn = ctx.db(database);
         const available = await conn.available();
-        const base = await requireEntity(conn, ["InformationRegister_ЦеныНоменклатуры"], "Регистр «Цены номенклатуры»");
+        const base = await requireEntity(
+          conn,
+          ["InformationRegister_ЦеныНоменклатуры"],
+          "Регистр «Цены номенклатуры»",
+        );
         // У регистра, подчинённого регистратору, срез публикуется на наборе записей (_RecordType).
         const owner = available.has(`${base}_RecordType`) ? `${base}_RecordType` : base;
         const nomSet = await requireEntity(conn, CATALOGS.nomenclature, "Справочник «Номенклатура»");
         let refs = (nomenclatureRefs ?? []).map(guidOf);
         if (!refs.length && query?.trim()) {
-          const { rows } = await fetchAll(conn.client, nomSet, { filter: contains("Description", query.trim()), select: ["Ref_Key"] }, 50, 50);
+          const { rows } = await fetchAll(
+            conn.client,
+            nomSet,
+            { filter: contains("Description", query.trim()), select: ["Ref_Key"] },
+            50,
+            50,
+          );
           refs = rows.map((r) => String(r["Ref_Key"]));
           if (!refs.length) throw new InputError(`Номенклатура «${query}» не найдена.`);
         }
@@ -171,7 +216,13 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         const ptSet = resolveEntity(CATALOGS.priceTypes, available);
         if (priceType) {
           if (!ptSet) throw new InputError("Справочник типов цен не опубликован.");
-          const { rows } = await fetchAll(conn.client, ptSet, { filter: contains("Description", priceType), select: ["Ref_Key"] }, 5, 5);
+          const { rows } = await fetchAll(
+            conn.client,
+            ptSet,
+            { filter: contains("Description", priceType), select: ["Ref_Key"] },
+            5,
+            5,
+          );
           if (!rows[0]) throw new InputError(`Тип цен «${priceType}» не найден.`);
           priceTypeRef = String(rows[0]["Ref_Key"]);
         }
@@ -188,10 +239,26 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           conn.behavior.pageSize,
           conn.behavior.maxRows,
         );
-        const nomNames = await resolveNames(conn, nomSet, rows.map((r) => String(r["Номенклатура_Key"] ?? "")));
-        const ptNames = ptSet ? await resolveNames(conn, ptSet, rows.map((r) => String(r["ТипЦен_Key"] ?? ""))) : new Map<string, string>();
+        const nomNames = await resolveNames(
+          conn,
+          nomSet,
+          rows.map((r) => String(r["Номенклатура_Key"] ?? "")),
+        );
+        const ptNames = ptSet
+          ? await resolveNames(
+              conn,
+              ptSet,
+              rows.map((r) => String(r["ТипЦен_Key"] ?? "")),
+            )
+          : new Map<string, string>();
         const curSet = resolveEntity(CATALOGS.currencies, available);
-        const curNames = curSet ? await resolveNames(conn, curSet, rows.map((r) => String(r["Валюта_Key"] ?? ""))) : new Map<string, string>();
+        const curNames = curSet
+          ? await resolveNames(
+              conn,
+              curSet,
+              rows.map((r) => String(r["Валюта_Key"] ?? "")),
+            )
+          : new Map<string, string>();
         const prices = rows.map((r) => ({
           nomenclature: nomNames.get(String(r["Номенклатура_Key"])) ?? String(r["Номенклатура_Key"]),
           ref: String(r["Номенклатура_Key"]),
@@ -205,7 +272,9 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           ...(asOf ? { asOf } : {}),
           count: prices.length,
           prices,
-          ...(prices.length ? {} : { note: "Цен не найдено: в регистре нет записей для выбранных позиций/типа цен на эту дату." }),
+          ...(prices.length
+            ? {}
+            : { note: "Цен не найдено: в регистре нет записей для выбранных позиций/типа цен на эту дату." }),
         });
       }),
   );
@@ -220,11 +289,19 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         "Document_СчетНаОплатуПокупателю), ref — его Ref_Key. Содержимое — read.files.get_attachment.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().regex(/^(Document|Catalog)_[^/?#]+$/, "Document_… или Catalog_…").describe("Объект-владелец"),
+        entitySet: z
+          .string()
+          .regex(/^(Document|Catalog)_[^/?#]+$/, "Document_… или Catalog_…")
+          .describe("Объект-владелец"),
         ref: GUID.describe("Ref_Key объекта-владельца"),
       },
       outputSchema: z
-        .object({ database: z.string(), filesCatalog: z.string(), count: z.number(), files: z.array(z.object({ ref: z.string(), name: z.string() }).passthrough()) })
+        .object({
+          database: z.string(),
+          filesCatalog: z.string(),
+          count: z.number(),
+          files: z.array(z.object({ ref: z.string(), name: z.string() }).passthrough()),
+        })
         .passthrough(),
     },
     ({ database, entitySet, ref }) =>
@@ -232,14 +309,27 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         const conn = ctx.db(database);
         const filesCatalog = `Catalog_${entitySet.replace(/^(Document|Catalog)_/, "")}ПрисоединенныеФайлы`;
         if (!(await conn.available()).has(filesCatalog)) {
-          throw new InputError(`У «${entitySet}» нет опубликованного справочника присоединённых файлов (${filesCatalog}).`);
+          throw new InputError(
+            `У «${entitySet}» нет опубликованного справочника присоединённых файлов (${filesCatalog}).`,
+          );
         }
         const { rows } = await fetchAll(
           conn.client,
           filesCatalog,
           {
-            filter: and(cmp("ВладелецФайла_Key", "eq", odataGuid(guidOf(ref))), cmp("DeletionMark", "eq", "false")),
-            select: ["Ref_Key", "Description", "Расширение", "Размер", "ДатаСоздания", "ПодписанЭП", "ТипХраненияФайла"],
+            filter: and(
+              cmp("ВладелецФайла_Key", "eq", odataGuid(guidOf(ref))),
+              cmp("DeletionMark", "eq", "false"),
+            ),
+            select: [
+              "Ref_Key",
+              "Description",
+              "Расширение",
+              "Размер",
+              "ДатаСоздания",
+              "ПодписанЭП",
+              "ТипХраненияФайла",
+            ],
             orderby: "ДатаСоздания desc",
           },
           100,
@@ -268,18 +358,33 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         "на диске сервера 1С, через OData недоступны.",
       inputSchema: {
         database: databaseField,
-        filesCatalog: z.string().regex(/^Catalog_[^/?#]+ПрисоединенныеФайлы$/, "Справочник …ПрисоединенныеФайлы"),
+        filesCatalog: z
+          .string()
+          .regex(/^Catalog_[^/?#]+ПрисоединенныеФайлы$/, "Справочник …ПрисоединенныеФайлы"),
         ref: GUID.describe("Ref_Key файла"),
-        maxBytes: z.number().int().min(1).max(20_000_000).default(10_000_000).describe("Не отдавать файлы больше этого размера"),
+        maxBytes: z
+          .number()
+          .int()
+          .min(1)
+          .max(20_000_000)
+          .default(10_000_000)
+          .describe("Не отдавать файлы больше этого размера"),
       },
       outputSchema: z
-        .object({ database: z.string(), name: z.string(), mimeType: z.string(), size: z.number(), decoded: z.string() })
+        .object({
+          database: z.string(),
+          name: z.string(),
+          mimeType: z.string(),
+          size: z.number(),
+          decoded: z.string(),
+        })
         .passthrough(),
     },
     ({ database, filesCatalog, ref, maxBytes }) =>
       guard("read.files.get_attachment", async (): Promise<CallToolResult> => {
         const conn = ctx.db(database);
-        if (!(await conn.available()).has(filesCatalog)) throw new InputError(`Справочник ${filesCatalog} не опубликован.`);
+        if (!(await conn.available()).has(filesCatalog))
+          throw new InputError(`Справочник ${filesCatalog} не опубликован.`);
         const file = await conn.client.getEntity(
           `${filesCatalog}(guid'${guidOf(ref)}')${buildQuery({ select: ["Description", "Расширение", "Размер", "ТипХраненияФайла", "ФайлХранилище_Base64Data"] })}`,
         );
@@ -293,21 +398,31 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           );
         }
         const { bytes, decoded } = attachmentBytes(data);
-        if (bytes.length > maxBytes) throw new InputError(`Файл ${bytes.length} байт — больше maxBytes (${maxBytes}).`);
+        if (bytes.length > maxBytes)
+          throw new InputError(`Файл ${bytes.length} байт — больше maxBytes (${maxBytes}).`);
         const name = `${String(file["Description"] ?? "file")}${extension ? `.${extension}` : ""}`;
-        const mimeType = decoded === "unknown" ? "application/octet-stream" : (MIME[extension] ?? "application/octet-stream");
+        const mimeType =
+          decoded === "unknown"
+            ? "application/octet-stream"
+            : (MIME[extension] ?? "application/octet-stream");
         const meta = {
           database: conn.cfg.name,
           name,
           mimeType,
           size: bytes.length,
           decoded,
-          ...(decoded === "unknown" ? { note: "Формат хранилища 1С не распознан — отдаю данные как есть." } : {}),
+          ...(decoded === "unknown"
+            ? { note: "Формат хранилища 1С не распознан — отдаю данные как есть." }
+            : {}),
         };
         const result = ok(meta);
         result.content.push({
           type: "resource",
-          resource: { uri: `onec-file:///${encodeURIComponent(filesCatalog)}/${guidOf(ref)}/${encodeURIComponent(name)}`, mimeType, blob: bytes.toString("base64") },
+          resource: {
+            uri: `onec-file:///${encodeURIComponent(filesCatalog)}/${guidOf(ref)}/${encodeURIComponent(name)}`,
+            mimeType,
+            blob: bytes.toString("base64"),
+          },
         });
         return result;
       }),

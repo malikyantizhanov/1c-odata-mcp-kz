@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 69 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 71 инструмент: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -8867,6 +8867,281 @@
         "required": [
           "ref",
           "folder"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "willPatch": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "updated": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.document.create_document",
+      "title": "Создать документ (зарплата, налоги, выплата)",
+      "description": "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: начисление зарплаты, расчёт удержаний (ИПН/ОПВ/ВОСМС), расчёт СН и СО, единый платёж, отражение зарплаты в учёте, ведомость к выплате, платёжное поручение, перечисления в фонды, расходный кассовый ордер. Суммы и ставки считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа того же вида. Документ создаётся непроведённым; провести — write.document.post_document. По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string",
+            "description": "Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций"
+          },
+          "date": {
+            "description": "Дата документа 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss' (по умолчанию — сейчас)",
+            "type": "string"
+          },
+          "fields": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "description": "Реквизиты шапки: { техническоеИмя: значение }, напр. {\"ПериодРегистрации\":\"2026-09-01\",\"Организация_Key\":\"<GUID>\"}. Ссылки — поле <Имя>_Key с Ref_Key; даты — 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss'; перечисления — имя значения."
+          },
+          "tables": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "Табличные части: { ИмяТабличнойЧасти: [строки] }, напр. {\"Начисления\":[{\"Сотрудник_Key\":\"…\",\"Результат\":600000}]}. LineNumber проставляется сам. Поля строки — describe_entity по '<Документ>_<ТабличнаяЧасть>'."
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "entitySet"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.document.update_document",
+      "title": "Изменить документ (шапка и табличные части)",
+      "description": "Меняет реквизиты шапки и/или табличные части документа из write.document.create_document. Табличная часть заменяется целиком: прочитайте документ (read.document.get_document), измените строки и передайте все. Проведённый документ не меняется — сначала отмените проведение (write.document.post_document post=false), затем измените и проведите снова. По умолчанию предпросмотр (dry-run); применение — при confirm=true.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string",
+            "description": "Документ, напр. Document_ПлатежноеПоручениеИсходящее"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Ref_Key документа (GUID)"
+          },
+          "fields": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "description": "Реквизиты шапки: { техническоеИмя: значение }, напр. {\"ПериодРегистрации\":\"2026-09-01\",\"Организация_Key\":\"<GUID>\"}. Ссылки — поле <Имя>_Key с Ref_Key; даты — 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss'; перечисления — имя значения."
+          },
+          "tables": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "Табличные части: { ИмяТабличнойЧасти: [строки] }, напр. {\"Начисления\":[{\"Сотрудник_Key\":\"…\",\"Результат\":600000}]}. LineNumber проставляется сам. Поля строки — describe_entity по '<Документ>_<ТабличнаяЧасть>'."
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entitySet",
+          "ref"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },

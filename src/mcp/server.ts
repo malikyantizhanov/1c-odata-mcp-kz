@@ -15,6 +15,7 @@ import { registerCashflowTools } from "../tools/cashflow.js";
 import { registerSalesTools } from "../tools/sales.js";
 import { registerOrganizationTools } from "../tools/organization.js";
 import { registerWriteTools } from "../tools/write.js";
+import { registerDocumentWriteTools } from "../tools/write-documents.js";
 import { registerAuditTools } from "../tools/audit.js";
 import { registerPayrollTools } from "../tools/payroll.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
@@ -160,6 +161,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerPayrollTools(server, ctx);
   registerKzRecordTools(server, ctx);
   registerWriteTools(server, ctx);
+  registerDocumentWriteTools(server, ctx);
 
   return server;
 }

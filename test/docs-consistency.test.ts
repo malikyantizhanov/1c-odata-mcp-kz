@@ -48,10 +48,16 @@ describe("документация совпадает с кодом", () => {
   });
 
   it("число инструментов в README, package.json и manifest.json", () => {
-    expect(readme).toContain(`${names.length} инструментов (${reads} чтение/аналитика + ${writes} записей)`);
-    expect(readme).toContain(`У всех ${names.length} инструментов`);
-    expect(pkg.description).toContain(`${names.length} tools`);
-    expect(manifest.long_description).toContain(`${names.length} инструментов`);
+    // «71 инструмент», «72 инструмента», «69 инструментов»; после «у всех» — родительный падеж.
+    const n = names.length;
+    const one = n % 10 === 1 && n % 100 !== 11;
+    const few = [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100);
+    const word = one ? "инструмент" : few ? "инструмента" : "инструментов";
+    const genitive = one ? "инструмента" : "инструментов";
+    expect(readme).toContain(`${n} ${word} (${reads} чтение/аналитика + ${writes} записей)`);
+    expect(readme).toContain(`У всех ${n} ${genitive}`);
+    expect(pkg.description).toContain(`${n} tools`);
+    expect(manifest.long_description).toContain(`${n} ${word}`);
   });
 
   it("каждый инструмент упомянут в README полным именем", () => {

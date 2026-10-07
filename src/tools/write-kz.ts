@@ -31,6 +31,36 @@ export const KZ_WRITE_TOOLS = [
   "write.sales.create_invoice",
   "write.entity.mark_for_deletion",
   "write.operation.status",
+  "write.document.create_document",
+  "write.document.update_document",
+  "write.document.post_document",
+] as const;
+
+/**
+ * Документы, которые в казахстанской базе пишутся общими инструментами (create_document, update_document,
+ * post_document): зарплата, налоги и взносы с неё, выплата. Суммы и ставки задаёт вызывающий — MCP их
+ * не рассчитывает, а только проверяет поля по $metadata базы.
+ */
+export const KZ_DOCUMENTS = [
+  "Document_НачислениеЗарплатыРаботникамОрганизаций",
+  "Document_РасчетУдержанийРаботниковОрганизаций",
+  "Document_РасчетСНиСО",
+  "Document_РасчетЕдиногоПлатежа",
+  "Document_ОтражениеЗарплатыВРеглУчете",
+  "Document_ЗарплатаКВыплатеОрганизаций",
+  "Document_ПлатежноеПоручениеИсходящее",
+  "Document_ОПВПеречислениеВФонды",
+  "Document_СОПеречислениеВФонды",
+  "Document_ЕППеречислениеВФонды",
+  "Document_РасходныйКассовыйОрдер",
+  "Document_СчетНаОплатуПокупателю",
+] as const;
+
+/** Общие инструменты записи документов: в казахстанской базе — только для KZ_DOCUMENTS. */
+export const KZ_DOCUMENT_TOOLS = [
+  "write.document.create_document",
+  "write.document.update_document",
+  "write.document.post_document",
 ] as const;
 
 /** Ставки в казахстанском виде (как в справочнике «Ставки НДС»). */

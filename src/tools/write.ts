@@ -917,7 +917,7 @@ async function resolveDefaultCurrency(conn: Connection): Promise<string | undefi
   }
 }
 
-const confirmField = z
+export const confirmField = z
   .boolean()
   .default(false)
   .describe(
@@ -1181,13 +1181,14 @@ export async function createOrPreview(
     entitySet,
     ref: created["Ref_Key"],
     code: created["Code"],
+    number: created["Number"],
     description: created["Description"],
     ...extra,
   });
 }
 
 /** Общий путь изменения (PATCH): dry-run при confirm=false, иначе применяет. */
-async function patchOrPreview(
+export async function patchOrPreview(
   conn: Connection,
   entitySet: string,
   ref: string,

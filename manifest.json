@@ -8490,8 +8490,8 @@
     },
     {
       "name": "write.counterparty.create_bank_account",
-      "title": "Создать банковский счёт контрагента",
-      "description": "Заводит расчётный счёт контрагента (подчинённый справочник): банк по БИК + номер счёта. Можно сделать счёт основным. По умолчанию dry-run; создание — при confirm=true. Ref контрагента — из find_counterparty.",
+      "title": "Создать банковский счёт (контрагент или организация)",
+      "description": "Заводит расчётный счёт в справочнике «Банковские счета»: банк по БИК + номер счёта. Владелец — контрагент (по умолчанию) или организация (ownerKind=organization). Можно сделать счёт основным (ОсновнойБанковскийСчет_Key у владельца). По умолчанию dry-run; создание — при confirm=true. Валюта: код/название; в казахстанской базе без указания — тенге (398).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8501,7 +8501,16 @@
           },
           "ownerRef": {
             "type": "string",
-            "description": "Ref_Key контрагента-владельца счёта"
+            "description": "Ref_Key владельца счёта (контрагент или организация)"
+          },
+          "ownerKind": {
+            "default": "counterparty",
+            "description": "Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)",
+            "type": "string",
+            "enum": [
+              "counterparty",
+              "organization"
+            ]
           },
           "accountNumber": {
             "type": "string",
@@ -8514,7 +8523,7 @@
             "description": "БИК банка (ищется в справочнике «Банки»)"
           },
           "currency": {
-            "description": "Валюта (код/название; по умолчанию рубль)",
+            "description": "Валюта (код/название; РФ — 643, Казахстан — 398/KZT)",
             "type": "string"
           },
           "label": {
@@ -8523,7 +8532,7 @@
           },
           "makeMain": {
             "default": false,
-            "description": "Сделать основным банковским счётом контрагента",
+            "description": "Сделать основным банковским счётом владельца",
             "type": "boolean"
           },
           "confirm": {

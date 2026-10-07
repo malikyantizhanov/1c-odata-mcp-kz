@@ -39,6 +39,7 @@ import { getDocumentPostings } from "./registers.js";
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
 const COUNTERPARTY_TYPE = "StandardODATA.Catalog_Контрагенты";
+const ORGANIZATION_TYPE = "StandardODATA.Catalog_Организации";
 
 /** Строит строки табличной части «КонтактнаяИнформация» из телефона/email/адреса. */
 function buildContactRows(
@@ -3384,35 +3385,51 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
   server.registerTool(
     "write.counterparty.create_bank_account",
     {
-      title: "Создать банковский счёт контрагента",
+      title: "Создать банковский счёт (контрагент или организация)",
       description:
-        "Заводит расчётный счёт контрагента (подчинённый справочник): банк по БИК + номер счёта. " +
-        "Можно сделать счёт основным. По умолчанию dry-run; создание — при confirm=true. " +
-        "Ref контрагента — из find_counterparty.",
+        "Заводит расчётный счёт в справочнике «Банковские счета»: банк по БИК + номер счёта. " +
+        "Владелец — контрагент (по умолчанию) или организация (ownerKind=organization). " +
+        "Можно сделать счёт основным (ОсновнойБанковскийСчет_Key у владельца). " +
+        "По умолчанию dry-run; создание — при confirm=true. " +
+        "Валюта: код/название; в казахстанской базе без указания — тенге (398).",
       inputSchema: {
         database: databaseField,
-        ownerRef: z.string().describe("Ref_Key контрагента-владельца счёта"),
+        ownerRef: z.string().describe("Ref_Key владельца счёта (контрагент или организация)"),
+        ownerKind: z
+          .enum(["counterparty", "organization"])
+          .default("counterparty")
+          .describe("Тип владельца: counterparty (Catalog_Контрагенты) или organization (Catalog_Организации)"),
         accountNumber: z.string().min(1).describe("Номер расчётного счёта"),
         bik: z.string().min(1).describe("БИК банка (ищется в справочнике «Банки»)"),
-        currency: z.string().optional().describe("Валюта (код/название; по умолчанию рубль)"),
+        currency: z.string().optional().describe("Валюта (код/название; РФ — 643, Казахстан — 398/KZT)"),
         label: z.string().optional().describe("Наименование счёта (по умолчанию — номер счёта)"),
-        makeMain: z.boolean().default(false).describe("Сделать основным банковским счётом контрагента"),
+        makeMain: z.boolean().default(false).describe("Сделать основным банковским счётом владельца"),
         confirm: confirmField,
       },
       outputSchema: createResultSchema,
     },
-    ({ database, ownerRef, accountNumber, bik, currency, label, makeMain, confirm }) =>
+    ({ database, ownerRef, ownerKind, accountNumber, bik, currency, label, makeMain, confirm }) =>
       guard("write.counterparty.create_bank_account", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, CATALOGS.bankAccounts, "Справочник «Банковские счета»");
         const bank = await resolveBankByBik(conn, bik);
+        const kz = await isKazakhstan(conn);
         const cur = currency
           ? await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", currency)
-          : await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "643");
+          : kz
+            ? {
+                ref:
+                  (await tengeRef(conn)) ??
+                  (
+                    await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "398")
+                  ).ref,
+              }
+            : await resolveCatalogItem(conn, CATALOGS.currencies, "Справочник «Валюты»", "643");
+        const forOrg = ownerKind === "organization";
         const payload = clean({
           Description: label ?? accountNumber,
           Owner: ownerRef,
-          Owner_Type: COUNTERPARTY_TYPE,
+          Owner_Type: forOrg ? ORGANIZATION_TYPE : COUNTERPARTY_TYPE,
           НомерСчета: accountNumber,
           Банк_Key: bank.ref,
           ВалютаДенежныхСредств_Key: cur.ref,
@@ -3424,7 +3441,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           confirm,
           makeMain
             ? {
-                ownerSet: await resolveSet(conn, CATALOGS.counterparties, "Контрагенты"),
+                ownerSet: forOrg
+                  ? await resolveSet(conn, CATALOGS.organizations, "Организации")
+                  : await resolveSet(conn, CATALOGS.counterparties, "Контрагенты"),
                 ownerRef,
                 field: "ОсновнойБанковскийСчет_Key",
               }

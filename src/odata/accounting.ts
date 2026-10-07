@@ -30,6 +30,12 @@ export async function receivablePrefixes(conn: Connection): Promise<readonly str
   return chart === "ChartOfAccounts_Типовой" ? ["1210"] : ACCOUNT_PREFIX.receivables;
 }
 
+/** Счета запасов: 41/10/43 в российском плане счетов; в «Типовом» — 1310 сырьё, 1320 продукция, 1330 товары, 1350 прочие. */
+export async function inventoryPrefixes(conn: Connection): Promise<readonly string[]> {
+  const chart = await requireEntity(conn, CHART_CANDIDATES, "План счетов");
+  return chart === "ChartOfAccounts_Типовой" ? ["1310", "1320", "1330", "1350"] : ACCOUNT_PREFIX.inventory;
+}
+
 export interface Account {
   key: string;
   code: string;

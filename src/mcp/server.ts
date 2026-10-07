@@ -16,6 +16,8 @@ import { registerSalesTools } from "../tools/sales.js";
 import { registerOrganizationTools } from "../tools/organization.js";
 import { registerWriteTools } from "../tools/write.js";
 import { registerAuditTools } from "../tools/audit.js";
+import { registerPayrollTools } from "../tools/payroll.js";
+import { registerKzRecordTools } from "../tools/kz-records.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
 
 /** Версия берётся из package.json (в собранном пакете он на два уровня выше dist/mcp/). */
@@ -155,6 +157,8 @@ export function createServer(ctx: ServerContext): McpServer {
   registerSalesTools(server, ctx);
   registerOrganizationTools(server, ctx);
   registerAuditTools(server, ctx);
+  registerPayrollTools(server, ctx);
+  registerKzRecordTools(server, ctx);
   registerWriteTools(server, ctx);
 
   return server;

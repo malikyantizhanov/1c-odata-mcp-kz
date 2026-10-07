@@ -3,11 +3,12 @@ import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
 import { ok, fail, guard, databaseField, organizationField, dateField } from "./_shared.js";
 import { and, cmp, odataGuid } from "../odata/query.js";
-import { ACCOUNT_PREFIX, CATALOGS, DOC_FIELDS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
+import { CATALOGS, DOC_FIELDS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
 import {
   balanceByAccounts,
   resolveAccounts,
   receivablePrefixes,
+  inventoryPrefixes,
   resolveNames,
   num,
   turnoversByAccounts,
@@ -725,7 +726,8 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
     {
       title: "Остатки товаров",
       description:
-        "Остатки товаров/материалов на складах: сальдо счетов 41/10/43 регистра Хозрасчетный, " +
+        "Остатки товаров/материалов на складах: сальдо счетов 41/10/43 регистра Хозрасчетный " +
+        "(в Казахстане — 1310/1320/1330/1350 регистра «Типовой»), " +
         "сгруппированное по номенклатуре. Возвращает количество и сумму остатка. Можно ограничить " +
         "организацией. По умолчанию — текущие остатки; параметром asOf=YYYY-MM-DD можно получить " +
         "остатки на конец указанной даты (для инвентаризации/аудита). " +
@@ -743,7 +745,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         const t0 = Date.now();
         const conn = ctx.db(database);
         const org = await orgKeyOf(conn, organization);
-        const accounts = await resolveAccounts(conn, ACCOUNT_PREFIX.inventory);
+        const accounts = await resolveAccounts(conn, await inventoryPrefixes(conn));
         const rows = await balanceByAccounts(
           conn,
           accounts.map((a) => a.key),

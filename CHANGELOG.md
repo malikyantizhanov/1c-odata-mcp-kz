@@ -19,6 +19,11 @@
 - В казахстанских базах отказом отвечают `get_inventory`, `get_document_postings`, `get_taxes_paid` и остальная запись
   (документы с проводками).
 - Карточка и список организаций Казахстана: БИН/ИИН из `ИдентификационныйНомер`.
+- Движение денег Казахстана учитывает банк: `ПлатежноеПоручениеВходящее/Исходящее`, `ПлатежныйОрдер…` (раньше
+  аналитика денег видела только кассу).
+- `read.analytics.get_inventory` в Казахстане — счета 1310/1320/1330/1350.
+- Новые инструменты: `read.payroll.list_employees`, `read.payroll.get_salary_debts`, `read.payroll.get_accruals`,
+  `read.esf.list_esf`, `read.nomenclature.get_prices`, `read.files.list_attachments`, `read.files.get_attachment`.
 
 ## [0.6.1] — 2026-10-03
 

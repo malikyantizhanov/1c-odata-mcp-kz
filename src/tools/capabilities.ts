@@ -8,7 +8,7 @@ import { KZ_WRITE_TOOLS } from "./write-kz.js";
 // Balances and turnovers read the Kazakhstan Типовой register (odata_accounting); these still assume Russian
 // accounts, posting fields or tax-payment operations and stay blocked there.
 const russianAccounting = new Set([
-  "read.analytics.get_inventory","read.accounting.get_document_postings","read.analytics.get_taxes_paid",
+  "read.accounting.get_document_postings","read.analytics.get_taxes_paid",
 ]);
 const kzReadReason = "Этот инструмент использует российский план счетов/налоговые правила. Для казахстанской базы нужен проверенный профиль учета; не предлагайте опубликовать российский Хозрасчетный и не считайте отказ нулевым остатком.";
 // Kazakhstan writes cover the invoice path (counterparty, nomenclature, contract, invoice); documents with

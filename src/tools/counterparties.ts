@@ -2,6 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
 import { ok, fail, guard, withTruncationNote, databaseField, organizationField } from "./_shared.js";
+import { catalogFields } from "../odata/catalog-fields.js";
+import { InputError } from "../errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { and, cmp, contains, odataGuid, odataString, buildQuery } from "../odata/query.js";
 import {
@@ -17,15 +19,15 @@ import type { Counterparty, DocumentSummary } from "../types/domain.js";
 import type { ODataEntity } from "../types/odata.js";
 import { truncatedList, counterpartySchema, counterpartyHistoryResultSchema } from "../schemas/output.js";
 
-function toCounterparty(r: ODataEntity): Counterparty {
+function toCounterparty(r: ODataEntity, fields: Record<keyof typeof CF, string> = CF): Counterparty {
   return {
-    ref: String(r[CF.ref] ?? ""),
-    name: String(r[CF.name] ?? ""),
-    code: r[CF.code] ? String(r[CF.code]) : undefined,
-    inn: r[CF.inn] ? String(r[CF.inn]) : undefined,
-    kpp: r[CF.kpp] ? String(r[CF.kpp]) : undefined,
-    fullName: r[CF.fullName] ? String(r[CF.fullName]) : undefined,
-    isFolder: typeof r[CF.isFolder] === "boolean" ? (r[CF.isFolder] as boolean) : undefined,
+    ref: String(r[fields.ref] ?? ""),
+    name: String(r[fields.name] ?? ""),
+    code: r[fields.code] ? String(r[fields.code]) : undefined,
+    inn: r[fields.inn] ? String(r[fields.inn]) : undefined,
+    kpp: r[fields.kpp] ? String(r[fields.kpp]) : undefined,
+    fullName: r[fields.fullName] ? String(r[fields.fullName]) : undefined,
+    isFolder: typeof r[fields.isFolder] === "boolean" ? (r[fields.isFolder] as boolean) : undefined,
   };
 }
 
@@ -43,7 +45,7 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
         "Пример: «найди контрагента Ромашка» или «контрагент с ИНН 7701234567».",
       inputSchema: {
         database: databaseField,
-        query: z.string().min(1).describe("Часть названия или ИНН контрагента"),
+        query: z.string().default("").describe("Часть названия или ИНН/БИН/ИИН; пустая строка — список контрагентов"),
         limit: z.number().int().positive().max(100).default(20).describe("Сколько вернуть"),
       },
       outputSchema: truncatedList(counterpartySchema),
@@ -52,18 +54,20 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
       guard("read.counterparty.find_counterparty", async () => {
         const conn = ctx.db(database);
         const set = await counterpartySet(conn);
+        const fields = await catalogFields(conn, set);
         const isInn = /^\d{10,12}$/.test(query.trim());
-        const filter = isInn ? cmp(CF.inn, "eq", odataString(query.trim())) : contains(CF.name, query);
+        if (isInn && !fields.inn) throw new InputError("В справочнике не опубликовано поле ИНН/БИН/ИИН.");
+        const filter = !query.trim() ? undefined : isInn ? cmp(fields.inn, "eq", odataString(query.trim())) : contains(fields.name, query);
 
         const { rows, truncated } = await fetchAll(
           conn.client,
           set,
-          { filter, select: [CF.ref, CF.name, CF.code, CF.inn, CF.kpp, CF.isFolder] },
+          { filter, select: [fields.ref, fields.name, fields.code, fields.inn, fields.kpp, fields.isFolder].filter(Boolean), orderby: fields.name },
           conn.behavior.pageSize,
           Math.min(limit, conn.behavior.maxRows),
         );
 
-        const items = rows.map(toCounterparty).filter((c) => !c.isFolder);
+        const items = rows.map(row => toCounterparty(row, fields)).filter((c) => !c.isFolder);
         return ok(withTruncationNote(items, truncated, limit));
       }),
   );
@@ -87,7 +91,7 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
         const set = await counterpartySet(conn);
         const path = `${set}(guid'${ref.replace(/[{}']/g, "")}')${buildQuery({})}`;
         const entity = await conn.client.getEntity(path);
-        return ok(toCounterparty(entity));
+        return ok(toCounterparty(entity, await catalogFields(conn, set)));
       }),
   );
 

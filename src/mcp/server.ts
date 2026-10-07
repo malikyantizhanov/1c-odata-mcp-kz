@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { preflightTool } from "../tools/capabilities.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { createResultSchema } from "../schemas/output.js";
@@ -74,6 +75,8 @@ export function createServer(ctx: ServerContext): McpServer {
     config: Record<string, unknown>,
     cb: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>,
   ) => {
+    const execute = cb;
+    cb = (args,extra) => guard(name,async()=>{await preflightTool(ctx,name,args);return execute(args,extra);});
     const annotatedConfig = {
       ...config,
       annotations: {

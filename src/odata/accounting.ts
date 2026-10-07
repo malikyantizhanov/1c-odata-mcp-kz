@@ -1,7 +1,7 @@
 import type { Connection } from "../context.js";
 import { fetchAll } from "./pagination.js";
 import { and, cmp, odataGuid, odataString, or } from "./query.js";
-import { CATALOGS, REGISTERS, resolveEntity } from "../config/mapping.js";
+import { ACCOUNT_PREFIX, CATALOGS, REGISTERS, resolveEntity } from "../config/mapping.js";
 import { ensurePublished, requireEntity } from "./publication.js";
 import { buildQuery } from "./query.js";
 import {
@@ -22,7 +22,13 @@ import { ODataError } from "./errors.js";
  * с контрагентом/номенклатурой в ExtDimension1.
  */
 
-const CHART_CANDIDATES = ["ChartOfAccounts_Хозрасчетный"] as const;
+const CHART_CANDIDATES = ["ChartOfAccounts_Хозрасчетный", "ChartOfAccounts_Типовой"] as const;
+
+/** Счета расчётов с покупателями: 62 в российском плане счетов, 1210 в казахстанском «Типовом». */
+export async function receivablePrefixes(conn: Connection): Promise<readonly string[]> {
+  const chart = await requireEntity(conn, CHART_CANDIDATES, "План счетов");
+  return chart === "ChartOfAccounts_Типовой" ? ["1210"] : ACCOUNT_PREFIX.receivables;
+}
 
 export interface Account {
   key: string;

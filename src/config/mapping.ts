@@ -47,7 +47,7 @@ export const DOCUMENTS = {
 
 export const REGISTERS = {
   /** Регистр бухгалтерии (главная книга) — сальдо/обороты по счетам. */
-  accounting: ["AccountingRegister_Хозрасчетный"],
+  accounting: ["AccountingRegister_Хозрасчетный", "AccountingRegister_Типовой"],
   /** Остатки товаров по складам. */
   stock: ["AccumulationRegister_ТоварыНаСкладах", "AccumulationRegister_ТоварыОрганизаций"],
   /** Периодический регистр: директор/гл.бухгалтер/кассир организации (может быть не опубликован). */

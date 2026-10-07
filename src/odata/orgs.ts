@@ -3,6 +3,7 @@ import { fetchAll } from "./pagination.js";
 import { contains } from "./query.js";
 import { CATALOGS } from "../config/mapping.js";
 import { requireEntity } from "./publication.js";
+import { catalogFields } from "./catalog-fields.js";
 import { InputError } from "../errors.js";
 
 export interface Organization {
@@ -17,17 +18,18 @@ const orgSet = (conn: Connection): Promise<string> =>
 /** Все организации (юрлица) базы. */
 export async function listOrganizations(conn: Connection): Promise<Organization[]> {
   const set = await orgSet(conn);
+  const fields = await catalogFields(conn, set);
   const { rows } = await fetchAll(
     conn.client,
     set,
-    { select: ["Ref_Key", "Description", "ИНН"], orderby: "Description" },
+    { select: [fields.ref, fields.name, fields.inn].filter(Boolean), orderby: "Description" },
     conn.behavior.pageSize,
     conn.behavior.maxRows,
   );
   return rows.map((r) => ({
     ref: String(r["Ref_Key"] ?? ""),
     name: String(r["Description"] ?? ""),
-    inn: r["ИНН"] ? String(r["ИНН"]) : undefined,
+    inn: r[fields.inn] ? String(r[fields.inn]) : undefined,
   }));
 }
 
@@ -37,10 +39,11 @@ export async function listOrganizations(conn: Connection): Promise<Organization[
  */
 export async function resolveOrganization(conn: Connection, query: string): Promise<Organization> {
   const set = await orgSet(conn);
+  const fields = await catalogFields(conn, set);
   const { rows } = await fetchAll(
     conn.client,
     set,
-    { filter: contains("Description", query), select: ["Ref_Key", "Description", "ИНН"] },
+    { filter: contains("Description", query), select: [fields.ref, fields.name, fields.inn].filter(Boolean) },
     20,
     20,
   );
@@ -55,7 +58,7 @@ export async function resolveOrganization(conn: Connection, query: string): Prom
   return {
     ref: String(r["Ref_Key"] ?? ""),
     name: String(r["Description"] ?? ""),
-    inn: r["ИНН"] ? String(r["ИНН"]) : undefined,
+    inn: r[fields.inn] ? String(r[fields.inn]) : undefined,
   };
 }
 

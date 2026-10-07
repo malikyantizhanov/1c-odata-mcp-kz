@@ -7,6 +7,7 @@ import { ACCOUNT_PREFIX, CATALOGS, DOC_FIELDS, DOCUMENTS, resolveEntity } from "
 import {
   balanceByAccounts,
   resolveAccounts,
+  receivablePrefixes,
   resolveNames,
   num,
   turnoversByAccounts,
@@ -534,7 +535,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
     {
       title: "Дебиторская задолженность",
       description:
-        "Кто и сколько должен компании: сальдо счёта 62 (расчёты с покупателями) из регистра " +
+        "Кто и сколько должен компании: сальдо счёта расчётов с покупателями (62; в Казахстане 1210) из регистра " +
         "бухгалтерии Хозрасчетный, сгруппированное по контрагентам. Дебетовое сальдо = долг клиента, " +
         "кредитовое = полученные авансы (вычитается). Можно ограничить организацией. По умолчанию " +
         "берётся текущее сальдо; параметром asOf=YYYY-MM-DD можно получить дебиторку на конец " +
@@ -552,7 +553,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         const t0 = Date.now();
         const conn = ctx.db(database);
         const org = await orgKeyOf(conn, organization);
-        const accounts = await resolveAccounts(conn, ACCOUNT_PREFIX.receivables);
+        const accounts = await resolveAccounts(conn, await receivablePrefixes(conn));
         const rows = await balanceByAccounts(
           conn,
           accounts.map((a) => a.key),
@@ -605,7 +606,11 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         "сальдо на конец Дт/Кт — итогом и по субсчетам. account — код счёта или префикс " +
         "(«51», «60», «62», «90.01»): берутся все субсчета, код которых начинается с него. " +
         "Сальдо развёрнутое по аналитике (измерения и субконто), как в стандартной ОСВ по счёту. " +
-        "Можно ограничить организацией. Период — даты YYYY-MM-DD включительно.",
+        "Можно ограничить организацией. Период — даты YYYY-MM-DD включительно. " +
+        "Казахстан (план счетов «Типовой»): 1210 — покупатели и заказчики, 3310 — поставщики, " +
+        "31 — налоги (3110 КПН, 3120 ИПН, 3130 НДС, 3150 социальный налог), 32 — социальные отчисления " +
+        "и пенсионные взносы. По 31/32/3310 кредитовое сальдо на конец — наша задолженность, " +
+        "дебетовое — переплата или аванс.",
       inputSchema: {
         database: databaseField,
         organization: organizationField,
@@ -618,10 +623,19 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
           .describe("Код счёта или префикс субсчетов, напр. 51, 60, 62, 90.01"),
         from: dateField("Дата начала периода"),
         to: dateField("Дата конца периода"),
+        byAnalytics: z
+          .boolean()
+          .default(false)
+          .describe(
+            "true — добавить разбивку по аналитике счёта (субконто 1–2: сотрудник, контрагент, вид налога) " +
+              "с названиями и чистым сальдо по каждой строке. Нужна, чтобы ответить по конкретному сотруднику " +
+              "или контрагенту, и обязательна, когда в ответе «красное» сальдо: итог может скрывать долг одному " +
+              "и переплату другому.",
+          ),
       },
       outputSchema: getAccountTurnoverResultSchema,
     },
-    ({ database, organization, account, from, to }) =>
+    ({ database, organization, account, from, to, byAnalytics }) =>
       guard("read.accounting.get_account_turnover", async () => {
         const t0 = Date.now();
         if (from > to) return fail(`Период задан наоборот: from (${from}) позже to (${to}).`);
@@ -629,7 +643,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         const org = await orgKeyOf(conn, organization);
         const accounts = await resolveAccounts(conn, [account]);
         if (accounts.length === 0) {
-          throw new InputError(`Счёт "${account}" не найден в плане счетов «Хозрасчётный».`);
+          throw new InputError(`Счёт "${account}" не найден в плане счетов базы.`);
         }
         // resolveAccounts листает до maxRows без сигнала об усечке: упёрлись в потолок —
         // список субсчетов мог быть неполным, а неполная ОСВ хуже явной ошибки.
@@ -647,6 +661,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
           org.key,
         );
         const agg = aggregateAccountTurnover(rows, accounts);
+        const analytics = byAnalytics ? await turnoverAnalytics(conn, rows, accounts) : undefined;
         return ok({
           database: conn.cfg.name,
           organization: org.name,
@@ -660,6 +675,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
             ref: a.key,
             ...turnoverToRub(sums),
           })),
+          ...(analytics ? { analytics: analytics.items, ...(analytics.truncated ? { analyticsTruncated: true } : {}) } : {}),
           openingNet: (agg.total.openingDr - agg.total.openingCr) / 100,
           closingNet: (agg.total.closingDr - agg.total.closingCr) / 100,
           ...(rows.length === 0
@@ -775,4 +791,62 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         });
       }),
   );
+}
+
+
+/** Строк разбивки по аналитике в ответе; остальное — флаг analyticsTruncated. */
+const ANALYTICS_LIMIT = 100;
+
+/**
+ * Разбивка ОСВ по аналитике (субконто 1–2) с названиями: кто именно должен и кому должны.
+ * Итог по счёту может гасить долг одному сотруднику переплатой другому — здесь они видны раздельно.
+ */
+async function turnoverAnalytics(
+  conn: Connection,
+  rows: readonly ODataEntity[],
+  accounts: readonly Account[],
+): Promise<{ items: Array<Record<string, unknown>>; truncated: boolean }> {
+  const f = BALANCE_AND_TURNOVERS.fields;
+  const codes = new Map(accounts.map((a) => [a.key, a.code]));
+  const groups = new Map<string, { account: string; dims: Array<{ ref: string; type: string }>; sums: TurnoverCents }>();
+  for (const r of rows) {
+    const dims = [1, 2]
+      .map((i) => ({ ref: String(r[`ExtDimension${i}`] ?? ""), type: String(r[`ExtDimension${i}_Type`] ?? "") }))
+      .filter((d) => d.ref !== "" && d.ref !== EMPTY_GUID);
+    const accountKey = String(r["Account_Key"] ?? "");
+    const account = codes.get(accountKey) ?? accountKey;
+    const key = account + "|" + dims.map((d) => d.ref).join("|");
+    const g = groups.get(key) ?? { account, dims, sums: zeroTurnover() };
+    g.sums.openingDr += toCents(r[f.openingDr]);
+    g.sums.openingCr += toCents(r[f.openingCr]);
+    g.sums.turnoverDr += toCents(r[f.turnoverDr]);
+    g.sums.turnoverCr += toCents(r[f.turnoverCr]);
+    g.sums.closingDr += toCents(r[f.closingDr]);
+    g.sums.closingCr += toCents(r[f.closingCr]);
+    groups.set(key, g);
+  }
+  // Названия GUID — из справочника, указанного в *_Type (StandardODATA.Catalog_X → Catalog_X);
+  // значения перечислений (напр. «Налог») приходят строкой и показываются как есть.
+  const bySet = new Map<string, Set<string>>();
+  for (const g of groups.values()) {
+    for (const d of g.dims) {
+      const set = d.type.slice(d.type.lastIndexOf(".") + 1);
+      if (GUID_RE.test(d.ref) && set.startsWith("Catalog_")) bySet.set(set, (bySet.get(set) ?? new Set<string>()).add(d.ref));
+    }
+  }
+  const names = new Map<string, string>();
+  for (const [set, refs] of bySet) {
+    for (const [ref, name] of await resolveNames(conn, set, refs)) if (name) names.set(ref, name);
+  }
+  const items = [...groups.values()]
+    .filter((g) => Object.values(g.sums).some((c) => c !== 0))
+    .map((g) => ({ g, net: g.sums.closingDr - g.sums.closingCr }))
+    .sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+    .map(({ g, net }) => ({
+      account: g.account,
+      analytics: g.dims.map((d) => names.get(d.ref) ?? d.ref),
+      ...turnoverToRub(g.sums),
+      closingNet: net / 100,
+    }));
+  return { items: items.slice(0, ANALYTICS_LIMIT), truncated: items.length > ANALYTICS_LIMIT };
 }

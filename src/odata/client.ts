@@ -246,6 +246,33 @@ export class ODataClient {
     return this.request<T>(path, "POST");
   }
 
+  /**
+   * Bound-действие с сырым ответом: HTTP-статус и текст тела как есть (без JSON.parse).
+   * Ошибка HTTP (не 2xx) бросается как обычно — с сообщением 1С. Нужен, чтобы post_document
+   * мог показать, что именно ответила 1С, когда действие «прошло», а документ не провёлся.
+   */
+  async actionRaw(path: string): Promise<{ status: number; body: string }> {
+    this.assertWritable("POST");
+    const url = this.url(path);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: this.authHeader, Accept: "application/json" },
+        signal: controller.signal,
+      });
+      const body = await res.text().catch(() => "");
+      if (!res.ok) throw fromHttpStatus(res.status, url, body);
+      logger.debug({ url, status: res.status }, "odata action ok");
+      return { status: res.status, body };
+    } catch (e) {
+      throw normalize(e, url);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Сырой текст (для $metadata — это XML, не JSON). */
   async getText(path: string): Promise<string> {
     this.assertWritable("GET");

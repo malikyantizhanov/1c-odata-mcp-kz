@@ -40,6 +40,11 @@ import { getDocumentPostings } from "./registers.js";
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
 const COUNTERPARTY_TYPE = "StandardODATA.Catalog_Контрагенты";
 const ORGANIZATION_TYPE = "StandardODATA.Catalog_Организации";
+/** Платёжки, которые 1С (KZ) проводит только с «Оплачено» — для подсказки post_document. */
+const PAYMENT_ORDER_SETS = new Set([
+  "Document_ПлатежноеПоручениеИсходящее",
+  "Document_ПлатежноеПоручениеВходящее",
+]);
 
 /** Строит строки табличной части «КонтактнаяИнформация» из телефона/email/адреса. */
 function buildContactRows(
@@ -1822,7 +1827,46 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           const missing = await missingContract(conn, entitySet, guid);
           if (missing) return fail(missing);
         }
-        await conn.client.action(path);
+        // Состояние до и после действия: 1С может ответить 2xx, но документ не провести
+        // (напр. платёжка без «Оплачено» записывается без проведения). Успех — только по Posted.
+        const docPath = `${entitySet}(guid'${guid}')?$format=json&$select=Posted,DataVersion`;
+        const before = await conn.client.getEntity(docPath);
+        const raw = await conn.client.actionRaw(path);
+        const after = await conn.client.getEntity(docPath);
+        const postedAfter = after["Posted"] === true;
+        const http = {
+          status: raw.status,
+          body: raw.body.length > 2000 ? `${raw.body.slice(0, 2000)}…` : raw.body,
+        };
+        const versions = {
+          postedBefore: before["Posted"] === true,
+          postedAfter,
+          dataVersionBefore: before["DataVersion"],
+          dataVersionAfter: after["DataVersion"],
+        };
+        if (postedAfter !== post) {
+          let hint = "";
+          if (post && PAYMENT_ORDER_SETS.has(entitySet)) {
+            try {
+              const st = await conn.client.getEntity(
+                `${entitySet}(guid'${guid}')?$format=json&$select=Оплачено,ДатаВыписки`,
+              );
+              if (st["Оплачено"] !== true)
+                hint =
+                  ` У платёжного поручения Оплачено=false (ДатаВыписки=${String(st["ДатаВыписки"])}): ` +
+                  "1С записывает такую платёжку без проведения и движений. Оплачено=true ставят только " +
+                  "с согласия пользователя (факт списания по выписке банка), не обходом.";
+            } catch {
+              /* подсказка необязательна */
+            }
+          }
+          return fail(
+            `1С ответила HTTP ${raw.status} на ${action}, но документ ${post ? "НЕ проведён" : "остался проведённым"} ` +
+              `(Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}).` +
+              hint +
+              ` Ответ 1С: ${http.body ? http.body : "(пустое тело)"}`,
+          );
+        }
         // Что провёл документ — сразу в ответе: проводки по регистру Хозрасчетный.
         // Сбой чтения проводок не отменяет проведения, только поясняется.
         let postings: Record<string, unknown> = {};
@@ -1848,7 +1892,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             };
           }
         }
-        return ok({ done: true, database: conn.cfg.name, ref: guid, action, ...postings });
+        return ok({ done: true, database: conn.cfg.name, ref: guid, action, posted: postedAfter, ...versions, http, ...postings });
       }),
   );
 

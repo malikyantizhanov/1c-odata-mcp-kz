@@ -67,8 +67,12 @@ describe("договор по умолчанию — как форма 1С пр�
 
 describe("post_document: без договора — понятная ошибка до вызова 1С", () => {
   const ref = "33333333-3333-4333-8333-333333333333";
-  const tool = (contract: string) => {
-    const action = vi.fn(async () => ({}));
+  const tool = (contract: string, sticks = true) => {
+    let posted = false;
+    const action = vi.fn(async () => {
+      if (sticks) posted = true;
+      return { status: 200, body: "" };
+    });
     const connection = {
       cfg: { name: "default", writable: true },
       available: async () => new Set([ACT]),
@@ -77,7 +81,15 @@ describe("post_document: без договора — понятная ошибк
           [ACT, { properties: [{ name: "Контрагент_Key" }, { name: "ДоговорКонтрагента_Key" }] }],
         ]),
       }),
-      client: { action, getEntity: async () => ({ Контрагент_Key: cp, ДоговорКонтрагента_Key: contract }) },
+      client: {
+        actionRaw: action,
+        getEntity: async () => ({
+          Контрагент_Key: cp,
+          ДоговорКонтрагента_Key: contract,
+          Posted: posted,
+          DataVersion: posted ? "v2" : "v1",
+        }),
+      },
     };
     const t = (
       createServer({ db: () => connection } as never) as unknown as {
@@ -106,6 +118,14 @@ describe("post_document: без договора — понятная ошибк
     const res = await run();
     expect(res.isError).toBeFalsy();
     expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("1С ответила 2xx, но Posted=false → ошибка, а не «проведён»", async () => {
+    const { action, run } = tool("44444444-4444-4444-8444-444444444444", false);
+    const res = await run();
+    expect(action).toHaveBeenCalledOnce();
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain("НЕ проведён");
   });
 });
 

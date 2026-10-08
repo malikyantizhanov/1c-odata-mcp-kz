@@ -63,16 +63,17 @@ function triad(n: number, feminine: boolean): string[] {
   return words.filter(Boolean);
 }
 
-/** Целое число прописью (до триллиона). */
-export function numberToWords(value: number): string {
+/** Целое число прописью (до триллиона). feminine — род единиц («одна целая», «две десятых»). */
+export function numberToWords(value: number, feminine = false): string {
   let n = Math.floor(Math.abs(value));
   if (n === 0) return "ноль";
   const parts: string[] = [];
   for (let scale = 0; n > 0 && scale < SCALES.length; scale++, n = Math.floor(n / 1000)) {
     const t = n % 1000;
     if (!t) continue;
-    const { forms, feminine } = SCALES[scale]!;
-    parts.unshift([...triad(t, feminine), plural(t, forms)].filter(Boolean).join(" "));
+    const { forms, feminine: scaleFeminine } = SCALES[scale]!;
+    const feminineUnits = scale === 0 ? feminine : scaleFeminine;
+    parts.unshift([...triad(t, feminineUnits), plural(t, forms)].filter(Boolean).join(" "));
   }
   return parts.join(" ");
 }
@@ -85,4 +86,26 @@ export function amountInWords(amount: number, currency = "KZT"): string {
   const words = numberToWords(whole);
   const text = words.charAt(0).toUpperCase() + words.slice(1);
   return currency === "KZT" ? `${text} тенге ${minor} тиын` : `${text} ${currency} ${minor}`;
+}
+
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * Количество прописью — как КоличествоПрописью 1С:БК (ЧислоПрописью с параметрами по числу знаков дробной части):
+ * «Один», «Одна целая пять десятых», «Две целых двадцать пять сотых», «Три целых сто двадцать пять тысячных».
+ */
+export function quantityInWords(qty: number): string {
+  const q = Math.abs(qty);
+  const whole = Math.floor(q);
+  const frac = Math.round((q - whole) * 1000);
+  if (!frac) return capitalize(numberToWords(whole));
+  const digits = frac % 100 === 0 ? 1 : frac % 10 === 0 ? 2 : 3;
+  const minor = digits === 1 ? frac / 100 : digits === 2 ? frac / 10 : frac;
+  const unitForms: Record<number, [string, string, string]> = {
+    1: ["десятая", "десятых", "десятых"],
+    2: ["сотая", "сотых", "сотых"],
+    3: ["тысячная", "тысячных", "тысячных"],
+  };
+  const wholeWords = `${numberToWords(whole, true)} ${plural(whole, ["целая", "целых", "целых"])}`;
+  return capitalize(`${wholeWords} ${numberToWords(minor, true)} ${plural(minor, unitForms[digits]!)}`);
 }

@@ -55,54 +55,58 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
   const available = await conn.available();
   const set = await requireEntity(conn, DOCUMENTS.customerInvoice, "Документ «Счёт на оплату покупателю»");
   const doc = await conn.client.getEntity(`${set}(guid'${docRef}')?$format=json`);
-  const org = await entity(conn, "Catalog_Организации", ref(doc["Организация_Key"]), [
-    "Description",
-    "НаименованиеПолное",
-    "ИдентификационныйНомер",
-    "КБЕ",
-    "ОсновнойБанковскийСчет_Key",
-    "ЮрФизЛицо",
-  ]);
-  // Счёт организации — из документа (СтруктурнаяЕдиница), иначе основной счёт организации.
-  const bankAccountRef =
-    (str(doc["СтруктурнаяЕдиница_Type"]).endsWith("Catalog_БанковскиеСчета")
-      ? ref(doc["СтруктурнаяЕдиница"])
-      : undefined) ?? ref(org["ОсновнойБанковскийСчет_Key"]);
-  const account = await entity(conn, "Catalog_БанковскиеСчета", bankAccountRef, ["НомерСчета", "Банк_Key"]);
-  const bank = await entity(conn, "Catalog_Банки", ref(account["Банк_Key"]), [
-    "Description",
-    "БИК",
-    "Code",
-    "Город",
-  ]);
-  const buyer = await entity(conn, "Catalog_Контрагенты", ref(doc["Контрагент_Key"]), [
-    "Description",
-    "НаименованиеПолное",
-    "ИдентификационныйКодЛичности",
-  ]);
-  const contract = await entity(conn, "Catalog_ДоговорыКонтрагентов", ref(doc["ДоговорКонтрагента_Key"]), [
-    "Description",
-  ]);
-  const currency = await entity(conn, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), ["Description"]);
-
+  // Справочники читаются параллельно (раньше — по одному): печать после создания счёта быстрее на секунды.
   const goods = (doc["Товары"] as ODataEntity[] | undefined) ?? [];
   const services = (doc["Услуги"] as ODataEntity[] | undefined) ?? [];
   const nomRefs = [
     ...new Set([...goods, ...services].map((r) => str(r["Номенклатура_Key"])).filter((r) => ref(r))),
   ];
   const nomSet = await requireEntity(conn, CATALOGS.nomenclature, "Справочник «Номенклатура»");
-  const { rows: noms } = nomRefs.length
-    ? await fetchAll(
-        conn.client,
-        nomSet,
-        {
-          filter: or(...nomRefs.map((r) => cmp("Ref_Key", "eq", odataGuid(r)))),
-          select: ["Ref_Key", "Code", "Description", "НаименованиеПолное", "БазоваяЕдиницаИзмерения_Key"],
-        },
-        50,
-        nomRefs.length,
-      )
-    : { rows: [] };
+  const docAccountRef = str(doc["СтруктурнаяЕдиница_Type"]).endsWith("Catalog_БанковскиеСчета")
+    ? ref(doc["СтруктурнаяЕдиница"])
+    : undefined;
+  const accountOf = (key: string | undefined) =>
+    entity(conn, "Catalog_БанковскиеСчета", key, ["НомерСчета", "Банк_Key"]).then(async (account) => ({
+      account,
+      bank: await entity(conn, "Catalog_Банки", ref(account["Банк_Key"]), [
+        "Description",
+        "БИК",
+        "Code",
+        "Город",
+      ]),
+    }));
+  const [org, docAccount, buyer, contract, currency, { rows: noms }] = await Promise.all([
+    entity(conn, "Catalog_Организации", ref(doc["Организация_Key"]), [
+      "Description",
+      "НаименованиеПолное",
+      "ИдентификационныйНомер",
+      "КБЕ",
+      "ОсновнойБанковскийСчет_Key",
+      "ЮрФизЛицо",
+    ]),
+    docAccountRef ? accountOf(docAccountRef) : Promise.resolve(undefined),
+    entity(conn, "Catalog_Контрагенты", ref(doc["Контрагент_Key"]), [
+      "Description",
+      "НаименованиеПолное",
+      "ИдентификационныйКодЛичности",
+    ]),
+    entity(conn, "Catalog_ДоговорыКонтрагентов", ref(doc["ДоговорКонтрагента_Key"]), ["Description"]),
+    entity(conn, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), ["Description"]),
+    nomRefs.length
+      ? fetchAll(
+          conn.client,
+          nomSet,
+          {
+            filter: or(...nomRefs.map((r) => cmp("Ref_Key", "eq", odataGuid(r)))),
+            select: ["Ref_Key", "Code", "Description", "НаименованиеПолное", "БазоваяЕдиницаИзмерения_Key"],
+          },
+          50,
+          nomRefs.length,
+        )
+      : Promise.resolve({ rows: [] as ODataEntity[] }),
+  ]);
+  // Счёт организации — из документа (СтруктурнаяЕдиница), иначе основной счёт организации.
+  const { account, bank } = docAccount ?? (await accountOf(ref(org["ОсновнойБанковскийСчет_Key"])));
   const nom = new Map(noms.map((n) => [String(n["Ref_Key"]), n]));
   // Единица: у товара — из строки, у услуги — базовая единица номенклатуры (как в форме 1С: «ч», «шт»).
   const unitOf = (r: ODataEntity) =>
@@ -198,8 +202,23 @@ export async function findInvoiceByNumber(
   opts: { date?: string | undefined; year?: number | undefined } = {},
 ): Promise<InvoiceMatch> {
   const set = await requireEntity(conn, DOCUMENTS.customerInvoice, "Документ «Счёт на оплату покупателю»");
+  return findDocumentByNumber(conn, set, number, opts, {
+    what: "Счёт на оплату",
+    several: "счетов",
+    empty: "Укажите номер счёта.",
+  });
+}
+
+/** Поиск документа любого вида по номеру — как findInvoiceByNumber (тот же разбор номера, даты и года). */
+export async function findDocumentByNumber(
+  conn: Connection,
+  set: string,
+  number: string,
+  opts: { date?: string | undefined; year?: number | undefined },
+  words: { what: string; several: string; empty: string },
+): Promise<InvoiceMatch> {
   const wanted = number.trim();
-  if (!wanted) throw new InputError("Укажите номер счёта.");
+  if (!wanted) throw new InputError(words.empty);
   const needle = /^\d+$/.test(wanted) ? String(Number(wanted)) : wanted;
   const range = opts.date
     ? [`${opts.date}T00:00:00`, `${opts.date}T23:59:59`]
@@ -236,7 +255,7 @@ export async function findInvoiceByNumber(
   const where = opts.date ? ` от ${opts.date}` : opts.year ? ` за ${opts.year} год` : "";
   if (pick.length === 0)
     throw new InputError(
-      `Счёт на оплату № ${wanted}${where} не найден.` +
+      `${words.what} № ${wanted}${where} не найден.` +
         (truncated ? " Поиск ограничен — укажите date или year." : "") +
         " Номер — как в 1С (например «3» или «00000000003»).",
     );
@@ -248,7 +267,7 @@ export async function findInvoiceByNumber(
       )
       .join("; ");
     throw new InputError(
-      `Под номер ${wanted}${where} подходит несколько счетов: ${list}. Уточните date/year или передайте ref.`,
+      `Под номер ${wanted}${where} подходит несколько ${words.several}: ${list}. Уточните date/year или передайте ref.`,
     );
   }
   return pick[0]!;

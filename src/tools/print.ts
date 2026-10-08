@@ -12,6 +12,13 @@ import { InputError } from "../errors.js";
 import type { ODataEntity } from "../types/odata.js";
 import { isKazakhstan } from "./write-kz.js";
 import { renderInvoicePdf, type InvoicePrintData, type InvoicePrintLine } from "../print/invoice-pdf.js";
+import {
+  DEFAULT_PRINT_DIR,
+  resolvePrintDir,
+  safeFileName,
+  saveUnique,
+  type SavedFile,
+} from "../print/save.js";
 
 const EMPTY = "00000000-0000-0000-0000-000000000000";
 const ref = (v: unknown): string | undefined => (typeof v === "string" && v && v !== EMPTY ? v : undefined);
@@ -27,8 +34,21 @@ async function entity(
   return conn.client.getEntity(`${set}(guid'${key}')${buildQuery({ select })}`);
 }
 
-/** Банк в реквизитах — как в форме 1С: наименование и « г. » с городом из справочника («… г. г. Алматы»). */
-export const bankTitle = (name: string, city: string): string => (city ? `${name} г. ${city}` : name);
+/**
+ * Город банка без своего префикса «г.»/«гор.»/«город»: в справочнике «Банки» он часто уже записан как «г. Алматы»,
+ * а макет добавляет « г. » сам. Форма 1С в этом случае печатает «г. г. Алматы» — мы такое удвоение не повторяем.
+ */
+export const bankCity = (city: string): string =>
+  city
+    .trim()
+    .replace(/^(?:г|гор|город)(?:\.\s*|\s+)/iu, "")
+    .trim();
+
+/** Банк в реквизитах — как в форме 1С: наименование и « г. » с городом из справочника («… г. Алматы»). */
+export const bankTitle = (name: string, city: string): string => {
+  const c = bankCity(city);
+  return c ? `${name} г. ${c}` : name;
+};
 
 /** Данные счёта на оплату для печати: документ, организация, банк, покупатель, договор, позиции. */
 export async function invoicePrintData(conn: Connection, docRef: string): Promise<InvoicePrintData> {
@@ -151,7 +171,8 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
       description:
         "PDF счёта на оплату покупателю (Казахстан) по макету печатной формы 1С «Счет на оплату»: условия, образец " +
         "платёжного поручения (бенефициар, ИИК, Кбе, банк, БИК), поставщик, покупатель, договор, позиции, итоги с НДС, " +
-        "сумма прописью, подпись. Возвращает файл ресурсом MCP — его можно отправить клиенту. Форма собирается по данным " +
+        "сумма прописью, подпись. Сохраняет PDF на диск и возвращает абсолютный путь (path) — существующий файл " +
+        "не перезаписывается, новый получает суффикс « (2)»; тот же PDF приходит и ресурсом MCP. Форма собирается по данным " +
         "документа: печать 1С через OData не вызвать, поэтому собственные настройки печати базы (свой текст условий, " +
         "факсимиле, логотип) в PDF не попадают.",
       inputSchema: {
@@ -160,19 +181,68 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
           .string()
           .regex(/^\{?[0-9a-fA-F-]{36}\}?$/, "Ref_Key — GUID")
           .describe("Ref_Key счёта на оплату"),
+        outputDir: z
+          .string()
+          .max(500)
+          .optional()
+          .describe(
+            "Подкаталог для PDF внутри каталога печати (ODATA_PRINT_DIR, по умолчанию /workspace/library/счета): " +
+              "относительный путь от него или абсолютный внутри него; создаётся, если его нет. Выход за каталог " +
+              "печати («..», чужой абсолютный путь, символическая ссылка наружу) отклоняется. Не задан — сам каталог печати.",
+          ),
       },
       outputSchema: z
-        .object({ database: z.string(), name: z.string(), mimeType: z.string(), size: z.number() })
+        .object({
+          database: z.string(),
+          name: z.string(),
+          mimeType: z.string(),
+          size: z.number(),
+          path: z.string().optional(),
+          fileName: z.string().optional(),
+          directory: z.string().optional(),
+          saveError: z.string().optional(),
+        })
         .passthrough(),
     },
-    ({ database, ref: docRef }) =>
+    ({ database, ref: docRef, outputDir }) =>
       guard("read.document.print_invoice", async (): Promise<CallToolResult> => {
         const conn = ctx.db(database);
         if (!(await isKazakhstan(conn)))
           throw new InputError("Печать счёта сейчас поддержана для казахстанской базы.");
+        // Каталог проверяется до обращения к 1С: путь за пределами каталога печати — ошибка ввода (PDF не строится).
+        // Сбой файловой системы (нет прав и т. п.) не мешает печати: PDF вернётся ресурсом, причина — в saveError.
+        const root = conn.behavior.printDir ?? DEFAULT_PRINT_DIR;
+        let dir: string | undefined;
+        let saveError: string | undefined;
+        try {
+          dir = await resolvePrintDir(root, outputDir);
+        } catch (e) {
+          if (e instanceof InputError) throw e;
+          saveError = `Каталог для PDF недоступен (${root}): ${(e as Error).message}`;
+        }
         const data = await invoicePrintData(conn, docRef.replace(/[{}]/g, ""));
         const pdf = await renderInvoicePdf(data);
         const name = `Счет на оплату покупателю № ${data.number} от ${data.date.split("-").reverse().join(".")}.pdf`;
+        // Хост MCP передаёт агентам только structuredContent, поэтому PDF сохраняется на диск и путь
+        // отдаётся в нём; ресурс с base64 остаётся для клиентов, которые его показывают.
+        let saved: SavedFile | undefined;
+        if (dir) {
+          try {
+            saved = await saveUnique(dir, safeFileName(name), pdf);
+          } catch (e) {
+            saveError = `PDF не сохранён в ${dir}: ${(e as Error).message}`;
+          }
+        }
+        const notes = [
+          ...(data.bank
+            ? []
+            : ["У счёта и организации нет банковского счёта — ИИК, банк и БИК в PDF пустые."]),
+          ...(saved?.renamed
+            ? [
+                `Файл «${safeFileName(name)}» уже был — новый сохранён как «${saved.fileName}», прежний не перезаписан.`,
+              ]
+            : []),
+        ];
         const result = ok({
           database: conn.cfg.name,
           name,
@@ -180,9 +250,9 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
           size: pdf.length,
           number: data.number,
           total: data.total,
-          ...(data.bank
-            ? {}
-            : { note: "У счёта и организации нет банковского счёта — ИИК, банк и БИК в PDF пустые." }),
+          ...(saved ? { path: saved.path, fileName: saved.fileName, directory: saved.directory } : {}),
+          ...(saveError ? { saveError } : {}),
+          ...(notes.length ? { note: notes.join(" ") } : {}),
         });
         result.content.push({
           type: "resource",

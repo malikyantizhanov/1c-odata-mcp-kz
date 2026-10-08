@@ -33,6 +33,16 @@ describe("parseConfig — одна база (обратная совместим
     });
     expect(c.behavior.writeJournalDir).toBe("/var/tmp/1c-write-journal");
   });
+
+  it("каталог печати: ODATA_PRINT_DIR или /workspace/library/счета", () => {
+    const base = {
+      ODATA_BASE_URL: "https://host/db/odata/standard.odata/",
+      ODATA_USERNAME: "u",
+      ODATA_PASSWORD: "p",
+    };
+    expect(parseConfig(base).behavior.printDir).toBe("/workspace/library/счета");
+    expect(parseConfig({ ...base, ODATA_PRINT_DIR: "/srv/print" }).behavior.printDir).toBe("/srv/print");
+  });
 });
 
 describe("parseConfig — несколько баз", () => {

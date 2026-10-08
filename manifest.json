@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 75 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 77 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -315,13 +315,17 @@
     {
       "name": "read.system.health_check",
       "title": "Проверка соединения",
-      "description": "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. Возвращает версию OData и число опубликованных объектов. Вызывайте первым, если другие инструменты выдают ошибки.",
+      "description": "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. Возвращает версию OData и число опубликованных объектов. Вызывайте первым, если другие инструменты выдают ошибки. Метаданные базы кешируются на диске (ODATA_CACHE_DIR, срок — ODATA_METADATA_CACHE_TTL_HOURS); refreshMetadata=true перечитывает их из 1С и обновляет кеш — после изменения состава OData или обновления конфигурации.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "database": {
             "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
             "type": "string"
+          },
+          "refreshMetadata": {
+            "description": "Перечитать $metadata из 1С и перезаписать дисковый кеш (только чтение 1С).",
+            "type": "boolean"
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -380,6 +384,37 @@
               "writable",
               "uncertainOperations",
               "note"
+            ],
+            "additionalProperties": false
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "network",
+                  "cache"
+                ]
+              },
+              "savedAt": {
+                "type": "string"
+              },
+              "cacheFile": {
+                "type": "string"
+              },
+              "revalidation": {
+                "type": "string"
+              },
+              "cacheError": {
+                "type": "string"
+              },
+              "loadMs": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "source"
             ],
             "additionalProperties": false
           }
@@ -4176,6 +4211,132 @@
           "name",
           "mimeType",
           "size"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.document.print_sale",
+      "title": "Печать реализации: акт Р-1 и накладная З-2 (PDF)",
+      "description": "PDF первичных документов по «Реализации товаров и услуг» (Казахстан) по формам приказа МФ РК от 20.12.2012 № 562 (https://adilet.zan.kz/rus/docs/V1200008265): услуги — «Акт выполненных работ (оказанных услуг)», форма Р-1 (приложение 50); товары — «Накладная на отпуск запасов на сторону», форма З-2 (приложение 26). Раскладка — как у печатных форм 1С Р-1 и З-2. form: auto (по строкам документа; есть и услуги, и товары — оба PDF), act, waybill. Реализация — по ref или по номеру (number; date или year при повторе номера). PDF сохраняются в каталог печати (ODATA_PRINT_DIR): акт — в подкаталог «акты», накладная — в «накладные» (или в outputDir); существующий файл не перезаписывается — новый получает « (2)». Возвращает пути (files[].path). Адрес и телефоны сторон, главный бухгалтер и МОЛ склада в OData не опубликованы — в форме их нет (см. note).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Ref_Key реализации. Либо ref, либо number.",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "number": {
+            "description": "Номер реализации как в 1С: «18» или «00000000018».",
+            "type": "string",
+            "maxLength": 50
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата реализации — сужает поиск по номеру (YYYY-MM-DD)"
+          },
+          "year": {
+            "description": "Год реализации — сужает поиск по номеру",
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "form": {
+            "default": "auto",
+            "description": "auto — по строкам документа; act — только Р-1 (услуги); waybill — только З-2 (товары).",
+            "type": "string",
+            "enum": [
+              "auto",
+              "act",
+              "waybill"
+            ]
+          },
+          "outputDir": {
+            "description": "Подкаталог внутри каталога печати (ODATA_PRINT_DIR) для обоих PDF. Не задан — «акты» и «накладные». Выход за каталог печати отклоняется.",
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "number": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "form": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "number"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "fileName": {
+                  "type": "string"
+                },
+                "directory": {
+                  "type": "string"
+                },
+                "saveError": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "form",
+                "name",
+                "size"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "ref",
+          "number",
+          "date",
+          "total",
+          "files"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
@@ -9520,6 +9681,201 @@
           "buyer",
           "lines"
         ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "database"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.sales.quick_sale",
+      "title": "Реализация (акт / накладная) в один вызов (Казахстан)",
+      "description": "Реализация товаров и услуг за один-два вызова. С basis (счёт на оплату — ref или номер) — «на основании», как в 1С: организация, покупатель, договор, ответственный, валюта, флаги НДС, банковский счёт, строки товаров и услуг копируются из счёта, ДокументОснование = счёт. Без basis — buyer + lines, как quick_invoice. Счета учёта, вид учёта НУ и субконто — из последней реализации той же организации с такими строками (1С через OData их не подставляет). confirm=false (по умолчанию) — план: что заполнено и откуда, итоги, notes, operationId; ничего не пишет. План проверяет дубли: реализации на основании того же счёта и реализации того же покупателя за тот же день на ту же сумму (помеченные на удаление не считаются) — possibleDuplicates (номер, дата, ref, сумма, posted, reason). Не пуст — ОБЯЗАТЕЛЬНО покажите пользователю до подтверждения. confirm=true с тем же operationId и аргументами — создаёт реализацию БЕЗ проведения, перечитывает её и сохраняет PDF: акт Р-1 (услуги) и/или накладную З-2 (товары) — pdf.files[].path. Повтор после сбоя с тем же operationId не создаёт дубликатов. Подтверждайте только с согласия пользователя.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "basis": {
+            "description": "Счёт на оплату покупателю — основание: Ref_Key или номер («3», «00000000003»). С основанием покупатель, договор и строки берутся из счёта (buyer/lines не нужны).",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "basisDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата счёта-основания — сужает поиск по номеру (YYYY-MM-DD)"
+          },
+          "basisYear": {
+            "description": "Год счёта-основания — сужает поиск по номеру",
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата реализации; по умолчанию — сейчас (Алматы) (YYYY-MM-DD)"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "buyer": {
+            "description": "Без основания: покупатель — БИН/ИИН, Ref_Key или наименование (как в quick_invoice)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "buyerName": {
+            "description": "Наименование покупателя — для сверки с найденным по БИН",
+            "type": "string",
+            "maxLength": 500
+          },
+          "lines": {
+            "description": "Без основания: позиции (как в quick_invoice)",
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "description": "Наименование услуги/товара (как в справочнике или новое)",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "ref": {
+                  "description": "Ref_Key номенклатуры — вместо name",
+                  "type": "string"
+                },
+                "quantity": {
+                  "default": 1,
+                  "description": "Количество (по умолчанию 1)",
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "price": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Цена за единицу, тенге"
+                },
+                "kind": {
+                  "default": "service",
+                  "description": "service — услуга (по умолчанию), goods — товар",
+                  "type": "string",
+                  "enum": [
+                    "service",
+                    "goods"
+                  ]
+                },
+                "content": {
+                  "description": "Содержание строки услуги (печатается в счёте). По умолчанию — name.",
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "vatRate": {
+                  "description": "Ставка НДС строки. По умолчанию — по статусу организации.",
+                  "type": "string",
+                  "enum": [
+                    "без НДС",
+                    "0%",
+                    "5%",
+                    "10%",
+                    "12%",
+                    "16%"
+                  ]
+                },
+                "createNew": {
+                  "default": false,
+                  "description": "true — завести новую номенклатуру, даже если есть похожие (после показа вариантов).",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "price"
+              ]
+            }
+          },
+          "contract": {
+            "description": "Без основания: договор — Ref_Key, номер или наименование",
+            "type": "string",
+            "maxLength": 200
+          },
+          "bankAccount": {
+            "description": "Без основания: банковский счёт организации",
+            "type": "string",
+            "maxLength": 200
+          },
+          "sumIncludesVat": {
+            "default": true,
+            "description": "Без основания: цена включает НДС (для плательщика НДС)",
+            "type": "boolean"
+          },
+          "warehouse": {
+            "description": "Склад для товаров: Ref_Key или наименование. По умолчанию — из основания, единственный склад или склад образца.",
+            "type": "string",
+            "maxLength": 200
+          },
+          "print": {
+            "default": "auto",
+            "description": "PDF после создания: auto — Р-1 для услуг и/или З-2 для товаров; none — без PDF.",
+            "type": "string",
+            "enum": [
+              "auto",
+              "act",
+              "waybill",
+              "none"
+            ]
+          },
+          "outputDir": {
+            "description": "Подкаталог для PDF внутри ODATA_PRINT_DIR (как у print_sale)",
+            "type": "string",
+            "maxLength": 500
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только план, ничего не создаётся. true — создать реализацию (без проведения) и PDF: передайте operationId из плана и те же аргументы. После таймаута/сбоя повторяйте с тем же operationId.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "operationId из плана (обязателен при confirm=true)",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "outputSchema": {

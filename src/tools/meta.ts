@@ -59,14 +59,25 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
       description:
         "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. " +
         "Возвращает версию OData и число опубликованных объектов. " +
-        "Вызывайте первым, если другие инструменты выдают ошибки.",
-      inputSchema: { database: databaseField },
+        "Вызывайте первым, если другие инструменты выдают ошибки. Метаданные базы кешируются на диске " +
+        "(ODATA_CACHE_DIR, срок — ODATA_METADATA_CACHE_TTL_HOURS); refreshMetadata=true перечитывает их из 1С " +
+        "и обновляет кеш — после изменения состава OData или обновления конфигурации.",
+      inputSchema: {
+        database: databaseField,
+        refreshMetadata: z
+          .boolean()
+          .optional()
+          .describe("Перечитать $metadata из 1С и перезаписать дисковый кеш (только чтение 1С)."),
+      },
       outputSchema: healthCheckResultSchema,
     },
-    ({ database }) =>
+    ({ database, refreshMetadata }) =>
       guard("read.system.health_check", async () => {
         const conn = ctx.db(database);
-        const meta = await conn.getMetadata();
+        const started = performance.now();
+        const meta = refreshMetadata ? await conn.refreshMetadata() : await conn.getMetadata();
+        const loadMs = Math.round(performance.now() - started);
+        const info = conn.metadataInfo();
         const journal = await conn.client.journalSummary();
         return ok({
           status: "ok",
@@ -76,6 +87,18 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
           entityCount: meta.entities.size,
           baseUrl: conn.cfg.baseUrl,
           readOnly: conn.behavior.readOnly,
+          ...(info
+            ? {
+                metadata: {
+                  source: info.source,
+                  ...(info.savedAt ? { savedAt: new Date(info.savedAt).toISOString() } : {}),
+                  ...(info.cacheFile ? { cacheFile: info.cacheFile } : {}),
+                  ...(info.revalidation ? { revalidation: info.revalidation } : {}),
+                  ...(info.cacheError ? { cacheError: info.cacheError } : {}),
+                  loadMs,
+                },
+              }
+            : {}),
           ...(journal
             ? {
                 writeJournal: {

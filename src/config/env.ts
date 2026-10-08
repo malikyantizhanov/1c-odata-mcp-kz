@@ -2,6 +2,7 @@ import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { DEFAULT_PRINT_DIR } from "../print/save.js";
+import { DEFAULT_CACHE_DIR, DEFAULT_METADATA_TTL_HOURS } from "../odata/metadata-cache.js";
 
 /**
  * Конфигурация сервера. Поддерживает несколько баз 1С одновременно.
@@ -43,6 +44,11 @@ export interface Behavior {
    * сверка идёт по назначенному Ref_Key; метка — только для тех, кому нужна видимая в 1С привязка.
    */
   writeOperationMarker: boolean;
+  /**
+   * Дисковый кеш $metadata: каталог (ODATA_CACHE_DIR, по умолчанию ~/.cache/1c-odata-mcp-kz) и срок жизни
+   * (ODATA_METADATA_CACHE_TTL_HOURS, по умолчанию 24; 0 — кеш выключен). Не задан — кеша нет.
+   */
+  metadataCache?: { dir: string; ttlMs: number } | undefined;
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -65,6 +71,12 @@ const BehaviorSchema = z.object({
   ODATA_WRITE_JOURNAL_DIR: z.string().min(1).optional(),
   ODATA_PRINT_DIR: z.string().min(1).optional(),
   ODATA_WRITE_OPERATION_MARKER: z.enum(["true", "false"]).default("false"),
+  ODATA_CACHE_DIR: z.string().min(1).optional(),
+  ODATA_METADATA_CACHE_TTL_HOURS: z.coerce
+    .number()
+    .min(0)
+    .max(24 * 365)
+    .default(DEFAULT_METADATA_TTL_HOURS),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   READ_ONLY: z.enum(["true", "false"]).default("true"),
 });
@@ -180,6 +192,13 @@ export function parseConfig(env: Env): RuntimeConfig {
         b.ODATA_WRITE_JOURNAL_DIR ?? join(homedir(), ".1c-odata-mcp", "write-journal"),
       ),
       printDir: resolve(b.ODATA_PRINT_DIR ?? DEFAULT_PRINT_DIR),
+      metadataCache:
+        b.ODATA_METADATA_CACHE_TTL_HOURS > 0
+          ? {
+              dir: resolve(b.ODATA_CACHE_DIR ?? DEFAULT_CACHE_DIR),
+              ttlMs: Math.round(b.ODATA_METADATA_CACHE_TTL_HOURS * 3_600_000),
+            }
+          : undefined,
     },
   };
 }

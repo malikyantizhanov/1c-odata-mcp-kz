@@ -78,10 +78,10 @@ export function subOperationId(operationId: string, step: string): string {
   const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
-const subRequestHash = (requestHash: string, step: string): string =>
+export const subRequestHash = (requestHash: string, step: string): string =>
   createHash("sha256").update(`${requestHash}\n${step}`).digest("hex");
 
-const lineSchema = z.object({
+export const lineSchema = z.object({
   name: z
     .string()
     .min(1)
@@ -109,7 +109,7 @@ const lineSchema = z.object({
     .default(false)
     .describe("true — завести новую номенклатуру, даже если есть похожие (после показа вариантов)."),
 });
-type LineInput = z.infer<typeof lineSchema>;
+export type LineInput = z.infer<typeof lineSchema>;
 
 export const quickInvoiceInput = {
   database: databaseField,
@@ -154,7 +154,7 @@ export const quickInvoiceInput = {
     ),
   operationId: z.string().uuid().optional().describe("operationId из плана (обязателен при confirm=true)"),
 };
-type QuickInput = {
+export type QuickInput = {
   database?: string | undefined;
   organization?: string | undefined;
   buyer: string;
@@ -184,7 +184,7 @@ interface CreateStep {
   label: string;
 }
 
-interface PlannedLine {
+export interface PlannedLine {
   index: number;
   action: "use" | "create";
   ref?: string | undefined;
@@ -305,7 +305,7 @@ export async function findDuplicateInvoices(
   }
 }
 
-const docNumber = (n: string): string => n.replace(/^0+(?=\d)/, "");
+export const docNumber = (n: string): string => n.replace(/^0+(?=\d)/, "");
 
 /** Покупатель: Ref, БИН/ИИН или наименование. Несколько — варианты. */
 async function resolveBuyer(
@@ -633,7 +633,11 @@ async function resolveLine(
 }
 
 /** Строит план: всё нужное читается параллельно; ничего не пишет. */
-export async function planQuickInvoice(conn: Connection, input: QuickInput): Promise<QuickPlan> {
+export async function planQuickInvoice(
+  conn: Connection,
+  input: QuickInput,
+  opts: { forSale?: boolean } = {},
+): Promise<QuickPlan> {
   input.lines.forEach((l, i) => {
     if (!l.name?.trim() && !l.ref) throw new InputError(`lines[${i}]: укажите name или ref.`);
   });
@@ -762,7 +766,8 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
     }),
     withVat ? vatRateRefs(conn, [...new Set(rates)]) : Promise.resolve(new Map<string, string>()),
     needCreateUnit ? unitRef(conn) : Promise.resolve(undefined),
-    buyerRes.buyer
+    // Для реализации (quick_sale) дубли ищутся среди реализаций — там своя проверка.
+    buyerRes.buyer && !opts.forSale
       ? findDuplicateInvoices(conn, invoiceSet, {
           buyerRef: buyerRes.buyer.ref,
           orgRef,
@@ -777,8 +782,10 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
   if (contractRes?.choice) choices.push(contractRes.choice);
   notes.unshift(...dupRes.notes);
   notes.push(...(contractRes?.notes ?? []));
-  if (!bank) notes.push("У организации нет банковского счёта — в счёте не будет реквизитов для оплаты.");
-  if (!input.paymentCode) notes.push("КНП не указан — поле «Код назначения платежа» в счёте будет пустым.");
+  if (!bank && !opts.forSale)
+    notes.push("У организации нет банковского счёта — в счёте не будет реквизитов для оплаты.");
+  if (!input.paymentCode && !opts.forSale)
+    notes.push("КНП не указан — поле «Код назначения платежа» в счёте будет пустым.");
   for (const l of lines) if (l.action === "create") l.unitRef = newUnit;
   return {
     ready: choices.length === 0,
@@ -957,7 +964,7 @@ function planView(plan: QuickPlan) {
 const duplicateList = (d: DuplicateInvoice[]): string =>
   d.map((x) => `№ ${x.number} от ${x.date} на ${x.total} (ref ${x.ref})`).join("; ");
 
-const writeBlocked = (conn: Connection): string | undefined =>
+export const writeBlocked = (conn: Connection): string | undefined =>
   conn.behavior.readOnly
     ? "Запись запрещена: сервер в режиме только-чтение (READ_ONLY=true)."
     : !conn.cfg.writable

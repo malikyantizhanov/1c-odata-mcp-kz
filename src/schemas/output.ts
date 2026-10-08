@@ -168,6 +168,16 @@ export const healthCheckResultSchema = z
         note: z.string(),
       })
       .optional(),
+    metadata: z
+      .object({
+        source: z.enum(["network", "cache"]),
+        savedAt: z.string().optional(),
+        cacheFile: z.string().optional(),
+        revalidation: z.string().optional(),
+        cacheError: z.string().optional(),
+        loadMs: z.number().optional(),
+      })
+      .optional(),
   })
   .passthrough();
 

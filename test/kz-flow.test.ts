@@ -6,6 +6,7 @@ import {
   candidates,
   enumNotes,
   fillFromSample,
+  invoiceNotes,
   kzCreateNotes,
   kzFlowPostingWarnings,
   kzGuide,
@@ -17,6 +18,8 @@ import {
 import { kzUpdateEntityCheck } from "../src/tools/capabilities.js";
 import { describeBody } from "../src/tools/write.js";
 import { loadMetadata } from "../src/odata/metadata.js";
+import { htmlText } from "../src/odata/errors.js";
+import { getDocumentMovements, matchRegister } from "../src/odata/movements.js";
 import type { EntityMeta } from "../src/types/odata.js";
 
 /**
@@ -268,8 +271,104 @@ describe("сверка проводок со схемой", () => {
       /без бухгалтерских проводок/,
     );
   });
-  it("СФ: подсказка на случай отказа 1С в проведении", () => {
-    expect(KZ_FLOW_BY_SET.get("Document_СчетФактураВыданный")?.postFailureHint).toMatch(/плательщиком НДС/);
+  it("СФ: подсказка на случай отказа 1С — пустые строки, а не статус неплательщика НДС", () => {
+    for (const set of ["Document_СчетФактураВыданный", "Document_СчетФактураПолученный"]) {
+      const hint = KZ_FLOW_BY_SET.get(set)?.postFailureHint ?? "";
+      expect(hint).toMatch(/Товары\/Услуги/);
+      expect(hint).toMatch(/неплательщика НДС/);
+      expect(hint).not.toMatch(/не зарегистрирована плательщиком/);
+    }
+  });
+  it("СФ: нормы НК 2026 для неплательщика — ст. 207–209 и «Без НДС»", () => {
+    const legal = (KZ_FLOW_BY_SET.get("Document_СчетФактураВыданный")?.legal ?? []).join(" ");
+    expect(legal).toMatch(/ст\. 208/);
+    expect(legal).toMatch(/ст\. 209/);
+    expect(legal).toMatch(/Без НДС/);
+    expect(legal).toMatch(/adilet\.zan\.kz/);
+    expect(legal).toMatch(/kgd\.gov\.kz/);
+    expect(legal).not.toMatch(/ст\. 491 \(обязанность плательщика НДС\)/);
+  });
+});
+
+describe("счёт-фактура: проверки перед созданием", () => {
+  const OUT = "Document_СчетФактураВыданный";
+  const basis = {
+    ДокументОснование: "d4b56d20-c2cd-11f1-9990-790f947810fd",
+    ДокументыОснования: [{ ДокументОснование: "d4b56d20-c2cd-11f1-9990-790f947810fd" }],
+  };
+  it("пустые табличные части — предупреждение (1С прервёт проведение)", () => {
+    expect(invoiceNotes(OUT, { ...basis, Товары: [] }).join(" ")).toMatch(/пустые/);
+  });
+  it("нет строки в ДокументыОснования — предупреждение", () => {
+    const n = invoiceNotes(OUT, { ДокументОснование: "x", Товары: [{ СтавкаНДС_Key: "r" }] }).join(" ");
+    expect(n).toMatch(/ДокументыОснования/);
+  });
+  it("неплательщик без ставки — подсказка «без НДС»; заполненный СФ — без замечаний", () => {
+    expect(invoiceNotes(OUT, { ...basis, УчитыватьНДС: false, Товары: [{ Сумма: 1000 }] }).join(" ")).toMatch(
+      /без НДС/,
+    );
+    expect(
+      invoiceNotes(OUT, { ...basis, УчитыватьНДС: false, Товары: [{ Сумма: 1000, СтавкаНДС_Key: "r" }] }),
+    ).toEqual([]);
+    expect(invoiceNotes("Document_РеализацияТоваровУслуг", {})).toEqual([]);
+  });
+});
+
+describe("движения документа по регистрам", () => {
+  it("имя регистра: короткое, с префиксом или полное", () => {
+    expect(matchRegister("AccumulationRegister_НДС_RecordType", ["НДС"])).toBe(true);
+    expect(matchRegister("AccumulationRegister_НДС_RecordType", ["AccumulationRegister_НДС"])).toBe(true);
+    expect(matchRegister("AccumulationRegister_НДСКВозмещению_RecordType", ["НДС"])).toBe(false);
+    expect(matchRegister("Catalog_X", ["X"])).toBe(false);
+  });
+  it("опрашивает только регистры с Recorder, отбор по регистратору, ошибки — по регистру", async () => {
+    const entity = (entitySet: string, props: string[]) => ({
+      entitySet,
+      entityType: entitySet,
+      class: "accumulationRegister",
+      shortName: entitySet,
+      properties: props.map((n) => prop(n)),
+      navigations: [],
+    });
+    const entities = new Map(
+      [
+        entity("AccumulationRegister_РеализацияТМЗ_RecordType", ["Recorder", "Сумма"]),
+        entity("AccumulationRegister_ОплатаСчетов_RecordType", ["Recorder"]),
+        entity("InformationRegister_Курсы_RecordType", ["Period"]),
+        entity("Catalog_Номенклатура", ["Ref_Key"]),
+      ].map((e) => [e.entitySet, e]),
+    );
+    const paths: string[] = [];
+    const conn = {
+      getMetadata: async () => ({ odataVersion: "3.0", entities }),
+      client: {
+        getCollection: async (path: string) => {
+          paths.push(decodeURIComponent(path));
+          if (path.startsWith("AccumulationRegister_ОплатаСчетов")) throw new Error("Доступ запрещен");
+          return {
+            value: [
+              {
+                Recorder: "g",
+                Recorder_Type: "StandardODATA.Document_X",
+                Сумма: 1000,
+                "Ref@navigationLinkUrl": "u",
+              },
+            ],
+          };
+        },
+      },
+    } as never;
+    const m = await getDocumentMovements(conn, "Document_X", "11111111-1111-1111-1111-111111111111");
+    expect(m.registersChecked).toBe(2);
+    expect(m.withRecords).toEqual([
+      { register: "AccumulationRegister_РеализацияТМЗ", count: 1, truncated: false, rows: [{ Сумма: 1000 }] },
+    ]);
+    expect(m.errors[0]).toMatchObject({ register: "AccumulationRegister_ОплатаСчетов" });
+    expect(
+      paths.every((p) =>
+        p.includes("Recorder eq cast(guid'11111111-1111-1111-1111-111111111111', 'Document_X')"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -300,6 +399,16 @@ describe("ответы 1cfresh", () => {
     expect(text).toMatch(/HTML-страница сервиса «1cfresh.kz»/);
     expect(text).not.toMatch(/DOCTYPE/);
     expect(describeBody("")).toBe("(пустое тело)");
+  });
+  it("текст HTML-страницы попадает в ответ (без разметки и скриптов)", () => {
+    const page =
+      "<!DOCTYPE html><html><head><title>1cfresh.kz</title><script>var x=1;</script><style>p{}</style></head>" +
+      "<body><p>Уважаемые пользователи сервиса!</p><p>К сожалению, в данный момент сервис&nbsp;частично недоступен.</p></body></html>";
+    const t = htmlText(page);
+    expect(t).toContain("сервис частично недоступен");
+    expect(t).not.toMatch(/<|var x|p\{\}/);
+    expect(describeBody(page)).toContain("Текст страницы: «");
+    expect(htmlText("<p>" + "а".repeat(2000) + "</p>", 100).length).toBe(101);
   });
 });
 

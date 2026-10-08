@@ -34,7 +34,8 @@ import {
   tengeRef,
   unitRef,
 } from "./write-kz.js";
-import { ODataError } from "../odata/errors.js";
+import { ODataError, htmlText } from "../odata/errors.js";
+import { getDocumentMovements } from "../odata/movements.js";
 import { getDocumentPostings } from "./registers.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
@@ -1315,8 +1316,8 @@ export function describeBody(body: string | undefined | null): string {
   if (/^\s*<!DOCTYPE HTML|^\s*<html/i.test(body)) {
     const title = /<title>([^<]*)<\/title>/i.exec(body)?.[1]?.trim();
     return (
-      `HTML-страница сервиса${title ? ` «${title}»` : ""} вместо ответа OData — 1С прервала проведение исключением, ` +
-      "текст ошибки через OData не передаётся. Причину видно при проведении документа в интерфейсе 1С."
+      `HTML-страница сервиса${title ? ` «${title}»` : ""} вместо ответа OData — 1С прервала проведение исключением. ` +
+      `Текст страницы: «${htmlText(body)}». Если причины в нём нет — проведите документ в интерфейсе 1С.`
     );
   }
   return body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
@@ -1925,7 +1926,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             `1С ответила HTTP ${raw.status} на ${action}, но документ ${post ? "НЕ проведён" : "остался проведённым"} ` +
               `(Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}).` +
               hint +
-              ` Ответ 1С: ${describeBody(http.body)}`,
+              ` Ответ 1С: ${describeBody(raw.body)}`,
           );
         }
         // Что провёл документ — сразу в ответе: проводки по регистру Хозрасчетный.
@@ -1953,6 +1954,31 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           } catch (e) {
             postings = {
               postingsNote: `Проведено; проводки прочитать не удалось: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
+        }
+        // Документ без проводок (счёт-фактура, кадровые и т.п.): что проведение записало в другие регистры.
+        // После отмены проведения у таких документов — что движений не осталось.
+        const noPostingsDoc =
+          (post && (postings["postings"] as { count?: number } | undefined)?.count === 0) ||
+          (!post && KZ_FLOW_BY_SET.get(entitySet)?.noPostings === true);
+        if (noPostingsDoc) {
+          try {
+            const m = await getDocumentMovements(conn, entitySet, guid, { limit: 5 });
+            postings["movements"] = {
+              registersChecked: m.registersChecked,
+              withRecords: m.withRecords.map((r) => ({
+                register: r.register,
+                count: r.count,
+                ...(r.truncated ? { truncated: true } : {}),
+                rows: r.rows,
+              })),
+              ...(m.errors.length ? { errors: m.errors.slice(0, 5) } : {}),
+              note: m.note,
+            };
+          } catch (e) {
+            postings["movements"] = {
+              error: `Движения по регистрам прочитать не удалось: ${e instanceof Error ? e.message : String(e)}`,
             };
           }
         }

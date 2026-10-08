@@ -13,8 +13,15 @@ import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createServer } from "../src/mcp/server.js";
 import { amountInWords, numberToWords } from "../src/print/amount-words.js";
-import { dateWords, money, partyText, quantity, renderInvoicePdf } from "../src/print/invoice-pdf.js";
-import { bankCity, bankTitle, invoicePrintData } from "../src/tools/print.js";
+import {
+  beneficiaryId,
+  dateWords,
+  money,
+  partyText,
+  quantity,
+  renderInvoicePdf,
+} from "../src/print/invoice-pdf.js";
+import { bankCity, bankTitle, invoicePrintData, sameDocNumber } from "../src/tools/print.js";
 import { isInside, resolvePrintDir, safeFileName, saveUnique } from "../src/print/save.js";
 
 const EMPTY_REF = "00000000-0000-4000-8000-000000000001";
@@ -84,6 +91,21 @@ describe("форматы печатной формы 1С", () => {
   ])("город банка «%s» → «%s» (без удвоенного «г.»)", (city, want) => {
     expect(bankCity(city)).toBe(want);
     expect(bankTitle("АО Банк", city)).toBe(want ? `АО Банк г. ${want}` : "АО Банк");
+  });
+});
+
+describe("сверка с печатной формой 1С (ManagerModule/ОбщегоНазначенияБК)", () => {
+  it("номер организации в образце платёжки: ИП (ФизЛицо) — «ИИН:», юрлицо — «БИН:»", () => {
+    expect(beneficiaryId("123123123123", true)).toBe("ИИН: 123123123123");
+    expect(beneficiaryId("240440007327", false)).toBe("БИН: 240440007327");
+    expect(beneficiaryId("240440007327")).toBe("БИН: 240440007327");
+  });
+  it("номер счёта: «3» = «00000000003» = «АБ-0000003», но не «00000000013»", () => {
+    expect(sameDocNumber("00000000003", "3")).toBe(true);
+    expect(sameDocNumber("АБ-0000003", "3")).toBe(true);
+    expect(sameDocNumber("00000000003", "00000000003")).toBe(true);
+    expect(sameDocNumber("00000000013", "3")).toBe(false);
+    expect(sameDocNumber("АБ-0000003", "ВГ-0000003")).toBe(false);
   });
 });
 
@@ -293,7 +315,7 @@ describe("PDF счёта", () => {
       bankName: 'АО "Банк ЦентрКредит" г. Алматы',
       bik: "KCJBKZKX",
     });
-    expect(data.supplier).toEqual({ name: "ИП Тест", bin: "123123123123", kbe: "19" });
+    expect(data.supplier).toEqual({ name: "ИП Тест", bin: "123123123123", kbe: "19", individual: false });
     expect(data.lines.map((l) => [l.code, l.name, l.unit])).toEqual([
       ["001", "Товар", "шт"],
       ["002", "Консультация за октябрь", "ч"],

@@ -20,6 +20,7 @@ import { registerAuditTools } from "../tools/audit.js";
 import { registerPayrollTools } from "../tools/payroll.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerPrintTools } from "../tools/print.js";
+import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
 
 /** Версия берётся из package.json (в собранном пакете он на два уровня выше dist/mcp/). */
@@ -168,6 +169,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerPrintTools(server, ctx);
   registerWriteTools(server, ctx);
   registerDocumentWriteTools(server, ctx);
+  registerQuickInvoiceTool(server, ctx);
 
   return server;
 }

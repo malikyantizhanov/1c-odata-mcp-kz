@@ -219,6 +219,90 @@ export interface QuickPlan {
   nomSet: string;
   currencyRef?: string | undefined;
   vatRefs: Map<string, string>;
+  /** Похожие счета: тот же покупатель и организация, тот же день, та же сумма (без помеченных на удаление). */
+  duplicates: DuplicateInvoice[];
+}
+
+export interface DuplicateInvoice {
+  number: string;
+  date: string;
+  ref: string;
+  total: number;
+  posted: boolean;
+  /** Строки совпадают: та же номенклатура, количество, цена и сумма (порядок не важен). */
+  linesMatch: boolean;
+}
+
+/** Подпись строки для сравнения с существующим счётом; новая номенклатура не совпадёт ни с чем. */
+const lineKey = (ref: string | undefined, quantity: unknown, price: unknown, sum: unknown): string =>
+  [ref ?? "new", Number(quantity ?? 0), roundMoney(Number(price ?? 0)), roundMoney(Number(sum ?? 0))].join(
+    "|",
+  );
+
+/**
+ * Возможные дубли: счета на оплату того же покупателя от той же организации за тот же календарный день с той же
+ * суммой документа — проведённые и нет. Помеченные на удаление не считаются (их уже «отменили»), но упоминаются
+ * в notes. Счета того дня на другие суммы — только счётчиком в notes. Ошибка поиска не мешает плану.
+ */
+export async function findDuplicateInvoices(
+  conn: Connection,
+  invoiceSet: string,
+  q: { buyerRef: string; orgRef: string; date: string; total: number; lineKeys: string[] },
+): Promise<{ duplicates: DuplicateInvoice[]; notes: string[] }> {
+  try {
+    const { rows } = await fetchAll(
+      conn.client,
+      invoiceSet,
+      {
+        filter: and(
+          cmp("Контрагент_Key", "eq", odataGuid(q.buyerRef)),
+          cmp("Организация_Key", "eq", odataGuid(q.orgRef)),
+          cmp("Date", "ge", `datetime'${q.date}T00:00:00'`),
+          cmp("Date", "le", `datetime'${q.date}T23:59:59'`),
+        ),
+        // Табличные части нужны для сравнения строк; $select их не берём — 1С отдаёт их в составе документа.
+        orderby: "Date",
+      },
+      50,
+      50,
+    );
+    const sameTotal = rows.filter((r) => Math.abs(Number(r["СуммаДокумента"] ?? 0) - q.total) < 0.005);
+    const live = sameTotal.filter((r) => r["DeletionMark"] !== true);
+    const marked = sameTotal.length - live.length;
+    const other = rows.filter((r) => r["DeletionMark"] !== true).length - live.length;
+    const wanted = [...q.lineKeys].sort().join("\n");
+    const duplicates = live.map((r) => {
+      const docLines = [
+        ...((r["Товары"] as ODataEntity[] | undefined) ?? []),
+        ...((r["Услуги"] as ODataEntity[] | undefined) ?? []),
+      ].map((l) => lineKey(refOf(l["Номенклатура_Key"]), l["Количество"], l["Цена"], l["Сумма"]));
+      return {
+        number: docNumber(str(r["Number"])),
+        date: str(r["Date"]).slice(0, 10),
+        ref: str(r["Ref_Key"]),
+        total: Number(r["СуммаДокумента"] ?? 0),
+        posted: r["Posted"] === true,
+        linesMatch: docLines.sort().join("\n") === wanted,
+      };
+    });
+    const notes: string[] = [];
+    if (duplicates.length)
+      notes.push(
+        `ВНИМАНИЕ, возможный дубль: у покупателя уже есть счёт на ту же сумму от ${q.date} — ` +
+          duplicates
+            .map(
+              (d) => `№ ${d.number} (ref ${d.ref}${d.linesMatch ? ", те же строки" : ", строки отличаются"})`,
+            )
+            .join("; ") +
+          ". Покажите пользователю possibleDuplicates до confirm=true: «использовать существующий» или «создать ещё».",
+      );
+    if (marked)
+      notes.push(`Ещё ${marked} счёт(а) с той же суммой за этот день помечены на удаление — не учитывались.`);
+    if (other) notes.push(`У покупателя за ${q.date} есть ещё ${other} счёт(а) на другие суммы.`);
+    return { duplicates, notes };
+  } catch (e) {
+    return { duplicates: [], notes: [`Проверка на дубли не выполнена: ${(e as Error).message}`] };
+  }
 }
 
 const docNumber = (n: string): string => n.replace(/^0+(?=\d)/, "");
@@ -617,42 +701,7 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
     notes.push("Ставка НДС не задана — взята базовая 16%. Для иной ставки передайте vatRate в строке.");
   const needCreateUnit = lineRes.some((l) => l.create);
 
-  // Волна 2: договор, банковский счёт, ставки, единица — после организации и покупателя.
-  const [contractRes, bankRef, vatRefs, newUnit] = await Promise.all([
-    buyerRes.buyer
-      ? resolveContract(
-          conn,
-          contractSet,
-          input.contract,
-          buyerRes.buyer.ref,
-          orgRef,
-          buyerRes.mainContract,
-          date,
-        )
-      : Promise.resolve(undefined),
-    input.bankAccount
-      ? resolveOrgBankAccount(conn, orgRef, input.bankAccount)
-      : Promise.resolve(org.mainBank),
-    withVat ? vatRateRefs(conn, [...new Set(rates)]) : Promise.resolve(new Map<string, string>()),
-    needCreateUnit ? unitRef(conn) : Promise.resolve(undefined),
-  ]);
-  if (contractRes?.choice) choices.push(contractRes.choice);
-  notes.push(...(contractRes?.notes ?? []));
-  let bank: QuickPlan["bank"];
-  if (bankRef) {
-    const acc = await conn.client
-      .getEntity(
-        `Catalog_БанковскиеСчета(guid'${guid(bankRef)}')${buildQuery({ select: ["Ref_Key", "Description", "НомерСчета"] })}`,
-      )
-      .catch(() => ({}) as ODataEntity);
-    bank = {
-      ref: guid(bankRef),
-      number: str(acc["НомерСчета"]) || undefined,
-      name: str(acc["Description"]) || undefined,
-    };
-  } else notes.push("У организации нет банковского счёта — в счёте не будет реквизитов для оплаты.");
-  if (!input.paymentCode) notes.push("КНП не указан — поле «Код назначения платежа» в счёте будет пустым.");
-
+  // Строки и итоги — из входа и волны 1 (нужны поиску дублей уже во второй волне).
   let sum = 0;
   let vat = 0;
   const lines: PlannedLine[] = input.lines.map((l, i) => {
@@ -669,7 +718,7 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
       ref: res.ref,
       name: res.name,
       kind: l.kind,
-      unitRef: res.create ? newUnit : res.unitRef,
+      unitRef: res.create ? undefined : res.unitRef,
       quantity: l.quantity,
       price: l.price,
       sum: lineSum,
@@ -680,6 +729,57 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
   });
   sum = roundMoney(sum);
   vat = roundMoney(vat);
+  const total = roundMoney(sum + (withVat && !input.sumIncludesVat ? vat : 0));
+
+  // Волна 2: договор, банковский счёт, ставки, единица, возможные дубли — после организации и покупателя.
+  const [contractRes, bank, vatRefs, newUnit, dupRes] = await Promise.all([
+    buyerRes.buyer
+      ? resolveContract(
+          conn,
+          contractSet,
+          input.contract,
+          buyerRes.buyer.ref,
+          orgRef,
+          buyerRes.mainContract,
+          date,
+        )
+      : Promise.resolve(undefined),
+    (input.bankAccount
+      ? resolveOrgBankAccount(conn, orgRef, input.bankAccount)
+      : Promise.resolve(org.mainBank)
+    ).then(async (bankRef): Promise<QuickPlan["bank"]> => {
+      if (!bankRef) return undefined;
+      const acc = await conn.client
+        .getEntity(
+          `Catalog_БанковскиеСчета(guid'${guid(bankRef)}')${buildQuery({ select: ["Ref_Key", "Description", "НомерСчета"] })}`,
+        )
+        .catch(() => ({}) as ODataEntity);
+      return {
+        ref: guid(bankRef),
+        number: str(acc["НомерСчета"]) || undefined,
+        name: str(acc["Description"]) || undefined,
+      };
+    }),
+    withVat ? vatRateRefs(conn, [...new Set(rates)]) : Promise.resolve(new Map<string, string>()),
+    needCreateUnit ? unitRef(conn) : Promise.resolve(undefined),
+    buyerRes.buyer
+      ? findDuplicateInvoices(conn, invoiceSet, {
+          buyerRef: buyerRes.buyer.ref,
+          orgRef,
+          date,
+          total,
+          lineKeys: lines.map((l) =>
+            lineKey(l.action === "use" ? l.ref : undefined, l.quantity, l.price, l.sum),
+          ),
+        })
+      : Promise.resolve({ duplicates: [], notes: [] }),
+  ]);
+  if (contractRes?.choice) choices.push(contractRes.choice);
+  notes.unshift(...dupRes.notes);
+  notes.push(...(contractRes?.notes ?? []));
+  if (!bank) notes.push("У организации нет банковского счёта — в счёте не будет реквизитов для оплаты.");
+  if (!input.paymentCode) notes.push("КНП не указан — поле «Код назначения платежа» в счёте будет пустым.");
+  for (const l of lines) if (l.action === "create") l.unitRef = newUnit;
   return {
     ready: choices.length === 0,
     choices,
@@ -692,12 +792,13 @@ export async function planQuickInvoice(conn: Connection, input: QuickInput): Pro
     dateTime,
     lines,
     withVat,
-    totals: { sum, vat, total: roundMoney(sum + (withVat && !input.sumIncludesVat ? vat : 0)) },
+    totals: { sum, vat, total },
     invoiceSet,
     contractSet,
     nomSet,
     currencyRef,
     vatRefs,
+    duplicates: dupRes.duplicates,
   };
 }
 
@@ -848,8 +949,13 @@ function planView(plan: QuickPlan) {
       ...(plan.withVat ? { vat: l.vat } : {}),
     })),
     totals: { ...plan.totals, withVat: plan.withVat },
+    // Всегда, когда покупатель найден: пустой массив — проверено, похожих счетов нет.
+    ...(plan.buyer ? { possibleDuplicates: plan.duplicates } : {}),
   };
 }
+
+const duplicateList = (d: DuplicateInvoice[]): string =>
+  d.map((x) => `№ ${x.number} от ${x.date} на ${x.total} (ref ${x.ref})`).join("; ");
 
 const writeBlocked = (conn: Connection): string | undefined =>
   conn.behavior.readOnly
@@ -990,6 +1096,7 @@ export async function quickInvoice(conn: Connection, input: QuickInput): Promise
           ...(entity["_operation_replayed"] === true ? { replayed: true } : {}),
         });
     }
+    // Дубли перепроверены этим же вызовом (план пересобран до записи) — не блокируют, но видны в ответе.
     return finish(
       conn,
       plan,
@@ -1000,8 +1107,17 @@ export async function quickInvoice(conn: Connection, input: QuickInput): Promise
         database: conn.cfg.name,
         operationId: opId,
         ...(created.length ? { createdObjects: created } : {}),
+        possibleDuplicates: plan.duplicates,
       },
-      ["Счёт создан без проведения (счёт на оплату проводок не делает)."],
+      [
+        ...(plan.duplicates.length
+          ? [
+              `ВНИМАНИЕ: создан ещё один счёт, хотя у покупателя на эту дату и сумму уже есть ${duplicateList(plan.duplicates)}. ` +
+                "Если он не нужен — пометьте созданный на удаление (write.entity.mark_for_deletion).",
+            ]
+          : []),
+        "Счёт создан без проведения (счёт на оплату проводок не делает).",
+      ],
     );
   }
 
@@ -1045,9 +1161,15 @@ export async function quickInvoice(conn: Connection, input: QuickInput): Promise
     ...view,
     willCreate,
     ...(plan.notes.length ? { notes: plan.notes } : {}),
-    note: blocked
-      ? `План. ВНИМАНИЕ: ${blocked} confirm=true не пройдёт.`
-      : "План. Ничего не создано. Чтобы создать, повторите вызов с теми же аргументами, confirm=true и этим operationId.",
+    note:
+      (plan.duplicates.length
+        ? `ВОЗМОЖНЫЙ ДУБЛЬ: ${duplicateList(plan.duplicates)}. Покажите possibleDuplicates пользователю и спросите: ` +
+          "использовать существующий (PDF — read.document.print_invoice с его ref) или создать ещё. confirm=true — " +
+          "только после ответа «создай ещё». "
+        : "") +
+      (blocked
+        ? `План. ВНИМАНИЕ: ${blocked} confirm=true не пройдёт.`
+        : "План. Ничего не создано. Чтобы создать, повторите вызов с теми же аргументами, confirm=true и этим operationId."),
     elapsedMs: Date.now() - started,
   });
 }
@@ -1062,9 +1184,12 @@ export function registerQuickInvoiceTool(server: McpServer, ctx: ServerContext):
         "организацию (статус НДС — по карточке; неплательщик — «без НДС»), покупателя по БИН/ИИН, действующий договор " +
         "«С покупателем», номенклатуру по наименованию, основной банковский счёт — и возвращает компактный план: " +
         "что найдено, что будет создано («создать» — договор/услуга), итоги, notes и operationId. Ничего не пишет. " +
-        "Неоднозначность (два договора, похожие услуги) — варианты в choices, без догадок. confirm=true с тем же operationId " +
+        "Неоднозначность (два договора, похожие услуги) — варианты в choices, без догадок. План проверяет дубли: " +
+        "счета того же покупателя за тот же день на ту же сумму (проведённые и нет; помеченные на удаление не считаются) " +
+        "— в possibleDuplicates (номер, дата, ref, сумма, posted, linesMatch). Не пуст — ОБЯЗАТЕЛЬНО покажите его " +
+        "пользователю до подтверждения: «используй №N» (PDF — read.document.print_invoice) или «создай ещё». confirm=true с тем же operationId " +
         "и теми же аргументами — создаёт недостающее и счёт БЕЗ проведения, перечитывает его из базы и сразу сохраняет PDF " +
-        "(путь — pdf.path). Повтор после сбоя с тем же operationId не создаёт дубликатов. Показывайте план пользователю " +
+        "(путь — pdf.path); дубли перепроверяются и возвращаются в possibleDuplicates, но не блокируют. Повтор после сбоя с тем же operationId не создаёт дубликатов. Показывайте план пользователю " +
         "и подтверждайте только с его согласия.",
       inputSchema: quickInvoiceInput,
       outputSchema: z

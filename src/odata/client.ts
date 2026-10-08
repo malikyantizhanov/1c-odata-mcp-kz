@@ -1,6 +1,6 @@
 import type { Behavior, ConnectionConfig } from "../config/env.js";
 import { logger } from "../logger.js";
-import { ODataError, fromHttpStatus } from "./errors.js";
+import { ODataError, fromHttpStatus, htmlText } from "./errors.js";
 import type { ODataCollection, ODataEntity } from "../types/odata.js";
 import { currentWriteOperationId, currentWriteRequestHash } from "./write-operation-context.js";
 import { WriteOperationJournal, type OperationCheck } from "./write-journal.js";
@@ -109,7 +109,8 @@ export class ODataClient {
             url,
             message:
               `Сервис вернул HTML-страницу вместо ответа OData (HTTP ${res.status}). Обычно это нет прав пользователя OData ` +
-              "на объект (роль/«Доступ запрещен») или исключение 1С при записи. Для записи исход неизвестен — проверьте объект в 1С.",
+              "на объект (роль/«Доступ запрещен») или исключение 1С при записи. Для записи исход неизвестен — проверьте объект в 1С." +
+              (htmlText(text) ? ` Текст страницы: «${htmlText(text)}»` : ""),
           });
         }
         return (text ? JSON.parse(text) : undefined) as T;

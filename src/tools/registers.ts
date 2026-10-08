@@ -35,6 +35,7 @@ import {
   getDocumentPostingsResultSchema,
 } from "../schemas/output.js";
 import { InputError } from "../errors.js";
+import { getDocumentMovements } from "../odata/movements.js";
 import type { ODataEntity } from "../types/odata.js";
 
 // Деньги копим в целых копейках (float-сложение тысяч сумм даёт дрейф).
@@ -720,6 +721,50 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
     ({ database, documentEntity, documentRef }) =>
       guard("read.accounting.get_document_postings", async () =>
         ok(await getDocumentPostings(ctx.db(database), documentEntity, documentRef)),
+      ),
+  );
+
+  server.registerTool(
+    "read.document.get_document_movements",
+    {
+      title: "Движения документа по регистрам",
+      description:
+        "Записи, которые документ (регистратор) сделал в регистрах накопления, сведений и бухгалтерии, " +
+        "опубликованных в OData: по каждому регистру — число строк и сами строки. Для документов без " +
+        "проводок (счёт-фактура, кадровые, акт сверки) — проверка, что проведение что-то записало. " +
+        "registers — ограничить список (напр. ['НДС','AccumulationRegister_НДСКВозмещению']); без него " +
+        "проверяются все регистры с полем Recorder. Только чтение.",
+      inputSchema: {
+        database: databaseField,
+        documentEntity: z
+          .string()
+          .trim()
+          .regex(/^Document_[^\s()'/?#&]+$/, "Имя документа вида Document_<Имя>")
+          .describe("Имя документа, напр. Document_СчетФактураВыданный"),
+        documentRef: z
+          .string()
+          .trim()
+          .regex(
+            /^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$/,
+            "GUID",
+          )
+          .describe("Ref_Key документа (GUID)"),
+        registers: z
+          .array(z.string().trim().min(1))
+          .max(100)
+          .optional()
+          .describe("Имена регистров (короткие или полные); без них — все"),
+        limit: z.number().int().positive().max(200).default(20).describe("Строк на регистр"),
+      },
+    },
+    ({ database, documentEntity, documentRef, registers, limit }) =>
+      guard("read.document.get_document_movements", async () =>
+        ok(
+          await getDocumentMovements(ctx.db(database), documentEntity, documentRef.replace(/[{}]/g, ""), {
+            registers,
+            limit,
+          }),
+        ),
       ),
   );
 

@@ -95,3 +95,24 @@ function extract1cMessage(body?: string): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * Текст HTML-страницы без разметки (1cfresh иногда отвечает HTML вместо OData — в ней бывает текст исключения 1С).
+ * Скрипты и стили убираются, сущности раскодируются, пробелы схлопываются; результат обрезается до max символов.
+ */
+export function htmlText(body: string, max = 800): string {
+  const text = body
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>|<\/(p|div|h\d|li|tr|title)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t\r\f\v]+/g, " ")
+    .replace(/\s*\n\s*/g, " | ")
+    .replace(/^(\s|\|)+|(\s|\|)+$/g, "");
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}

@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { createResultSchema } from "../schemas/output.js";
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
+import { ANY_ENTITY_PARAMS, DOCUMENT_ENTITY_PARAMS, normalizeToolArgs } from "../odata/entity-name.js";
 import { registerMetaTools } from "../tools/meta.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
@@ -95,8 +96,24 @@ export function createServer(ctx: ServerContext): McpServer {
         ...(config.annotations as Record<string, unknown> | undefined),
       },
     };
+    // Имя объекта в аргументах («СчетНаОплатуПокупателю», «Документ.Х») — к техническому имени EntitySet до
+    // всего остального: префлайта, отпечатка операции записи и самого инструмента.
+    const normalized =
+      (handler: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>) =>
+      async (args: Record<string, unknown>, extra: unknown): Promise<CallToolResult> => {
+        if (!DOCUMENT_ENTITY_PARAMS[name] && !ANY_ENTITY_PARAMS[name]) return handler(args, extra);
+        let next = args;
+        const checked = await guard(name, async () => {
+          next = await normalizeToolArgs(name, args, () =>
+            ctx.db(typeof args.database === "string" && args.database ? args.database : undefined),
+          );
+          return ok({});
+        });
+        return checked.isError ? checked : handler(next, extra);
+      };
     const isCreateTool = name.startsWith("write.") && config.outputSchema === createResultSchema;
-    if (!isCreateTool && !LINE_OPERATION_TOOLS.has(name)) return original(name, annotatedConfig, cb);
+    if (!isCreateTool && !LINE_OPERATION_TOOLS.has(name))
+      return original(name, annotatedConfig, normalized(cb));
 
     const inputSchema = {
       ...(config.inputSchema as Record<string, unknown>),
@@ -148,7 +165,7 @@ export function createServer(ctx: ServerContext): McpServer {
         return { ...result, content, structuredContent };
       });
     };
-    return original(name, { ...annotatedConfig, inputSchema }, wrapped);
+    return original(name, { ...annotatedConfig, inputSchema }, normalized(wrapped));
   };
   Reflect.set(server, "registerTool", (name: string, config: unknown, cb: unknown) =>
     registerTool(

@@ -1555,7 +1555,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "повторите с confirm=true. Полезно, чтобы убрать ошибочно созданную запись.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя объекта, напр. Catalog_Контрагенты"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)",
+          ),
         ref: z.string().describe("Ref_Key объекта (GUID)"),
         mark: z.boolean().default(true).describe("true — пометить на удаление, false — снять пометку"),
         confirm: confirmField,
@@ -1839,7 +1843,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "применение — при confirm=true. ВНИМАНИЕ: проведение меняет учётные данные — используйте осознанно.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_СчетНаОплатуПокупателю"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_СчетНаОплатуПокупателю (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
         post: z.boolean().default(true).describe("true — провести, false — отменить проведение"),
         confirm: confirmField,
@@ -2005,7 +2013,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "применение — при confirm=true. Мощный инструмент: меняйте только те поля, что указали.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя объекта, напр. Catalog_Контрагенты"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)",
+          ),
         ref: z.string().describe("Ref_Key объекта (GUID)"),
         fields: z
           .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
@@ -2455,7 +2467,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "(если проведён — сначала отмените проведение через post_document). По умолчанию dry-run; применение — при confirm=true.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа"),
         lines: z
           .array(saleLine)
@@ -2831,7 +2847,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "(содержание, счета учёта, номенклатурная группа). dry-run/confirm.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
         line: lineObject.describe("Добавляемая позиция"),
         confirm: confirmField,
@@ -2882,7 +2902,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "пересчитывается по строкам, если не задана явно в fields. По умолчанию dry-run; запись — при confirm=true.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_СчетНаОплатуПокупателю"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_СчетНаОплатуПокупателю (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа-образца (GUID)"),
         date: z.string().optional().describe("Дата копии YYYY-MM-DD (по умолчанию сегодня)"),
         fields: z
@@ -2955,7 +2979,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "НЕПРОВЕДЁННОГО документа. Нельзя удалить последнюю строку. dry-run/confirm.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
         lineNumber: z.number().int().positive().describe("Номер строки (с 1)"),
         confirm: confirmField,

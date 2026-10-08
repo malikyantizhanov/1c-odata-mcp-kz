@@ -398,8 +398,11 @@ export function registerAuditTools(server: McpServer, ctx: ServerContext): void 
         documentEntity: z
           .string()
           .trim()
-          .regex(/^Document_[^\s()'/?#&]+$/, "Имя документа вида Document_<Имя>")
-          .describe("Имя документа, напр. Document_РегламентнаяОперация"),
+          .regex(
+            /^(?:Document_|Документ\.|Document\.)?[^\s()'/?#&.]+$/,
+            "Имя документа вида Document_<Имя> или <Имя>",
+          )
+          .describe("Имя документа, напр. Document_РегламентнаяОперация (префикс Document_ можно опустить)"),
         documentRef: z
           .string()
           .trim()

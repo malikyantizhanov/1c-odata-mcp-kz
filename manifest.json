@@ -243,7 +243,7 @@
         "type": "object",
         "properties": {
           "entitySet": {
-            "description": "Документ, напр. Document_РеализацияТоваровУслуг",
+            "description": "Документ, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
             "type": "string"
           },
           "block": {
@@ -580,7 +580,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Техническое имя объекта, напр. Catalog_Контрагенты"
+            "description": "Техническое имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)"
           }
         },
         "required": [
@@ -1063,7 +1063,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг"
+            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"
           },
           "from": {
             "description": "Дата начала (YYYY-MM-DD)",
@@ -1185,7 +1185,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг"
+            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -1751,8 +1751,8 @@
           },
           "documentEntity": {
             "type": "string",
-            "pattern": "^Document_[^\\s()'/?#&]+$",
-            "description": "Имя документа, напр. Document_РегламентнаяОперация"
+            "pattern": "^(?:Document_|Документ\\.|Document\\.)?[^\\s()'/?#&.]+$",
+            "description": "Имя документа, напр. Document_РегламентнаяОперация (префикс Document_ можно опустить)"
           },
           "documentRef": {
             "type": "string",
@@ -2083,8 +2083,8 @@
           },
           "documentEntity": {
             "type": "string",
-            "pattern": "^Document_[^\\s()'/?#&]+$",
-            "description": "Имя документа, напр. Document_СчетФактураВыданный"
+            "pattern": "^(?:Document_|Документ\\.|Document\\.)?[^\\s()'/?#&.]+$",
+            "description": "Имя документа, напр. Document_СчетФактураВыданный (префикс Document_ можно опустить)"
           },
           "documentRef": {
             "type": "string",
@@ -3323,8 +3323,8 @@
           },
           "documentEntity": {
             "type": "string",
-            "pattern": "^Document_[^\\s()'/?#&]+$",
-            "description": "Имя документа, напр. Document_РегламентнаяОперация"
+            "pattern": "^(?:Document_|Документ\\.|Document\\.)?[^\\s()'/?#&.]+$",
+            "description": "Имя документа, напр. Document_РегламентнаяОперация (префикс Document_ можно опустить)"
           },
           "documentRef": {
             "type": "string",
@@ -4006,8 +4006,8 @@
           },
           "entitySet": {
             "type": "string",
-            "pattern": "^(Document|Catalog)_[^/?#]+$",
-            "description": "Объект-владелец"
+            "pattern": "^[^/?#]+$",
+            "description": "Объект-владелец: Document_… или Catalog_… (без префикса — ищется среди опубликованных)"
           },
           "ref": {
             "type": "string",
@@ -4569,7 +4569,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя объекта, напр. Catalog_Контрагенты"
+            "description": "Имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)"
           },
           "ref": {
             "type": "string",
@@ -5071,7 +5071,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_СчетНаОплатуПокупателю"
+            "description": "Имя документа, напр. Document_СчетНаОплатуПокупателю (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -5175,7 +5175,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя объекта, напр. Catalog_Контрагенты"
+            "description": "Имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)"
           },
           "ref": {
             "type": "string",
@@ -6238,7 +6238,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг"
+            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -7299,7 +7299,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг"
+            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -7452,7 +7452,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_СчетНаОплатуПокупателю"
+            "description": "Имя документа, напр. Document_СчетНаОплатуПокупателю (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -7606,7 +7606,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг"
+            "description": "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",
@@ -9277,7 +9277,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций"
+            "description": "Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций (префикс Document_ можно опустить)"
           },
           "date": {
             "description": "Дата документа 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss' (по умолчанию — сейчас)",
@@ -9426,7 +9426,7 @@
           },
           "entitySet": {
             "type": "string",
-            "description": "Документ, напр. Document_ПлатежноеПоручениеИсходящее"
+            "description": "Документ, напр. Document_ПлатежноеПоручениеИсходящее (префикс Document_ можно опустить)"
           },
           "ref": {
             "type": "string",

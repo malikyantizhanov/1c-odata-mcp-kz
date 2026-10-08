@@ -146,7 +146,10 @@ export function registerCapabilities(server: McpServer, ctx: ServerContext) {
       description:
         "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги). Ничего не читает из 1С.",
       inputSchema: {
-        entitySet: z.string().optional().describe("Документ, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .optional()
+          .describe("Документ, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)"),
         block: z.string().optional().describe("Блок флоу, напр. «деньги»"),
         withRates: z.boolean().default(true).describe("Добавить ставки 2026, КНП и КБК"),
       },

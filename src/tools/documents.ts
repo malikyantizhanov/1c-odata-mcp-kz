@@ -37,7 +37,11 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
       inputSchema: {
         database: databaseField,
         organization: organizationField,
-        entitySet: z.string().describe("Имя документа, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
+          ),
         from: z.string().optional().describe("Дата начала (YYYY-MM-DD)"),
         to: z.string().optional().describe("Дата конца (YYYY-MM-DD)"),
         counterpartyRef: z.string().optional().describe("Ref_Key контрагента для фильтра"),
@@ -116,7 +120,11 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
         "Ref_Key берётся из search_documents или истории взаиморасчётов.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Имя документа, напр. Document_РеализацияТоваровУслуг"),
+        entitySet: z
+          .string()
+          .describe(
+            "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
       },
       outputSchema: odataEntitySchema,

@@ -291,8 +291,8 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         database: databaseField,
         entitySet: z
           .string()
-          .regex(/^(Document|Catalog)_[^/?#]+$/, "Document_… или Catalog_…")
-          .describe("Объект-владелец"),
+          .regex(/^[^/?#]+$/, "Document_… или Catalog_…")
+          .describe("Объект-владелец: Document_… или Catalog_… (без префикса — ищется среди опубликованных)"),
         ref: GUID.describe("Ref_Key объекта-владельца"),
       },
       outputSchema: z

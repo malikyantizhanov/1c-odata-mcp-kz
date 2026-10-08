@@ -64,6 +64,20 @@
 
 - `read.document.print_invoice`: справочники для формы читаются параллельно — ≈1,9 с вместо ≈4,2 с на тёплом процессе.
 
+### Исправлено — имя типа документа без префикса `Document_`
+
+- `read.document.get_document`, `search_documents`, `get_document_movements`, `read.accounting.get_document_postings`,
+  `read.audit.get_document_history`, `read.system.kz_document_guide` и инструменты записи документов
+  (`create_document`, `update_document`, `post_document`, `update_document_lines`, `add_document_line`,
+  `remove_document_line`, `copy_document`) принимают тип без префикса («СчетНаОплатуПокупателю») и в синтаксисе 1С
+  («Документ.СчетНаОплатуПокупателю») — дописывается `Document_`. Раньше такой вызов отвечал «не опубликован в OData».
+  Имя с префиксом другого класса (`Catalog_…`) в параметре-документе — понятная ошибка. Нормализация — в обёртке
+  сервера до префлайта и отпечатка операции записи, поэтому `operationId` предпросмотра и подтверждения совпадает
+  при любом написании.
+- `read.schema.describe_entity`, `write.entity.mark_for_deletion`, `write.entity.update_entity`,
+  `read.files.list_attachments`: имя без префикса ищется среди опубликованных `Document_<имя>` и `Catalog_<имя>`
+  (ровно одно — оно, оба — ошибка с вариантами); «Справочник.Х», «РегистрНакопления.Х» и т.п. переводятся в префикс OData.
+
 ### Добавлено — предупреждение о дублях в `write.sales.quick_invoice`
 
 - План (`confirm=false`) ищет возможные дубли — счета на оплату того же покупателя от той же организации за тот же

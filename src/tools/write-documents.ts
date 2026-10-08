@@ -248,7 +248,11 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
       inputSchema: {
         database: databaseField,
         organization: organizationField,
-        entitySet: z.string().describe("Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций"),
+        entitySet: z
+          .string()
+          .describe(
+            "Документ, напр. Document_НачислениеЗарплатыРаботникамОрганизаций (префикс Document_ можно опустить)",
+          ),
         date: z
           .string()
           .optional()
@@ -350,7 +354,11 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         "затем измените и проведите снова. По умолчанию предпросмотр (dry-run); применение — при confirm=true.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Документ, напр. Document_ПлатежноеПоручениеИсходящее"),
+        entitySet: z
+          .string()
+          .describe(
+            "Документ, напр. Document_ПлатежноеПоручениеИсходящее (префикс Document_ можно опустить)",
+          ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
         fields: fieldsShape.default({}),
         tables: tablesShape.default({}),

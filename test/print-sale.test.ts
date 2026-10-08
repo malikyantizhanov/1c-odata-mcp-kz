@@ -4,8 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { quantityInWords } from "../src/print/amount-words.js";
-import { renderActR1Pdf, renderWaybillZ2Pdf } from "../src/print/sale-forms-pdf.js";
-import { salePrintData, shortFio } from "../src/tools/print-sale.js";
+import {
+  actDate,
+  partyPresentation,
+  renderActR1Pdf,
+  renderWaybillZ2Pdf,
+  shortDate,
+} from "../src/print/sale-forms-pdf.js";
+import {
+  contractPresentation,
+  currencyLabel,
+  reportPeriod,
+  salePrintData,
+  shortFio,
+} from "../src/tools/print-sale.js";
 import {
   BUYER,
   CONTRACT,
@@ -107,6 +119,25 @@ function store(): Store {
   return s;
 }
 
+/** Строки, выведенные в PDF (PDFDocument.text), — текст в самом PDF закодирован глифами шрифта. */
+async function drawnText(render: () => Promise<Buffer>): Promise<string[]> {
+  const out: string[] = [];
+  const orig = PDFDocument.prototype.text;
+  const spy = vi.spyOn(PDFDocument.prototype, "text").mockImplementation(function (
+    this: PDFKit.PDFDocument,
+    ...args: unknown[]
+  ) {
+    if (typeof args[0] === "string" && args[0]) out.push(args[0]);
+    return (orig as (...a: unknown[]) => PDFKit.PDFDocument).apply(this, args);
+  });
+  try {
+    await render();
+  } finally {
+    spy.mockRestore();
+  }
+  return out;
+}
+
 const sc = (r: CallToolResult) => r.structuredContent as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const errText = (r: CallToolResult) => JSON.stringify(r.content);
 
@@ -119,28 +150,89 @@ describe("print_sale: помощники", () => {
     expect(quantityInWords(1.5)).toBe("Одна целая пять десятых");
     expect(quantityInWords(1000)).toBe("Одна тысяча");
   });
+
+  it("договор, период, валюта и представление стороны — как в ПечатьР1", () => {
+    expect(contractPresentation({ НомерДоговора: "0806/20-26", ДатаДоговора: "2026-06-08T00:00:00" })).toBe(
+      "Договор №0806/20-26 от 08.06.2026 г.",
+    );
+    expect(contractPresentation({ НомерДоговора: "б/н", ДатаДоговора: "2026-10-08T00:00:00" })).toBe(
+      "Договор б/н от 08.10.2026 г.",
+    );
+    expect(contractPresentation({ Description: "Без договора" })).toBe("Без договора");
+    expect(
+      reportPeriod({
+        ДатаНачалаОтчетногоПериода: "2026-06-08T00:00:00",
+        ДатаОкончанияОтчетногоПериода: "2026-09-30T00:00:00",
+      }),
+    ).toBe("08.06.2026 - 30.09.2026");
+    expect(reportPeriod({ ДатаНачалаОтчетногоПериода: "0001-01-01T00:00:00" })).toBeUndefined();
+    expect(
+      currencyLabel({
+        Code: "398",
+        Description: "KZT",
+        ПараметрыПрописиНаРусском: "теңге, теңге, теңге, м, тиын, тиын, тиын, м, 2",
+      }),
+    ).toBe("теңге");
+    expect(currencyLabel({ Code: "398", Description: "KZT" })).toBe("теңге");
+    expect(
+      currencyLabel({
+        Code: "840",
+        Description: "USD",
+        ПараметрыПрописиНаРусском: "доллар, доллара, долларов",
+      }),
+    ).toBe("USD");
+    expect(actDate("2026-09-30")).toBe("30.09.2026 г.");
+    expect(shortDate("2026-09-30")).toBe("30.09.2026");
+    expect(
+      partyPresentation({
+        name: 'ТОО "X"',
+        address: "г.Алматы",
+        phones: "+7 701",
+      }),
+    ).toBe('ТОО "X", г.Алматы, тел.: +7 701');
+  });
 });
 
 describe("print_sale: данные форм", () => {
-  it("Р-1: строки сгруппированы, наименование — содержание или полное наименование; без НДС; у ИП без физлица — ИП", async () => {
+  it("Р-1: строки сгруппированы; без НДС; колонка 9 «в том числе НДС, в теңге»; у ИП без физлица — должность ИП, расшифровка пустая", async () => {
     const f = fake1C({ store: store() });
     const d = await salePrintData(f.conn, SALE);
     expect(d).toMatchObject({ number: "18", date: "2026-10-08", total: 1000000 });
     expect(d.waybill).toBeUndefined();
     expect(d.act).toMatchObject({
       variant: "plain",
-      contract: "Договор б/н",
+      currency: "теңге",
+      contract: "Договор б/н от 08.10.2026 г.",
       acceptedDate: "2026-10-08",
       executor: { name: "ИП Aru Market", idNumber: "123123123123" },
       customer: { idNumber: "240440007327" },
-      executorSigner: { name: "Жумабекова А. Е.", position: "Индивидуальный предприниматель" },
+      executorSigner: { name: undefined, position: "Индивидуальный предприниматель" },
       totals: { quantity: 3, sum: 1000000, sumWithVat: 1000000 },
     });
     expect(d.act!.lines.map((l) => [l.name, l.quantity, l.sum, l.unit])).toEqual([
       ["Разработка программного обеспечения", 2, 800000, "шт"],
       ["Доработка", 1, 200000, "шт"],
     ]);
-    expect(d.notes.join(" ")).toMatch(/индивидуальный предприниматель/);
+    expect(d.notes.join(" ")).toMatch(/расшифровка подписи исполнителя пустая/);
+    const text = await drawnText(() => renderActR1Pdf(d.act!));
+    // Колонка 9 «в том числе НДС» есть и у неплательщика НДС (пустая), нумерация 1–9.
+    expect(text).toContain("в том числе НДС, в теңге");
+    expect(text).toContain("9");
+    expect(text).not.toContain("10");
+    // Подпись над ИИН/БИН — полностью: «Индивидуальный идентификационный номер/Бизнес идентификационный номер».
+    expect(text).toEqual(
+      expect.arrayContaining([
+        "Индивидуальный",
+        "идентификационный",
+        "номер/Бизнес",
+        "идентификационный номер",
+      ]),
+    );
+    expect(text).toEqual(
+      expect.arrayContaining(["Договор б/н от 08.10.2026 г.", "08.10.2026 г.", "Место печати"]),
+    );
+    expect(text).not.toContain("М.П.");
+    expect(text.join(" ")).not.toMatch(/Жумабекова/);
   });
 
   it("плательщик НДС сверху — колонки НДС; ответственный с физлицом — его должность в организации", async () => {
@@ -154,9 +246,110 @@ describe("print_sale: данные форм", () => {
     const d = await salePrintData(fake1C({ store: s }).conn, SALE);
     expect(d.act).toMatchObject({
       variant: "vatOnTop",
+      currency: "теңге",
       totals: { sum: 1000000, vat: 160000, sumWithVat: 1160000 },
       executorSigner: { name: "Иванов П. С.", position: "Менеджер по продажам" },
     });
+    const text = await drawnText(() => renderActR1Pdf(d.act!));
+    expect(text).toEqual(expect.arrayContaining(["сумма НДС, в теңге", "сумма с НДС, в теңге", "10"]));
+  });
+
+  it("отчётный период документа — колонка 3; адрес и телефон из контактной информации; валюта USD в заголовках", async () => {
+    const s = store();
+    const USD = id(91);
+    const doc = s["Document_РеализацияТоваровУслуг"]![0]!;
+    Object.assign(doc, {
+      ДатаНачалаОтчетногоПериода: "2026-06-08T00:00:00",
+      ДатаОкончанияОтчетногоПериода: "2026-09-30T00:00:00",
+      ВалютаДокумента_Key: USD,
+      УчитыватьНДС: true,
+      СуммаВключаетНДС: true,
+    });
+    (doc["Услуги"] as Array<Record<string, unknown>>).forEach((r) => (r["СуммаНДС"] = 100));
+    s["Catalog_Валюты"]!.push({
+      Ref_Key: USD,
+      Code: "840",
+      Description: "USD",
+      ПараметрыПрописиНаРусском: "доллар, доллара, долларов, м, цент, цента, центов, м, 2",
+    });
+    s["Catalog_Организации"]![0]!["КонтактнаяИнформация"] = [
+      {
+        LineNumber: 1,
+        Тип: "Адрес",
+        Вид_Key: id(92),
+        Представление: "г.Алматы, пр. Сейфуллина 597/7, 34",
+      },
+      { LineNumber: 2, Тип: "Телефон", Вид_Key: id(93), Представление: "+7 701 000 00 00" },
+    ];
+    s["Catalog_ВидыКонтактнойИнформации"] = [
+      {
+        Ref_Key: id(92),
+        Description: "Юридический адрес организации",
+        PredefinedDataName: "ЮрАдресОрганизации",
+      },
+      { Ref_Key: id(93), Description: "Телефон организации", PredefinedDataName: "ТелефонОрганизации" },
+    ];
+    const d = await salePrintData(fake1C({ store: s }).conn, SALE);
+    expect(d.act).toMatchObject({
+      period: "08.06.2026 - 30.09.2026",
+      currency: "USD",
+      variant: "vatIncluded",
+      executor: {
+        address: "г.Алматы, пр. Сейфуллина 597/7, 34",
+        phones: "+7 701 000 00 00",
+      },
+    });
+    const text = await drawnText(() => renderActR1Pdf(d.act!));
+    expect(text).toEqual(
+      expect.arrayContaining([
+        "08.06.2026 - 30.09.2026",
+        "в том числе НДС, в USD",
+        "ИП Aru Market, г.Алматы, пр. Сейфуллина 597/7, 34, тел.: +7 701 000 00 00",
+      ]),
+    );
+    expect(text.join(" ")).not.toMatch(/Жумабекова/);
+  });
+
+  it("адрес покупателя — из регистра сведений «КонтактнаяИнформация»; нет записей — только наименование", async () => {
+    const s = store();
+    s["InformationRegister_КонтактнаяИнформация"] = [
+      {
+        Объект: BUYER,
+        Объект_Type: "StandardODATA.Catalog_Контрагенты",
+        Тип: "Адрес",
+        Вид_Key: id(94),
+        Представление: "Республика Казахстан, город Алматы, ул. Наурызбай батыра, дом 99/1",
+      },
+      {
+        Объект: BUYER,
+        Объект_Type: "StandardODATA.Catalog_Контрагенты",
+        Тип: "Адрес",
+        Вид_Key: id(95),
+        Представление: "Фактический адрес — не печатается",
+      },
+    ];
+    s["Catalog_ВидыКонтактнойИнформации"] = [
+      {
+        Ref_Key: id(94),
+        Description: "Юридический адрес контрагента",
+        PredefinedDataName: "ЮрАдресКонтрагента",
+      },
+      {
+        Ref_Key: id(95),
+        Description: "Фактический адрес контрагента",
+        PredefinedDataName: "ФактАдресКонтрагента",
+      },
+    ];
+    const d = await salePrintData(fake1C({ store: s }).conn, SALE);
+    expect(d.act!.customer).toMatchObject({
+      address: "Республика Казахстан, город Алматы, ул. Наурызбай батыра, дом 99/1",
+    });
+    expect(d.act!.customer.phones).toBeUndefined();
+    expect(d.act!.executor.address).toBeUndefined();
+    expect(d.notes.join(" ")).not.toMatch(/Контактная информация/);
+    const none = await salePrintData(fake1C({ store: store() }).conn, SALE);
+    expect(none.act!.customer.address).toBeUndefined();
+    expect(none.notes.join(" ")).toMatch(/Контактная информация .* не опубликована/);
   });
 
   it("З-2: товары по номенклатуре/единице/цене, сумма с НДС, количество и сумма прописью", async () => {
@@ -358,10 +551,10 @@ describe("print_sale: альбомный A4", () => {
       expect(mediaBoxes(pdf).length).toBeGreaterThan(2);
       expect(drawn.length).toBeGreaterThan(100);
       for (const t of drawn) {
-        expect(t.x).toBeGreaterThanOrEqual(28);
-        expect(t.x + t.w).toBeLessThanOrEqual(841.89 - 28);
-        expect(t.y).toBeGreaterThanOrEqual(28);
-        expect(t.y + t.h).toBeLessThanOrEqual(595.28 - 28);
+        expect(t.x).toBeGreaterThanOrEqual(12);
+        expect(t.x + t.w).toBeLessThanOrEqual(841.89 - 12);
+        expect(t.y).toBeGreaterThanOrEqual(12);
+        expect(t.y + t.h).toBeLessThanOrEqual(595.28 - 12);
       }
     } finally {
       spy.mockRestore();

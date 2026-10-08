@@ -77,6 +77,11 @@ export const quickSaleInput = {
     .optional()
     .describe("Год счёта-основания — сужает поиск по номеру"),
   date: dateField("Дата реализации; по умолчанию — сейчас (Алматы)").optional(),
+  periodStart: dateField(
+    "Начало отчётного периода услуг (реквизит «ДатаНачалаОтчетногоПериода»; в Р-1 — колонка 3 «Дата выполнения " +
+      "работ (оказания услуг)»: «начало - конец»)",
+  ).optional(),
+  periodEnd: dateField("Конец отчётного периода услуг (реквизит «ДатаОкончанияОтчетногоПериода»)").optional(),
   organization: organizationField,
   buyer: z
     .string()
@@ -137,6 +142,8 @@ export type QuickSaleInput = {
   basisDate?: string | undefined;
   basisYear?: number | undefined;
   date?: string | undefined;
+  periodStart?: string | undefined;
+  periodEnd?: string | undefined;
   organization?: string | undefined;
   buyer?: string | undefined;
   buyerName?: string | undefined;
@@ -406,6 +413,10 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
     throw new InputError(
       "С основанием (basis) покупатель и строки берутся из счёта — не передавайте buyer/lines.",
     );
+  if (input.periodStart && input.periodEnd && input.periodStart > input.periodEnd)
+    throw new InputError(
+      "periodStart позже periodEnd — начало отчётного периода должно быть не позже конца.",
+    );
   const today = almatyNow();
   const date = input.date ?? today.date;
   const dateTime = input.date ? `${input.date}T00:00:00` : today.dateTime;
@@ -667,6 +678,18 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
   const kind = operationKind(goods.length, services.length);
   header["ВидОперации"] = kind;
   if (header["СпособВыпискиАктовВыполненныхРабот"] === "ВБумажномВиде") header["ДатаПодписанияГЗ"] = dateTime;
+  // Отчётный период услуг (реквизиты шапки документа) — колонка 3 «Дата выполнения работ (оказания услуг)» Р-1.
+  for (const [field, value] of [
+    ["ДатаНачалаОтчетногоПериода", input.periodStart],
+    ["ДатаОкончанияОтчетногоПериода", input.periodEnd],
+  ] as const) {
+    if (!value) continue;
+    if (!em.properties.some((x) => x.name === field))
+      throw new InputError(
+        `Реквизита «${field}» нет в опубликованных метаданных реализации — период не задать.`,
+      );
+    header[field] = `${value}T00:00:00`;
+  }
 
   // Образцы счетов учёта, дубли, группы номенклатуры — параллельно (в режиме «на основании» уже запущены).
   const [candidates, dupRes, groupRows] = await Promise.all([

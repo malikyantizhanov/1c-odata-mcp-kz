@@ -705,8 +705,11 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         documentEntity: z
           .string()
           .trim()
-          .regex(/^Document_[^\s()'/?#&]+$/, "Имя документа вида Document_<Имя>")
-          .describe("Имя документа, напр. Document_РегламентнаяОперация"),
+          .regex(
+            /^(?:Document_|Документ\.|Document\.)?[^\s()'/?#&.]+$/,
+            "Имя документа вида Document_<Имя> или <Имя>",
+          )
+          .describe("Имя документа, напр. Document_РегламентнаяОперация (префикс Document_ можно опустить)"),
         documentRef: z
           .string()
           .trim()
@@ -739,8 +742,11 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         documentEntity: z
           .string()
           .trim()
-          .regex(/^Document_[^\s()'/?#&]+$/, "Имя документа вида Document_<Имя>")
-          .describe("Имя документа, напр. Document_СчетФактураВыданный"),
+          .regex(
+            /^(?:Document_|Документ\.|Document\.)?[^\s()'/?#&.]+$/,
+            "Имя документа вида Document_<Имя> или <Имя>",
+          )
+          .describe("Имя документа, напр. Document_СчетФактураВыданный (префикс Document_ можно опустить)"),
         documentRef: z
           .string()
           .trim()

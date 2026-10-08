@@ -281,7 +281,7 @@ Claude: Готово: контрагент 00-000123, счёт № … (черн
 | `read.organization.get_organization_card` | Карточка организации: ИНН/КПП/ОГРН, ОКВЭД, налоговый орган, адреса, банковский счёт, директор и главный бухгалтер |
 | `read.schema.list_entities` / `read.schema.describe_entity` | Карта объектов базы и поля конкретного объекта (из `$metadata`) |
 | `read.counterparty.find_counterparty` / `read.counterparty.get_counterparty` | Поиск контрагента (по названию/ИНН) и его карточка |
-| `read.document.search_documents` / `read.document.get_document` | Поиск документов и документ с табличной частью |
+| `read.document.search_documents` / `read.document.get_document` | Поиск документов и документ с табличной частью. Тип — `Document_СчетНаОплатуПокупателю`, `СчетНаОплатуПокупателю` или `Документ.СчетНаОплатуПокупателю` (префикс дописывается сам, во всех инструментах с типом документа) |
 | `read.analytics.get_debtors` / `read.analytics.get_inventory` | Дебиторка (сч. 62; в Казахстане — 1210) / остатки товаров (сч. 41/10/43), можно на дату в прошлом (`asOf`) |
 | `read.accounting.get_account_turnover` | ОСВ по счёту за период (`51`, `60`, `90.01`…; в Казахстане — `1210`, `3310`, `31`, `32`…): сальдо на начало/конец и обороты Дт/Кт, итогом и по субсчетам; с `byAnalytics: true` — по сотрудникам, контрагентам, налогам |
 | `read.accounting.get_document_postings` | Проводки одного документа (любого `Document_*`) из регистра Хозрасчетный: Дт/Кт с кодами счетов и субконто, суммы, итоги и свод по корреспонденциям. Пример: `{"documentEntity": "Document_РегламентнаяОперация", "documentRef": "919a75d1-7f6a-11f1-86c3-74563c4bf0d1"}` |

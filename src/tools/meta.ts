@@ -168,7 +168,11 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
         "'Document_РеализацияТоваровУслуг'. Используйте перед поиском, чтобы узнать доступные поля.",
       inputSchema: {
         database: databaseField,
-        entitySet: z.string().describe("Техническое имя объекта, напр. Catalog_Контрагенты"),
+        entitySet: z
+          .string()
+          .describe(
+            "Техническое имя объекта, напр. Catalog_Контрагенты (без префикса — Document_/Catalog_ подбирается по опубликованным)",
+          ),
       },
       outputSchema: describeEntityResultSchema,
     },

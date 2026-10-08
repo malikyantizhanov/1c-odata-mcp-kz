@@ -141,6 +141,8 @@ async function withSaleMeta(f: ReturnType<typeof fake1C>) {
         (n) => p(n),
       ),
       p("УчитыватьКПН", "Edm.Boolean"),
+      p("ДатаНачалаОтчетногоПериода", "Edm.DateTime"),
+      p("ДатаОкончанияОтчетногоПериода", "Edm.DateTime"),
       p("Услуги", `Collection(StandardODATA.${SALE_SET}_Услуги_RowType)`),
       p("Товары", `Collection(StandardODATA.${SALE_SET}_Товары_RowType)`),
     ],
@@ -416,6 +418,37 @@ describe("quick_sale: без основания", () => {
     date: "2026-10-08",
     lines: [{ name: SERVICE_NAME, quantity: 1, price: 1000000, kind: "service" }],
   };
+  it("periodStart/periodEnd — в шапку реализации; periodStart > periodEnd — ошибка", async () => {
+    const f = await make();
+    const plan = sc(
+      await quick(f, {
+        ...DIRECT,
+        print: "none",
+        periodStart: "2026-06-08",
+        periodEnd: "2026-09-30",
+      }),
+    );
+    expect(plan.ready).toBe(true);
+    const done = sc(
+      await quick(f, {
+        ...DIRECT,
+        confirm: true,
+        operationId: plan["operationId"],
+        print: "none",
+        periodStart: "2026-06-08",
+        periodEnd: "2026-09-30",
+      }),
+    );
+    expect(done.created).toBe(true);
+    expect(f.posts[0]!.body).toMatchObject({
+      ДатаНачалаОтчетногоПериода: "2026-06-08T00:00:00",
+      ДатаОкончанияОтчетногоПериода: "2026-09-30T00:00:00",
+    });
+    expect(
+      errText(await quick(f, { ...DIRECT, periodStart: "2026-10-01", periodEnd: "2026-09-01" })),
+    ).toMatch(/periodStart позже periodEnd/);
+  });
+
   it("покупатель по БИН и строки — как quick_invoice; дубль same_day_sum (тот же день и сумма)", async () => {
     const f = await make();
     const plan = sc(await quick(f, { ...DIRECT, print: "none" }));

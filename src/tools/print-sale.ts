@@ -77,8 +77,10 @@ export interface SalePrintData {
  *  - З-2: товары сгруппированы по номенклатуре, единице и цене; сумма с НДС = сумма (+ НДС сверху) (+ акциз сверху);
  *    количество и сумма прописью;
  *  - подпись исполнителя / «Отпуск разрешил» — физлицо ответственного документа (ФИО кратко) и его текущая
- *    должность в организации. У ИП, если у ответственного нет физлица, — сам ИП («Индивидуальный предприниматель»).
- * Сведений, которых нет в опубликованных объектах OData (юридический адрес и телефоны, ответственные лица
+ *    должность в организации; без физлица расшифровка пустая, у ИП должность — «Индивидуальный предприниматель»;
+ *  - Р-1: стороны — «наименование, юридический адрес, тел.: …» (если контактная информация опубликована), договор —
+ *    «Договор №… от … г.», колонка 3 — отчётный период документа, валюта в заголовке НДС — «в теңге».
+ * Сведений, которых нет в опубликованных объектах OData (контактная информация, ответственные лица
  * организации — главный бухгалтер, МОЛ склада), в форме нет — это сказано в notes.
  */
 export async function salePrintData(
@@ -115,8 +117,16 @@ export async function salePrintData(
       "НаименованиеПолное",
       "ИдентификационныйКодЛичности",
     ]),
-    cached(conn, memo, "Catalog_ДоговорыКонтрагентов", ref(doc["ДоговорКонтрагента_Key"]), ["Description"]),
-    cached(conn, memo, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), ["Description"]),
+    cached(conn, memo, "Catalog_ДоговорыКонтрагентов", ref(doc["ДоговорКонтрагента_Key"]), [
+      "Description",
+      "НомерДоговора",
+      "ДатаДоговора",
+    ]),
+    cached(conn, memo, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), [
+      "Code",
+      "Description",
+      "ПараметрыПрописиНаРусском",
+    ]),
     available.has("Catalog_Пользователи")
       ? cached(conn, memo, "Catalog_Пользователи", ref(doc["Ответственный_Key"]), [
           "Description",
@@ -141,7 +151,7 @@ export async function salePrintData(
   const orgRef = ref(doc["Организация_Key"]);
   const individual = org["ЮрФизЛицо"] === "ФизЛицо";
   const userPerson = ref(user["ФизЛицо_Key"]) ?? ref(user["ФизическоеЛицо_Key"]);
-  const signerPerson = userPerson ?? (individual ? ref(org["ИндивидуальныйПредприниматель_Key"]) : undefined);
+  const ipPerson = individual ? ref(org["ИндивидуальныйПредприниматель_Key"]) : undefined;
 
   // Волна 2: единицы, ФИО и должность подписанта — параллельно.
   const unitKeys = [
@@ -152,7 +162,7 @@ export async function salePrintData(
       ].filter((u): u is string => !!u),
     ),
   ];
-  const [unitRows, person, position] = await Promise.all([
+  const [unitRows, person, position, orgContacts, buyerContacts] = await Promise.all([
     unitSet && unitKeys.length
       ? fetchAll(
           conn.client,
@@ -166,25 +176,25 @@ export async function salePrintData(
         ).then((r) => r.rows)
       : Promise.resolve([] as ODataEntity[]),
     available.has("Catalog_ФизическиеЛица")
-      ? cached(conn, memo, "Catalog_ФизическиеЛица", signerPerson, ["Description"])
+      ? cached(conn, memo, "Catalog_ФизическиеЛица", userPerson, ["Description"])
       : Promise.resolve({} as ODataEntity),
     userPerson && orgRef ? currentPosition(conn, memo, orgRef, userPerson) : Promise.resolve(undefined),
+    partyContacts(conn, [
+      ["Catalog_Организации", orgRef],
+      ["Catalog_ФизическиеЛица", ipPerson],
+    ]),
+    partyContacts(conn, [["Catalog_Контрагенты", ref(doc["Контрагент_Key"])]]),
   ]);
   const units = new Map(unitRows.map((u) => [String(u["Ref_Key"]), str(u["Description"])]));
   const notes: string[] = [];
-  let signer: Signer | undefined;
-  if (str(person["Description"])) {
-    signer = {
-      name: shortFio(str(person["Description"])),
-      position: userPerson ? position : "Индивидуальный предприниматель",
-    };
-    if (!userPerson)
-      notes.push(
-        "У ответственного документа нет физлица — в подписи исполнителя указан индивидуальный предприниматель организации.",
-      );
-  } else {
+  // Подпись исполнителя (Подвал Р-1): расшифровка — ФИО физлица ответственного документа; без физлица — пустая (как
+  // в 1С). Должность — текущая должность этого физлица; у ИП без неё — «Индивидуальный предприниматель».
+  const signerName = str(person["Description"]) ? shortFio(str(person["Description"])) : undefined;
+  const signerPosition = position ?? (individual ? "Индивидуальный предприниматель" : undefined);
+  const signer: Signer | undefined =
+    signerName || signerPosition ? { name: signerName, position: signerPosition } : undefined;
+  if (!signerName)
     notes.push("У ответственного документа нет физлица — расшифровка подписи исполнителя пустая (как в 1С).");
-  }
 
   const number = str(doc["Number"]).replace(/^0+(?=\d)/, "");
   const date = str(doc["Date"]).slice(0, 10);
@@ -193,12 +203,15 @@ export async function salePrintData(
   const executor = {
     name: str(org["НаименованиеПолное"]) || str(org["Description"]),
     idNumber: str(org["ИдентификационныйНомер"]) || undefined,
+    ...orgContacts.found,
   };
   const customer = {
     name: str(buyer["НаименованиеПолное"]) || str(buyer["Description"]),
     idNumber: str(buyer["ИдентификационныйКодЛичности"]) || undefined,
+    ...buyerContacts.found,
   };
   const cur = str(currency["Description"]) || "KZT";
+  const curLabel = currencyLabel(currency);
   const nomName = (r: ODataEntity) => {
     const x = nom.get(str(r["Номенклатура_Key"]));
     return str(x?.["НаименованиеПолное"]) || str(x?.["Description"]);
@@ -235,9 +248,10 @@ export async function salePrintData(
       date,
       customer,
       executor,
-      contract: str(contract["Description"]) || undefined,
+      contract: contractPresentation(contract),
+      period: reportPeriod(doc),
       variant,
-      currency: cur,
+      currency: curLabel,
       lines,
       totals: {
         quantity: lines.reduce((a, l) => a + l.quantity, 0),
@@ -290,7 +304,7 @@ export async function salePrintData(
       organization: executor,
       receiver: customer.name,
       responsible: signer?.name,
-      currency: cur,
+      currency: curLabel,
       lines,
       totals: { quantity: totalQty, sumWithVat: totalSum, vat: round2(lines.reduce((a, l) => a + l.vat, 0)) },
       quantityWords: quantityInWords(totalQty),
@@ -305,10 +319,125 @@ export async function salePrintData(
         "организаций») — эти расшифровки пустые, заполните от руки.",
     );
   }
-  notes.push(
-    "Юридический адрес и телефоны сторон в OData не опубликованы (регистр контактной информации) — в форме только полное наименование.",
-  );
+  if (orgContacts.unpublished || buyerContacts.unpublished)
+    notes.push(
+      "Контактная информация (юридический адрес, телефоны) в OData не опубликована — в строках «Заказчик» / " +
+        "«Исполнитель» только полное наименование.",
+    );
   return { ref: docRef, number, date, total: n(doc["СуммаДокумента"]), act, waybill, notes };
+}
+
+/**
+ * Договор в Р-1: «Договор №<номер> от <дата> г.» по реквизитам НомерДоговора / ДатаДоговора; номер «б/н» —
+ * «Договор б/н от … г.». Без номера и даты — наименование договора (его представление в 1С).
+ */
+export function contractPresentation(c: ODataEntity): string | undefined {
+  const number = str(c["НомерДоговора"]);
+  const date = shortDate(str(c["ДатаДоговора"]));
+  if (number || date) {
+    const no = !number ? "" : /^б\/н$/i.test(number) ? " б/н" : ` №${number}`;
+    return `Договор${no}${date ? ` от ${date} г.` : ""}`;
+  }
+  return str(c["Description"]) || undefined;
+}
+
+/** Колонка 3 Р-1: отчётный период документа «начало - конец»; одна дата — она; нет — пусто. */
+export function reportPeriod(doc: ODataEntity): string | undefined {
+  const start = shortDate(str(doc["ДатаНачалаОтчетногоПериода"]));
+  const end = shortDate(str(doc["ДатаОкончанияОтчетногоПериода"]));
+  if (start && end) return start === end ? start : `${start} - ${end}`;
+  return start || end || undefined;
+}
+
+/**
+ * Валюта в заголовках колонок форм («в теңге»): у тенге (код 398) — как в печатной форме 1С, «теңге» (первая форма
+ * «Параметров прописи на русском»), у другой валюты — её наименование (USD, RUB, …), как представление валюты
+ * документа в параметре [Валюта] макета.
+ */
+export function currencyLabel(c: ODataEntity): string {
+  const code = str(c["Code"]);
+  const name = str(c["Description"]);
+  if (code === "398" || name === "KZT")
+    return str(c["ПараметрыПрописиНаРусском"]).split(",")[0]?.trim() || "теңге";
+  return name || "KZT";
+}
+
+const CI_REGISTER = "InformationRegister_КонтактнаяИнформация";
+const CI_KINDS = "Catalog_ВидыКонтактнойИнформации";
+
+/**
+ * Юридический адрес и телефоны стороны (как СведенияОЮрФизЛице: КонтактнаяИнформацияБК.ПолучитьАдресИзКонтактной-
+ * Информации(…, "Юридический") и ПолучитьТелефонИзКонтактнойИнформации). Источник — табличная часть
+ * «КонтактнаяИнформация» справочника или регистр сведений «КонтактнаяИнформация», если они опубликованы. Объекты
+ * проверяются по порядку (организация, затем физлицо ИП) — берётся первый, у которого что-то нашлось.
+ */
+async function partyContacts(
+  conn: Connection,
+  objects: Array<[string, string | undefined]>,
+): Promise<{ found: { address?: string; phones?: string }; unpublished: boolean }> {
+  const available = await conn.available();
+  const meta = await conn.getMetadata().catch(() => undefined);
+  const hasTable = (set: string) =>
+    !!meta?.entities.get(set)?.properties.some((p) => p.name === "КонтактнаяИнформация");
+  const register = available.has(CI_REGISTER);
+  if (!register && !objects.some(([set]) => hasTable(set))) return { found: {}, unpublished: true };
+  let kinds: Map<string, ODataEntity> | undefined;
+  for (const [set, key] of objects) {
+    if (!key) continue;
+    try {
+      let rows: ODataEntity[] = [];
+      if (hasTable(set)) {
+        const e = await conn.client.getEntity(
+          `${set}(guid'${key}')${buildQuery({ select: ["КонтактнаяИнформация"] })}`,
+        );
+        rows = (e["КонтактнаяИнформация"] as ODataEntity[] | undefined) ?? [];
+      }
+      if (!rows.length && register) {
+        rows = (
+          await fetchAll(
+            conn.client,
+            CI_REGISTER,
+            { filter: cmp("Объект", "eq", `cast(${odataGuid(key)}, '${set}')`) },
+            50,
+            200,
+          )
+        ).rows;
+      }
+      if (!rows.length) continue;
+      kinds ??= available.has(CI_KINDS)
+        ? new Map(
+            (
+              await fetchAll(
+                conn.client,
+                CI_KINDS,
+                { select: ["Ref_Key", "Description", "PredefinedDataName"] },
+                500,
+                500,
+              )
+            ).rows.map((k) => [str(k["Ref_Key"]), k]),
+          )
+        : new Map();
+      const kindOf = (r: ODataEntity) => kinds!.get(str(r["Вид_Key"]) || str(r["Вид"]));
+      const text = (r: ODataEntity) => str(r["Представление"]);
+      const legal = rows.find((r) => {
+        const k = kindOf(r);
+        return (
+          str(r["Тип"]) === "Адрес" &&
+          text(r) &&
+          (/^ЮрАдрес/.test(str(k?.["PredefinedDataName"])) || /юрид/i.test(str(k?.["Description"])))
+        );
+      });
+      const phones = [...new Set(rows.filter((r) => str(r["Тип"]) === "Телефон" && text(r)).map(text))];
+      const found = {
+        ...(legal ? { address: text(legal) } : {}),
+        ...(phones.length ? { phones: phones.join(", ") } : {}),
+      };
+      if (found.address || found.phones) return { found, unpublished: false };
+    } catch {
+      // Нет доступа / не опубликовано у этого объекта — пробуем следующий; в форме останется наименование.
+    }
+  }
+  return { found: {}, unpublished: false };
 }
 
 /** Текущая должность физлица в организации: сотрудник организации → ТекущаяДолжностьОрганизации. */
@@ -497,8 +626,10 @@ export function registerSalePrintTools(server: McpServer, ctx: ServerContext): v
         "печатных форм 1С Р-1 и З-2. form: auto (по строкам документа; есть и услуги, и товары — оба PDF), act, waybill. " +
         "Реализация — по ref или по номеру (number; date или year при повторе номера). PDF сохраняются в каталог печати " +
         "(ODATA_PRINT_DIR): акт — в подкаталог «акты», накладная — в «накладные» (или в outputDir); существующий файл не " +
-        "перезаписывается — новый получает « (2)». Возвращает пути (files[].path). Адрес и телефоны сторон, главный " +
-        "бухгалтер и МОЛ склада в OData не опубликованы — в форме их нет (см. note).",
+        "перезаписывается — новый получает « (2)». Возвращает пути (files[].path). Р-1 — как акт, напечатанный из 1С: " +
+        "стороны с юридическим адресом и телефоном (если контактная информация опубликована в OData), договор «Договор " +
+        "№… от … г.», колонка 3 — отчётный период документа, колонка 9 «в том числе НДС, в <валюта>» всегда. Главный " +
+        "бухгалтер и МОЛ склада в OData не опубликованы — в З-2 их нет (см. note).",
       inputSchema: {
         database: databaseField,
         ref: z

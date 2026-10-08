@@ -112,8 +112,17 @@ export function baseStore(): Store {
     Catalog_Банки: [
       { Ref_Key: BANK, Description: 'АО "Банк ЦентрКредит"', БИК: "KCJBKZKX", Город: "Алматы" },
     ],
-    Catalog_Валюты: [{ Ref_Key: KZT, Code: "398", Description: "KZT" }],
-    Catalog_КлассификаторЕдиницИзмерения: [{ Ref_Key: UNIT, Code: "796", Description: "шт" }],
+    Catalog_Валюты: [
+      {
+        Ref_Key: KZT,
+        Code: "398",
+        Description: "KZT",
+        ПараметрыПрописиНаРусском: "теңге, теңге, теңге, м, тиын, тиын, тиын, м, 2",
+      },
+    ],
+    Catalog_КлассификаторЕдиницИзмерения: [
+      { Ref_Key: UNIT, Code: "796", Description: "шт", НаименованиеПолное: "Штука" },
+    ],
     Catalog_СтавкиНДС: [
       { Ref_Key: VAT16, Description: "16%" },
       { Ref_Key: VAT_NONE, Description: "без НДС" },
@@ -156,6 +165,10 @@ export function matches(row: Row, filter: string | undefined): boolean {
     return String(row[sub[2]!] ?? "")
       .toLowerCase()
       .includes(sub[1]!.replace(/''/g, "'").toLowerCase());
+  // Составное поле: «Объект eq cast(guid'…', 'Catalog_…')» — ссылка и тип (Объект_Type = StandardODATA.Catalog_…).
+  const cast = /^(\S+) eq cast\(guid'([^']*)', '([^']*)'\)$/.exec(f);
+  if (cast)
+    return row[cast[1]!] === cast[2] && String(row[`${cast[1]!}_Type`] ?? "").endsWith(`.${cast[3]!}`);
   const m = /^(\S+) (eq|ne|ge|le|gt|lt) (?:guid|datetime)?'?((?:[^']|'')*?)'?$/.exec(f);
   if (!m) throw new Error(`Фильтр не поддержан тестом: ${f}`);
   const [, field, op, raw] = m;

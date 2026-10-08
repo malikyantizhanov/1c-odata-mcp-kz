@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import PDFDocument from "pdfkit";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -277,5 +278,93 @@ describe("print_sale: каталоги", () => {
         "Акт выполненных работ Р-1 № 18 от 08.10.2026.pdf",
       ),
     );
+  });
+});
+
+describe("print_sale: альбомный A4", () => {
+  const mediaBoxes = (pdf: Buffer) =>
+    [...pdf.toString("latin1").matchAll(/\/MediaBox \[([^\]]+)\]/g)].map((m) =>
+      m[1]!.trim().split(/\s+/).map(Number),
+    );
+  const act = (lines: Array<{ name: string }>) =>
+    renderActR1Pdf({
+      number: "18",
+      date: "2026-10-08",
+      customer: { name: 'ТОО "TRADESPACE"', idNumber: "240440007327" },
+      executor: { name: 'ИП "Aru Market"', idNumber: "123123123123" },
+      contract: "Договор б/н",
+      variant: "vatOnTop",
+      currency: "KZT",
+      lines: lines.map((l) => ({
+        ...l,
+        unit: "шт",
+        quantity: 1,
+        price: 100,
+        sum: 100,
+        vat: 16,
+        sumWithVat: 116,
+      })),
+      totals: {
+        quantity: lines.length,
+        sum: 100 * lines.length,
+        vat: 16 * lines.length,
+        sumWithVat: 116 * lines.length,
+      },
+      executorSigner: { name: "Жумабекова А. Е.", position: "Индивидуальный предприниматель" },
+      acceptedDate: "2026-10-08",
+    });
+
+  it("Р-1 и З-2 — A4 альбомная (841.89 × 595.28) на каждой странице", async () => {
+    const r1 = await act([{ name: "Разработка" }]);
+    const z2 = await renderWaybillZ2Pdf({
+      number: "1",
+      date: "2026-10-08",
+      organization: { name: "ИП" },
+      receiver: "ТОО",
+      currency: "KZT",
+      lines: [{ name: "Кабель", quantity: 1, price: 10, sumWithVat: 10, vat: 0 }],
+      totals: { quantity: 1, sumWithVat: 10, vat: 0 },
+      quantityWords: "Один",
+      amountWords: "Десять тенге 00 тиын",
+    });
+    for (const pdf of [r1, z2]) {
+      const boxes = mediaBoxes(pdf);
+      expect(boxes.length).toBeGreaterThan(0);
+      for (const b of boxes) expect(b).toEqual([0, 0, 841.89, 595.28]);
+    }
+  });
+
+  it("длинные наименования переносятся, таблица — на несколько страниц, текст не выходит за поля листа", async () => {
+    const drawn: Array<{ x: number; y: number; w: number; h: number }> = [];
+    const orig = PDFDocument.prototype.text;
+    const spy = vi.spyOn(PDFDocument.prototype, "text").mockImplementation(function (
+      this: PDFKit.PDFDocument,
+      ...args: unknown[]
+    ) {
+      const [str, x, y, o] = args as [string, number, number, { width?: number }];
+      if (typeof x === "number" && typeof y === "number" && o?.width)
+        drawn.push({ x, y, w: o.width, h: this.heightOfString(String(str) || " ", { width: o.width }) });
+      return (orig as (...a: unknown[]) => PDFKit.PDFDocument).apply(this, args);
+    });
+    try {
+      const long =
+        "Разработка программного обеспечения: модуль интеграции 1С с маркетплейсом, выгрузка остатков и цен, " +
+        "загрузка заказов, обработка возвратов, настройка расписания обмена и обучение персонала заказчика";
+      const huge = long.repeat(40);
+      const pdf = await act([
+        ...Array.from({ length: 30 }, (_, i) => ({ name: i % 3 ? `Услуга ${i}` : long })),
+        { name: huge },
+      ]);
+      expect(mediaBoxes(pdf).length).toBeGreaterThan(2);
+      expect(drawn.length).toBeGreaterThan(100);
+      for (const t of drawn) {
+        expect(t.x).toBeGreaterThanOrEqual(28);
+        expect(t.x + t.w).toBeLessThanOrEqual(841.89 - 28);
+        expect(t.y).toBeGreaterThanOrEqual(28);
+        expect(t.y + t.h).toBeLessThanOrEqual(595.28 - 28);
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

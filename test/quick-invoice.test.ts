@@ -213,6 +213,7 @@ function fake1C(opts: { writable?: boolean; readOnly?: boolean; store?: Store } 
   const posts: Array<{ set: string; body: Row }> = [];
   const gets: string[] = [];
   let failNext: ((set: string) => Error | undefined) | undefined;
+  let failGet: ((path: string) => Error | undefined) | undefined;
   let counter = 0;
   vi.spyOn(conn.client, "request").mockImplementation((async (path: string, method = "GET", body?: Row) => {
     const p = decodeURIComponent(path);
@@ -231,6 +232,8 @@ function fake1C(opts: { writable?: boolean; readOnly?: boolean; store?: Store } 
       return created;
     }
     gets.push(p);
+    const getErr = failGet?.(p);
+    if (getErr) throw getErr;
     const key = /\(guid'([^']+)'\)/.exec(p)?.[1];
     if (key) {
       const row = (store[set] ?? []).find((r) => r["Ref_Key"] === key);
@@ -257,6 +260,7 @@ function fake1C(opts: { writable?: boolean; readOnly?: boolean; store?: Store } 
     call,
     quick: (args: Row) => call("write.sales.quick_invoice", args),
     failOn: (fn: typeof failNext) => (failNext = fn),
+    failGetOn: (fn: typeof failGet) => (failGet = fn),
   };
 }
 
@@ -585,5 +589,85 @@ describe("print_invoice по номеру", () => {
     expect(errText(many)).not.toContain(id(32));
     expect(errText(await f.call("read.document.print_invoice", { number: "77" }))).toMatch(/не найден/);
     expect((await f.call("read.document.print_invoice", {})).isError).toBe(true);
+  });
+});
+
+describe("quick_invoice: возможные дубли", () => {
+  const invoice = (ref: string, number: string, extra: Row = {}): Row => ({
+    Ref_Key: ref,
+    Number: number,
+    Date: "2026-10-08T10:15:00",
+    Posted: false,
+    DeletionMark: false,
+    Организация_Key: ORG,
+    Контрагент_Key: BUYER,
+    СуммаДокумента: 1550000,
+    Услуги: [{ LineNumber: 1, Номенклатура_Key: SERVICE, Количество: 1, Цена: 1550000, Сумма: 1550000 }],
+    ...extra,
+  });
+
+  it("тот же покупатель, день и сумма — в possibleDuplicates (с linesMatch); план не блокируется", async () => {
+    const store = baseStore();
+    store["Document_СчетНаОплатуПокупателю"] = [
+      invoice(id(40), "00000000003"),
+      invoice(id(41), "00000000004", {
+        Posted: true,
+        Услуги: [{ Номенклатура_Key: id(11), Количество: 1, Цена: 1550000, Сумма: 1550000 }],
+      }),
+      invoice(id(42), "00000000005", { DeletionMark: true }),
+      invoice(id(43), "00000000006", { СуммаДокумента: 99000 }),
+      invoice(id(44), "00000000007", { Date: "2026-10-07T10:00:00" }),
+      invoice(id(45), "00000000008", { Контрагент_Key: id(99) }),
+      invoice(id(46), "00000000009", { Организация_Key: id(98) }),
+    ];
+    const f = fake1C({ store });
+    const plan = sc(await f.quick(TRADESPACE));
+    expect(plan).toMatchObject({ ready: true, dryRun: true });
+    expect(plan["operationId"]).toBeTruthy();
+    expect(plan["possibleDuplicates"]).toEqual([
+      { number: "3", date: "2026-10-08", ref: id(40), total: 1550000, posted: false, linesMatch: true },
+      { number: "4", date: "2026-10-08", ref: id(41), total: 1550000, posted: true, linesMatch: false },
+    ]);
+    expect(String(plan["note"])).toMatch(/^ВОЗМОЖНЫЙ ДУБЛЬ: № 3 от 2026-10-08/);
+    expect(plan["notes"][0]).toMatch(/ВНИМАНИЕ, возможный дубль/);
+    expect(plan["notes"].join(" ")).toMatch(/1 счёт\(а\) с той же суммой за этот день помечены на удаление/);
+    expect(plan["notes"].join(" ")).toMatch(/ещё 1 счёт\(а\) на другие суммы/);
+    expect(f.posts).toEqual([]);
+    // Поиск идёт по покупателю, организации и дню — не по всей таблице.
+    const q = f.gets.find((g) => g.startsWith("Document_СчетНаОплатуПокупателю?"))!;
+    expect(q).toContain(`Контрагент_Key eq guid'${BUYER}'`);
+    expect(q).toContain(`Организация_Key eq guid'${ORG}'`);
+    expect(q).toContain("Date ge datetime'2026-10-08T00:00:00'");
+  });
+
+  it("похожих нет — possibleDuplicates пуст, обычная подсказка", async () => {
+    const plan = sc(await fake1C().quick(TRADESPACE));
+    expect(plan["possibleDuplicates"]).toEqual([]);
+    expect(String(plan["note"])).toMatch(/^План\. Ничего не создано/);
+  });
+
+  it("сбой поиска дублей не ломает план — причина в notes", async () => {
+    const f = fake1C();
+    f.failGetOn((p) =>
+      p.startsWith("Document_СчетНаОплатуПокупателю?")
+        ? new ODataError({ kind: "server", status: 500, message: "boom" })
+        : undefined,
+    );
+    const plan = sc(await f.quick(TRADESPACE));
+    expect(plan).toMatchObject({ ready: true, possibleDuplicates: [] });
+    expect(plan["notes"].join(" ")).toMatch(/Проверка на дубли не выполнена: boom/);
+  });
+
+  it("confirm перепроверяет: дубль, появившийся после плана, не блокирует, но виден в ответе", async () => {
+    const f = fake1C();
+    const plan = sc(await f.quick(TRADESPACE));
+    expect(plan["possibleDuplicates"]).toEqual([]);
+    f.store["Document_СчетНаОплатуПокупателю"]!.push(invoice(id(40), "00000000003"));
+    const out = sc(await f.quick({ ...TRADESPACE, confirm: true, operationId: plan["operationId"] }));
+    expect(out).toMatchObject({ created: true, invoice: { posted: false } });
+    expect(out["possibleDuplicates"]).toEqual([expect.objectContaining({ ref: id(40), linesMatch: true })]);
+    expect(out["invoice"].ref).not.toBe(id(40));
+    expect(out["notes"][0]).toMatch(/создан ещё один счёт.*№ 3/);
+    expect(f.posts).toHaveLength(1);
   });
 });

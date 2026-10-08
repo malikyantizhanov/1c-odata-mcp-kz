@@ -26,7 +26,13 @@ export interface InvoicePrintData {
   number: string;
   /** YYYY-MM-DD */
   date: string;
-  supplier: { name: string; bin?: string | undefined; kbe?: string | undefined };
+  /** individual — ИП (в 1С «ФизЛицо»): в образце платёжки номер подписан «ИИН:», у юрлица — «БИН:». */
+  supplier: {
+    name: string;
+    bin?: string | undefined;
+    kbe?: string | undefined;
+    individual?: boolean | undefined;
+  };
   bank?: { iik: string; bankName: string; bik?: string | undefined } | undefined;
   paymentCode?: string | undefined;
   buyer: { name: string; bin?: string | undefined };
@@ -73,6 +79,13 @@ export const money = (n: number, digits = 2): string => {
 };
 /** Количество — три знака, как в форме 1С: «1,000». */
 export const quantity = (n: number): string => money(n, 3);
+
+/**
+ * Номер бенефициара в образце платёжки — как ОбщегоНазначенияБК.ПолучитьРегистрационныйНомерОрганизацииКонтрагентаВПечатнуюФорму:
+ * «ИИН: …», если организация — физлицо (ИП), иначе «БИН: …».
+ */
+export const beneficiaryId = (bin: string, individual?: boolean): string =>
+  `${individual ? "ИИН" : "БИН"}: ${bin}`;
 
 /** « БИН / ИИН 211040003047,ТОО ...» — так 1С печатает стороны: с пробелом в начале и без пробела после запятой. */
 export const partyText = (name: string, bin?: string): string => (bin ? ` БИН / ИИН ${bin},${name}` : name);
@@ -131,7 +144,7 @@ export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
 
   text("Бенефициар:", "b", 9, 35.8, top + 0.77);
   text(d.supplier.name, "b", 9, 35.8, rowB + 0.4, { width: nameWidth, lineGap: nameGap });
-  if (d.supplier.bin) text(`БИН: ${d.supplier.bin}`, "r", 9, 35.5, binTop);
+  if (d.supplier.bin) text(beneficiaryId(d.supplier.bin, d.supplier.individual), "r", 9, 35.5, binTop);
   const center = (s: string, font: "r" | "b", size: number, x1: number, x2: number, y: number) =>
     text(s, font, size, x1, y, { width: x2 - x1, align: "center" });
   center("ИИК", "b", 9, BEN.col2, BEN.col3, top + 0.77);
@@ -166,7 +179,8 @@ export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
   };
   party("Поставщик:", partyText(d.supplier.name, d.supplier.bin));
   party("Покупатель:", partyText(d.buyer.name, d.buyer.bin));
-  party("Договор:", d.contract || "Без договора");
+  // Как в форме 1С: представление договора (его наименование); без договора поле пустое.
+  party("Договор:", d.contract || " ");
 
   // Таблица позиций: шапка 12,59 pt, внешняя рамка 1,5 pt, внутренние линии 0,75 pt.
   const cols = [
@@ -232,9 +246,11 @@ export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
   };
   const linesSum = d.lines.reduce((s, l) => s + l.sum, 0);
   total("Итого:", money(linesSum));
+  // Как в форме 1С: строка НДС — только при «Учитывать НДС» (нулевая сумма — «-»), «Всего:» — при НДС сверху.
+  // Без учёта НДС 1С строку «Без НДС» не печатает — строка остаётся пустой.
   if (d.withVat) {
-    total(d.vatIncluded ? "В том числе НДС:" : "Сумма НДС:", money(d.vatSum));
-    if (!d.vatIncluded) total("Всего к оплате:", money(d.total));
+    total(d.vatIncluded ? "В том числе НДС:" : "Сумма НДС:", d.vatSum ? money(d.vatSum) : "-");
+    if (!d.vatIncluded) total("Всего:", money(linesSum + d.vatSum));
   }
   y += 38.7 - 13;
   text(`Всего наименований ${d.lines.length}, на сумму ${money(d.total)} ${d.currency}`, "r", F10, 35.8, y, {

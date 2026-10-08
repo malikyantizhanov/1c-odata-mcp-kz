@@ -2,10 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
-import { ok, guard, databaseField } from "./_shared.js";
+import { ok, guard, databaseField, dateField } from "./_shared.js";
 import { requireEntity } from "../odata/publication.js";
 import { fetchAll } from "../odata/pagination.js";
-import { buildQuery, cmp, odataGuid, or } from "../odata/query.js";
+import { and, buildQuery, cmp, contains, odataGuid, or } from "../odata/query.js";
 import { resolveNames } from "../odata/accounting.js";
 import { CATALOGS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
 import { InputError } from "../errors.js";
@@ -61,6 +61,7 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
     "ИдентификационныйНомер",
     "КБЕ",
     "ОсновнойБанковскийСчет_Key",
+    "ЮрФизЛицо",
   ]);
   // Счёт организации — из документа (СтруктурнаяЕдиница), иначе основной счёт организации.
   const bankAccountRef =
@@ -140,6 +141,8 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
       name: str(org["НаименованиеПолное"]) || str(org["Description"]),
       bin: str(org["ИдентификационныйНомер"]) || undefined,
       kbe: str(org["КБЕ"]) || undefined,
+      // ИП в 1С — «ФизЛицо»: форма 1С подписывает его номер в образце платёжки «ИИН:», юрлицо — «БИН:».
+      individual: org["ЮрФизЛицо"] === "ФизЛицо",
     },
     bank: str(account["НомерСчета"])
       ? {
@@ -163,6 +166,151 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
   };
 }
 
+const INVOICE_NUMBER_MAX_ROWS = 500;
+
+/** Номер документа совпадает с запрошенным: точно или (для чисто цифрового запроса) по числу в конце номера. */
+export function sameDocNumber(docNumber: string, wanted: string): boolean {
+  const a = docNumber.trim().toUpperCase();
+  const b = wanted.trim().toUpperCase();
+  if (a === b) return true;
+  if (!/^\d+$/.test(b)) return false;
+  const tail = /(\d+)$/.exec(a)?.[1];
+  return tail !== undefined && Number(tail) === Number(b);
+}
+
+export interface InvoiceMatch {
+  ref: string;
+  number: string;
+  date: string;
+  total: number;
+  posted: boolean;
+  deletionMark: boolean;
+}
+
+/**
+ * Счёт на оплату по номеру: «3», «00000000003» или номер с префиксом. Дата (YYYY-MM-DD) или год сужают поиск —
+ * номера 1С повторяются каждый год. Помеченные на удаление не выбираются, если есть другие. Несколько
+ * подходящих — InputError со списком (номер, дата, сумма, Ref): угадывать нельзя.
+ */
+export async function findInvoiceByNumber(
+  conn: Connection,
+  number: string,
+  opts: { date?: string | undefined; year?: number | undefined } = {},
+): Promise<InvoiceMatch> {
+  const set = await requireEntity(conn, DOCUMENTS.customerInvoice, "Документ «Счёт на оплату покупателю»");
+  const wanted = number.trim();
+  if (!wanted) throw new InputError("Укажите номер счёта.");
+  const needle = /^\d+$/.test(wanted) ? String(Number(wanted)) : wanted;
+  const range = opts.date
+    ? [`${opts.date}T00:00:00`, `${opts.date}T23:59:59`]
+    : opts.year
+      ? [`${opts.year}-01-01T00:00:00`, `${opts.year}-12-31T23:59:59`]
+      : undefined;
+  const { rows, truncated } = await fetchAll(
+    conn.client,
+    set,
+    {
+      filter: and(
+        contains("Number", needle),
+        range ? cmp("Date", "ge", `datetime'${range[0]}'`) : undefined,
+        range ? cmp("Date", "le", `datetime'${range[1]}'`) : undefined,
+      ),
+      select: ["Ref_Key", "Number", "Date", "СуммаДокумента", "Posted", "DeletionMark"],
+      orderby: "Date desc",
+    },
+    100,
+    INVOICE_NUMBER_MAX_ROWS,
+  );
+  const all: InvoiceMatch[] = rows
+    .filter((r) => sameDocNumber(str(r["Number"]), wanted))
+    .map((r) => ({
+      ref: str(r["Ref_Key"]),
+      number: str(r["Number"]),
+      date: str(r["Date"]).slice(0, 10),
+      total: Number(r["СуммаДокумента"] ?? 0),
+      posted: r["Posted"] === true,
+      deletionMark: r["DeletionMark"] === true,
+    }));
+  const live = all.filter((m) => !m.deletionMark);
+  const pick = live.length ? live : all;
+  const where = opts.date ? ` от ${opts.date}` : opts.year ? ` за ${opts.year} год` : "";
+  if (pick.length === 0)
+    throw new InputError(
+      `Счёт на оплату № ${wanted}${where} не найден.` +
+        (truncated ? " Поиск ограничен — укажите date или year." : "") +
+        " Номер — как в 1С (например «3» или «00000000003»).",
+    );
+  if (pick.length > 1) {
+    const list = pick
+      .map(
+        (m) =>
+          `№ ${m.number} от ${m.date}, ${m.total} — ref ${m.ref}${m.deletionMark ? " (помечен на удаление)" : ""}`,
+      )
+      .join("; ");
+    throw new InputError(
+      `Под номер ${wanted}${where} подходит несколько счетов: ${list}. Уточните date/year или передайте ref.`,
+    );
+  }
+  return pick[0]!;
+}
+
+export interface PrintedInvoice {
+  name: string;
+  pdf: Buffer;
+  data: InvoicePrintData;
+  saved?: SavedFile | undefined;
+  saveError?: string | undefined;
+  notes: string[];
+}
+
+/**
+ * Каталог для PDF: путь за пределами каталога печати — InputError (до обращения к 1С), сбой файловой системы —
+ * не ошибка печати: PDF вернётся ресурсом, причина — в saveError.
+ */
+export async function printTarget(
+  conn: Connection,
+  outputDir: string | undefined,
+): Promise<{ dir?: string | undefined; saveError?: string | undefined }> {
+  const root = conn.behavior.printDir ?? DEFAULT_PRINT_DIR;
+  try {
+    return { dir: await resolvePrintDir(root, outputDir) };
+  } catch (e) {
+    if (e instanceof InputError) throw e;
+    return { saveError: `Каталог для PDF недоступен (${root}): ${(e as Error).message}` };
+  }
+}
+
+/** PDF счёта на оплату по данным документа + сохранение в каталог печати (без перезаписи). */
+export async function printInvoice(
+  conn: Connection,
+  docRef: string,
+  target: { dir?: string | undefined; saveError?: string | undefined },
+): Promise<PrintedInvoice> {
+  const data = await invoicePrintData(conn, docRef.replace(/[{}]/g, ""));
+  const pdf = await renderInvoicePdf(data);
+  const name = `Счет на оплату покупателю № ${data.number} от ${data.date.split("-").reverse().join(".")}.pdf`;
+  // Хост MCP передаёт агентам только structuredContent, поэтому PDF сохраняется на диск и путь
+  // отдаётся в нём; ресурс с base64 остаётся для клиентов, которые его показывают.
+  let saved: SavedFile | undefined;
+  let saveError = target.saveError;
+  if (target.dir) {
+    try {
+      saved = await saveUnique(target.dir, safeFileName(name), pdf);
+    } catch (e) {
+      saveError = `PDF не сохранён в ${target.dir}: ${(e as Error).message}`;
+    }
+  }
+  const notes = [
+    ...(data.bank ? [] : ["У счёта и организации нет банковского счёта — ИИК, банк и БИК в PDF пустые."]),
+    ...(saved?.renamed
+      ? [
+          `Файл «${safeFileName(name)}» уже был — новый сохранён как «${saved.fileName}», прежний не перезаписан.`,
+        ]
+      : []),
+  ];
+  return { name, pdf, data, saved, saveError, notes };
+}
+
 export function registerPrintTools(server: McpServer, ctx: ServerContext): void {
   server.registerTool(
     "read.document.print_invoice",
@@ -171,7 +319,8 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
       description:
         "PDF счёта на оплату покупателю (Казахстан) по макету печатной формы 1С «Счет на оплату»: условия, образец " +
         "платёжного поручения (бенефициар, ИИК, Кбе, банк, БИК), поставщик, покупатель, договор, позиции, итоги с НДС, " +
-        "сумма прописью, подпись. Сохраняет PDF на диск и возвращает абсолютный путь (path) — существующий файл " +
+        "сумма прописью, подпись. Счёт — по ref или по номеру (number; при повторе номера в разные годы — date или year). " +
+        "Сохраняет PDF на диск и возвращает абсолютный путь (path) — существующий файл " +
         "не перезаписывается, новый получает суффикс « (2)»; тот же PDF приходит и ресурсом MCP. Форма собирается по данным " +
         "документа: печать 1С через OData не вызвать, поэтому собственные настройки печати базы (свой текст условий, " +
         "факсимиле, логотип) в PDF не попадают.",
@@ -180,7 +329,15 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
         ref: z
           .string()
           .regex(/^\{?[0-9a-fA-F-]{36}\}?$/, "Ref_Key — GUID")
-          .describe("Ref_Key счёта на оплату"),
+          .optional()
+          .describe("Ref_Key счёта на оплату. Либо ref, либо number."),
+        number: z
+          .string()
+          .max(50)
+          .optional()
+          .describe("Номер счёта как в 1С: «3» или «00000000003». Вместо ref."),
+        date: dateField("Дата счёта — сужает поиск по номеру").optional(),
+        year: z.number().int().min(2000).max(2100).optional().describe("Год счёта — сужает поиск по номеру"),
         outputDir: z
           .string()
           .max(500)
@@ -197,6 +354,7 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
           name: z.string(),
           mimeType: z.string(),
           size: z.number(),
+          ref: z.string().optional(),
           path: z.string().optional(),
           fileName: z.string().optional(),
           directory: z.string().optional(),
@@ -204,62 +362,41 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
         })
         .passthrough(),
     },
-    ({ database, ref: docRef, outputDir }) =>
+    ({ database, ref: docRef, number, date, year, outputDir }) =>
       guard("read.document.print_invoice", async (): Promise<CallToolResult> => {
         const conn = ctx.db(database);
+        if (!docRef && !number) throw new InputError("Укажите ref счёта или его номер (number).");
+        if (docRef && number) throw new InputError("Укажите что-то одно: ref или number.");
         if (!(await isKazakhstan(conn)))
           throw new InputError("Печать счёта сейчас поддержана для казахстанской базы.");
-        // Каталог проверяется до обращения к 1С: путь за пределами каталога печати — ошибка ввода (PDF не строится).
-        // Сбой файловой системы (нет прав и т. п.) не мешает печати: PDF вернётся ресурсом, причина — в saveError.
-        const root = conn.behavior.printDir ?? DEFAULT_PRINT_DIR;
-        let dir: string | undefined;
-        let saveError: string | undefined;
-        try {
-          dir = await resolvePrintDir(root, outputDir);
-        } catch (e) {
-          if (e instanceof InputError) throw e;
-          saveError = `Каталог для PDF недоступен (${root}): ${(e as Error).message}`;
-        }
-        const data = await invoicePrintData(conn, docRef.replace(/[{}]/g, ""));
-        const pdf = await renderInvoicePdf(data);
-        const name = `Счет на оплату покупателю № ${data.number} от ${data.date.split("-").reverse().join(".")}.pdf`;
-        // Хост MCP передаёт агентам только structuredContent, поэтому PDF сохраняется на диск и путь
-        // отдаётся в нём; ресурс с base64 остаётся для клиентов, которые его показывают.
-        let saved: SavedFile | undefined;
-        if (dir) {
-          try {
-            saved = await saveUnique(dir, safeFileName(name), pdf);
-          } catch (e) {
-            saveError = `PDF не сохранён в ${dir}: ${(e as Error).message}`;
-          }
-        }
-        const notes = [
-          ...(data.bank
-            ? []
-            : ["У счёта и организации нет банковского счёта — ИИК, банк и БИК в PDF пустые."]),
-          ...(saved?.renamed
-            ? [
-                `Файл «${safeFileName(name)}» уже был — новый сохранён как «${saved.fileName}», прежний не перезаписан.`,
-              ]
-            : []),
-        ];
+        const target = await printTarget(conn, outputDir);
+        const ref = docRef ?? (await findInvoiceByNumber(conn, number!, { date, year })).ref;
+        const printed = await printInvoice(conn, ref, target);
         const result = ok({
           database: conn.cfg.name,
-          name,
+          ref: ref.replace(/[{}]/g, ""),
+          name: printed.name,
           mimeType: "application/pdf",
-          size: pdf.length,
-          number: data.number,
-          total: data.total,
-          ...(saved ? { path: saved.path, fileName: saved.fileName, directory: saved.directory } : {}),
-          ...(saveError ? { saveError } : {}),
-          ...(notes.length ? { note: notes.join(" ") } : {}),
+          size: printed.pdf.length,
+          number: printed.data.number,
+          date: printed.data.date,
+          total: printed.data.total,
+          ...(printed.saved
+            ? {
+                path: printed.saved.path,
+                fileName: printed.saved.fileName,
+                directory: printed.saved.directory,
+              }
+            : {}),
+          ...(printed.saveError ? { saveError: printed.saveError } : {}),
+          ...(printed.notes.length ? { note: printed.notes.join(" ") } : {}),
         });
         result.content.push({
           type: "resource",
           resource: {
-            uri: `onec-print:///${encodeURIComponent(name)}`,
+            uri: `onec-print:///${encodeURIComponent(printed.name)}`,
             mimeType: "application/pdf",
-            blob: pdf.toString("base64"),
+            blob: printed.pdf.toString("base64"),
           },
         });
         return result;

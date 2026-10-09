@@ -450,7 +450,7 @@ export async function partyContacts(
 }
 
 /** Текущая должность физлица в организации: сотрудник организации → ТекущаяДолжностьОрганизации. */
-async function currentPosition(
+export async function currentPosition(
   conn: Connection,
   memo: ReadMemo,
   orgRef: string,

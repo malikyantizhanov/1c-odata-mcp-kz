@@ -24,6 +24,7 @@ import { registerPrintTools } from "../tools/print.js";
 import { registerSalePrintTools } from "../tools/print-sale.js";
 import { registerTaxInvoicePrintTools } from "../tools/print-tax-invoice.js";
 import { registerReconciliationPrintTools } from "../tools/print-reconciliation.js";
+import { registerPowerOfAttorneyPrintTools } from "../tools/print-power-of-attorney.js";
 import { registerQuickReconciliationTool } from "../tools/quick-reconciliation.js";
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
@@ -192,6 +193,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerSalePrintTools(server, ctx);
   registerTaxInvoicePrintTools(server, ctx);
   registerReconciliationPrintTools(server, ctx);
+  registerPowerOfAttorneyPrintTools(server, ctx);
   registerQuickReconciliationTool(server, ctx);
   registerWriteTools(server, ctx);
   registerDocumentWriteTools(server, ctx);

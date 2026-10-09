@@ -78,13 +78,31 @@ export function numberToWords(value: number, feminine = false): string {
   return parts.join(" ");
 }
 
-/** «Двадцать тысяч тенге 00 тиын»; для другой валюты — её наименование и «00». */
-export function amountInWords(amount: number, currency = "KZT"): string {
+/**
+ * Сумма прописью. spelling — «Параметры прописи» валюты из 1С («теңге, теңге, теңге, м, тиын, тиын, тиын, м, 2»):
+ * формы единиц для 1, 2–4, 5+, род, формы дробной части и род — как ЧислоПрописью 1С; печатные формы берут их из
+ * валюты документа, поэтому в одной базе «тенге», в другой «теңге». Без параметров: KZT — «тенге … тиын».
+ */
+export function amountInWords(amount: number, currency = "KZT", spelling?: string): string {
   const cents = Math.round(Math.abs(amount) * 100);
   const whole = Math.floor(cents / 100);
-  const minor = String(cents % 100).padStart(2, "0");
-  const words = numberToWords(whole);
-  const text = words.charAt(0).toUpperCase() + words.slice(1);
+  const minorNumber = cents % 100;
+  const minor = String(minorNumber).padStart(2, "0");
+  const parts = (spelling ?? "").split(",").map((s) => s.trim());
+  if (parts.length >= 8 && parts[0]) {
+    const [u1, u2, u5, gender, m1, m2, m5] = parts as [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+    ];
+    const words = numberToWords(whole, gender.toLowerCase() === "ж");
+    return `${capitalize(words)} ${plural(whole, [u1, u2, u5])} ${minor} ${plural(minorNumber, [m1, m2, m5])}`;
+  }
+  const text = capitalize(numberToWords(whole));
   return currency === "KZT" ? `${text} тенге ${minor} тиын` : `${text} ${currency} ${minor}`;
 }
 

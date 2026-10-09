@@ -91,7 +91,10 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
       "ИдентификационныйКодЛичности",
     ]),
     entity(conn, "Catalog_ДоговорыКонтрагентов", ref(doc["ДоговорКонтрагента_Key"]), ["Description"]),
-    entity(conn, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), ["Description"]),
+    entity(conn, "Catalog_Валюты", ref(doc["ВалютаДокумента_Key"]), [
+      "Description",
+      "ПараметрыПрописиНаРусском",
+    ]),
     nomRefs.length
       ? fetchAll(
           conn.client,
@@ -167,6 +170,7 @@ export async function invoicePrintData(conn: Connection, docRef: string): Promis
     vatSum: [...goods, ...services].reduce((s, r) => s + Number(r["СуммаНДС"] ?? 0), 0),
     total: Number(doc["СуммаДокумента"] ?? 0),
     currency: str(currency["Description"]) || "KZT",
+    currencySpelling: str(currency["ПараметрыПрописиНаРусском"]) || undefined,
   };
 }
 

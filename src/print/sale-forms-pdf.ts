@@ -248,34 +248,6 @@ class Sheet {
 const num = (n: number): string => money(n);
 const qty = (n: number): string => (Number.isInteger(n) ? quantity(n).replace(/,000$/, "") : quantity(n));
 
-/** Таблица с шапкой: заголовок (с объединёнными ячейками) повторяется на новой странице. */
-function drawHeader(
-  s: Sheet,
-  head: Array<{ c1: number; c2: number; r1: number; r2: number; text: string }>,
-  rows: number[],
-  size = 7.5,
-): void {
-  // Узкие колонки (№ п/п, единица) — мельче, чтобы слова не рвались посередине.
-  const fontSize = (c: { c1: number; c2: number }) => (c.c2 - c.c1 <= 3 ? size - 1 : size);
-  const pad = (c: { c1: number; c2: number }) => (c.c2 - c.c1 <= 3 ? 0.5 : 1.5);
-  // Высоты строк шапки — по самому длинному тексту (сначала однострочные ячейки, потом объединённые).
-  const heights = [...rows];
-  for (const c of [...head].sort((a, b) => a.r2 - a.r1 - (b.r2 - b.r1))) {
-    const need = s.height(c.text, s.x(c.c2) - s.x(c.c1) - 2 * pad(c), "r", fontSize(c)) + 2 * pad(c) + 2;
-    const have = heights.slice(c.r1, c.r2).reduce((a, h) => a + h, 0);
-    if (need > have) heights[c.r2 - 1]! += need - have;
-  }
-  const ys = [s.y];
-  heights.forEach((h) => ys.push(ys[ys.length - 1]! + h));
-  for (const c of head) {
-    const y = ys[c.r1]!;
-    const h = ys[c.r2]! - y;
-    s.box(c.c1, c.c2, y, h);
-    s.text(c.text, c.c1, c.c2, y, h, { align: "center", size: fontSize(c), pad: pad(c) });
-  }
-  s.y = ys[ys.length - 1]!;
-}
-
 /**
  * Р-1 в абсолютных координатах печатной формы 1С (образец — акт, напечатанный из 1С:Бухгалтерии для Казахстана в
  * PDF, A4 альбомная): поля ≈ 12 pt, шрифты 7,5 pt (подписи), 9 pt полужирный (стороны, договор), 10,5 pt полужирный
@@ -657,184 +629,302 @@ function fitOneLine(
   return { size: sz, h: pdf.fontSize(sz).heightOfString(str || " ", { width }) };
 }
 
+/** «1,000.00» — суммы и цена в З-2 так, как их печатает 1С (группы через «,», дробная часть через «.»). */
+export const z2Money = (n: number): string => {
+  const [int, frac] = Math.abs(n).toFixed(2).split(".");
+  return `${n < 0 ? "-" : ""}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
+};
+/** Количество в З-2: целое — «1», дробное — до трёх знаков через точку («2.5»). */
+export const z2Quantity = (n: number): string => {
+  const [int, frac] = String(Math.round(Math.abs(n) * 1000) / 1000).split(".");
+  return `${n < 0 ? "-" : ""}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ? `.${frac}` : ""}`;
+};
+
+/**
+ * З-2 в абсолютных координатах печатной формы 1С (образец — накладная, напечатанная из 1С:Бухгалтерии для Казахстана
+ * в 1С:Fresh, A4 альбомная): рамки 0,75 pt, текст 8 pt (ИИН/БИН и организация — 9 pt, заголовок — 10 pt полужирный),
+ * курсив — «Приложение 26…», пояснения под чертой и суммы прописью. Строки таблицы растут, если наименование длиннее
+ * одной строки; не поместились — новая страница с шапкой таблицы.
+ */
+const Z2 = {
+  left: 28.2,
+  right: 771.2,
+  /** Границы колонок шапки (отправитель, получатель, ответственный, транспорт, ТТН) и таблицы запасов. */
+  parties: [28.6, 199.3, 356.8, 503.8, 629.8, 771.6],
+  cols: [28.6, 65.3, 246.6, 309.6, 356.8, 435.6, 503.8, 590.3, 677.0, 771.6],
+  bottom: 560,
+  pitch: 9.2,
+} as const;
+
 export function renderWaybillZ2Pdf(d: WaybillZ2Data): Promise<Buffer> {
   const s = new Sheet(
     Z2_WIDTHS,
     `Накладная на отпуск запасов на сторону № ${d.number} от ${shortDate(d.date)}`,
   );
-  s.appendix(26, "Форма З-2");
+  const pdf = s.pdf;
+  const lineGap = (size: number) => {
+    pdf.font("r").fontSize(size);
+    return Math.max(0, size * 1.15 - pdf.currentLineHeight(true));
+  };
+  // Межстрочный интервал считаем до выбора шрифта: lineGap() сам переключает шрифт на обычный.
+  const height = (str: string, w: number, font: Font = "r", size = 8) => {
+    const gap = lineGap(size);
+    return pdf
+      .font(font)
+      .fontSize(size)
+      .heightOfString(str || " ", { width: w, lineGap: gap });
+  };
+  /** Текст в полосе [x1, x2] с верхом y. */
+  const put = (
+    str: string,
+    x1: number,
+    x2: number,
+    y: number,
+    o: { font?: Font; size?: number; align?: "left" | "center" | "right" } = {},
+  ) => {
+    const size = o.size ?? 8;
+    const gap = lineGap(size);
+    // Явные переносы — построчно: иначе pdfkit центрует строку вместе с символом перевода строки. Пробел перед
+    // переносом сохраняется: 1С переносит по пробелу и центрует первую строку вместе с ним.
+    let top = y;
+    for (const part of str.split("\n")) {
+      pdf
+        .font(o.font ?? "r")
+        .fontSize(size)
+        .text(part, x1, top, { width: x2 - x1, align: o.align ?? "left", lineGap: gap });
+      top += pdf.heightOfString(part || " ", { width: x2 - x1, lineGap: gap });
+    }
+  };
+  /** Текст по центру ячейки [x1, x2] × [y1, y2] (по вертикали — тоже по центру). */
+  const centered = (
+    str: string,
+    x1: number,
+    x2: number,
+    y1: number,
+    y2: number,
+    font: Font = "r",
+    size = 8,
+  ) => {
+    const h = height(str, x2 - x1 - 3, font, size);
+    put(str, x1 + 1.5, x2 - 1.5, (y1 + y2) / 2 - h / 2 + 0.4, { font, size, align: "center" });
+  };
+  const hline = (x1: number, x2: number, y: number) =>
+    pdf.moveTo(x1, y).lineTo(x2, y).lineWidth(0.75).stroke();
+  const vline = (x: number, y1: number, y2: number) =>
+    pdf.moveTo(x, y1).lineTo(x, y2).lineWidth(0.75).stroke();
+
+  // «Приложение 26 …» и «Форма З-2».
+  [
+    "Приложение 26",
+    "к приказу Министра финансов",
+    "Республики Казахстан",
+    "от 20 декабря 2012 года № 562",
+  ].forEach((l, i) => put(l, 613.8, 771.2, 29.2 + i * 10.8, { font: "i", align: "center" }));
+  put("Форма З-2", 613.8, 769.6, 84.4, { align: "right" });
 
   // Организация и ИИН/БИН.
-  const orgTop = s.y;
-  s.text("Организация (индивидуальный предприниматель)", 0, 13, orgTop, 12, {
-    pad: 0,
-    valign: "bottom",
-    size: 7,
+  put("Организация (индивидуальный предприниматель)", 30.1, 230, 118);
+  put(d.organization.name, 230.4, 574.2, 116.9, { font: "b", size: 9, align: "center" });
+  hline(230.4, 574.2, 128.2);
+  put("ИИН/БИН", 560, 656.5, 116.8, { size: 9, align: "right" });
+  hline(661.0, 771.2, 116.2);
+  hline(661.0, 771.2, 128.2);
+  vline(661.3, 115.8, 128.6);
+  vline(771.6, 115.8, 128.6);
+  put(d.organization.idNumber ?? "", 661.3, 771.6, 116.9, { font: "b", size: 9, align: "center" });
+
+  // Номер документа и дата составления.
+  for (const y of [151.0, 171.0, 181.8]) hline(645.2, 771.2, y);
+  for (const x of [645.6, 708.6, 771.6]) vline(x, 150.6, 182.2);
+  put("Номер \nдокумента", 645.6, 708.6, 151.6, { align: "center" });
+  put("Дата \nсоставления", 708.6, 771.6, 151.6, { align: "center" });
+  put(d.number, 645.6, 708.6, 171.6, { font: "b", align: "center" });
+  put(shortDate(d.date), 708.6, 771.6, 171.6, { font: "b", align: "center" });
+
+  put("НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ", Z2.left, Z2.right, 193.3, {
+    font: "b",
+    size: 10,
+    align: "center",
   });
-  s.field(d.organization.name, 13, 38);
-  s.text("ИИН/БИН", 39, 42, orgTop, 12, { align: "right", valign: "bottom", size: 7 });
-  s.box(42, 49, orgTop, 12);
-  s.text(d.organization.idNumber ?? "", 42, 49, orgTop, 12, { align: "center", size: 7.5 });
-  s.y = orgTop + 20;
 
-  // Номер и дата.
-  s.box(41, 45, s.y, 16);
-  s.box(45, 49, s.y, 16);
-  s.text("Номер документа", 41, 45, s.y, 16, { align: "center", size: 6.5 });
-  s.text("Дата составления", 45, 49, s.y, 16, { align: "center", size: 6.5 });
-  s.y += 16;
-  s.box(41, 45, s.y, 13, 1);
-  s.box(45, 49, s.y, 13, 1);
-  s.text(d.number, 41, 45, s.y, 13, { align: "center", font: "b", size: 8 });
-  s.text(actDate(d.date), 45, 49, s.y, 13, { align: "center", font: "b", size: 8 });
-  s.y += 20;
-  s.text("НАКЛАДНАЯ НА ОТПУСК ЗАПАСОВ НА СТОРОНУ", 0, 49, s.y, 14, { align: "center", font: "b", size: 10 });
-  s.y += 20;
-
-  // Шапка: отправитель, получатель, ответственный, транспорт, ТТН.
-  const hb = [0, 11, 22, 31, 40, 49];
-  const titles = [
+  // Отправитель, получатель, ответственный, транспортная организация, ТТН.
+  const p = Z2.parties;
+  const partyHead = [
     "Организация (индивидуальный предприниматель) - отправитель",
     "Организация (индивидуальный предприниматель) - получатель",
     "Ответственный за поставку (Ф.И.О.)",
     "Транспортная организация",
     "Товарно-транспортная накладная (номер, дата)",
   ];
-  const th = s.row(hb, titles, { minH: 20 });
-  titles.forEach((t, i) => {
-    s.box(hb[i]!, hb[i + 1]!, s.y, th);
-    s.text(t, hb[i]!, hb[i + 1]!, s.y, th, { align: "center", size: 6.5 });
-  });
-  s.y += th;
-  const vals = [d.organization.name, d.receiver, d.responsible ?? "", "", ""];
-  const vh = s.row(hb, vals, { minH: 13 });
-  vals.forEach((v, i) => {
-    s.box(hb[i]!, hb[i + 1]!, s.y, vh);
-    s.text(v, hb[i]!, hb[i + 1]!, s.y, vh, { align: "center" });
-  });
-  s.y += vh + 10;
+  const partyValues = [d.organization.name, d.receiver, d.responsible ?? "", "", ""];
+  const rowH = (values: string[], bounds: readonly number[], min: number) =>
+    Math.max(min, ...values.map((v, i) => height(v, bounds[i + 1]! - bounds[i]! - 3) + 1.6));
+  const headTop = 227.4;
+  const headBottom = headTop + rowH(partyHead, p, 20.1);
+  const valuesBottom = headBottom + rowH(partyValues, p, 20.0);
+  for (const y of [headTop, headBottom, valuesBottom]) hline(Z2.left, Z2.right, y);
+  for (const x of p) vline(x, headTop - 0.4, valuesBottom + 0.4);
+  partyHead.forEach((t, i) => centered(t, p[i]!, p[i + 1]!, headTop, headBottom));
+  partyValues.forEach((t, i) => centered(t, p[i]!, p[i + 1]!, headBottom, valuesBottom));
 
-  // Таблица запасов: границы — область «ЗаголовокТаблицы» макета ПФ_MXL_З2.
-  const b = [0, 2, 14, 19, 22, 27, 31, 37, 43, 49];
+  // Таблица запасов: шапка в два яруса («Количество» над «подлежит отпуску» / «отпущено»), строка номеров колонок.
+  const c = Z2.cols;
   const cur = d.currency;
-  const header = () =>
-    drawHeader(
-      s,
-      [
-        { c1: 0, c2: 2, r1: 0, r2: 2, text: "Номер по порядку" },
-        { c1: 2, c2: 14, r1: 0, r2: 2, text: "Наименование, характеристика" },
-        { c1: 14, c2: 19, r1: 0, r2: 2, text: "Номенклатурный номер" },
-        { c1: 19, c2: 22, r1: 0, r2: 2, text: "Единица измерения" },
-        { c1: 22, c2: 31, r1: 0, r2: 1, text: "Количество" },
-        { c1: 22, c2: 27, r1: 1, r2: 2, text: "подлежит отпуску" },
-        { c1: 27, c2: 31, r1: 1, r2: 2, text: "отпущено" },
-        { c1: 31, c2: 37, r1: 0, r2: 2, text: `Цена за единицу, в ${cur}` },
-        { c1: 37, c2: 43, r1: 0, r2: 2, text: `Сумма с НДС, в ${cur}` },
-        { c1: 43, c2: 49, r1: 0, r2: 2, text: `Сумма НДС, в ${cur}` },
-        ...b.slice(0, -1).map((c, i) => ({ c1: c, c2: b[i + 1]!, r1: 2, r2: 3, text: String(i + 1) })),
-      ],
-      [12, 12, 10],
-    );
+  let y = valuesBottom + 10.8;
+  const header = () => {
+    const top = y;
+    const mid = top + 14.8;
+    const bottom = top + 29.3;
+    const numbers = bottom + 10.8;
+    hline(Z2.left, Z2.right, top);
+    hline(c[4]! - 0.4, c[6]! - 0.4, mid);
+    hline(Z2.left, Z2.right, bottom);
+    hline(Z2.left, Z2.right, numbers);
+    const spans: Array<[string, number, number, number, number]> = [
+      ["Номер \nпо \nпорядку", 0, 1, top, bottom],
+      ["Наименование, характеристика", 1, 2, top, bottom],
+      ["Номенкла-\nтурный номер", 2, 3, top, bottom],
+      ["Единица \nизмерения", 3, 4, top, bottom],
+      ["Количество", 4, 6, top, mid],
+      ["подлежит отпуску", 4, 5, mid, bottom],
+      ["отпущено", 5, 6, mid, bottom],
+      [`Цена за единицу, в ${cur}`, 6, 7, top, bottom],
+      [`Сумма с НДС, в ${cur}`, 7, 8, top, bottom],
+      [`Сумма НДС, в ${cur}`, 8, 9, top, bottom],
+    ];
+    for (const [t, a, b, y1, y2] of spans) centered(t, c[a]!, c[b]!, y1, y2);
+    for (let i = 0; i < 9; i++) centered(String(i + 1), c[i]!, c[i + 1]!, bottom, numbers);
+    for (const x of c) if (x !== c[5]) vline(x, top - 0.4, numbers);
+    vline(c[5]!, mid - 0.4, numbers);
+    y = numbers;
+  };
   header();
+
+  /** Значения строки: № и единица — по центру, наименование — слева, номенклатурный номер — по центру, числа — справа. */
+  const cells = (values: string[], top: number) =>
+    values.forEach((v, i) => {
+      if (!v) return;
+      const align = i === 1 ? "left" : i === 0 || i === 2 || i === 3 ? "center" : "right";
+      const pad = i === 1 ? 1.5 : 2.1;
+      put(v, c[i]! + (align === "left" ? pad : 1.5), c[i + 1]! - (align === "right" ? pad : 1.5), top + 0.6, {
+        align,
+      });
+    });
   d.lines.forEach((l, i) => {
     const values = [
       String(i + 1),
       l.name,
       l.code ?? "",
       l.unit ?? "",
-      qty(l.quantity),
-      qty(l.quantity),
-      num(l.price),
-      num(l.sumWithVat),
-      num(l.vat),
+      z2Quantity(l.quantity),
+      z2Quantity(l.quantity),
+      z2Money(l.price),
+      z2Money(l.sumWithVat),
+      l.vat ? z2Money(l.vat) : "",
     ];
-    const h = s.row(b, values);
-    s.ensure(h, header);
-    values.forEach((v, j) => {
-      s.box(b[j]!, b[j + 1]!, s.y, h);
-      s.text(v, b[j]!, b[j + 1]!, s.y, h, {
-        align: j === 0 || j === 3 ? "center" : j >= 4 ? "right" : "left",
-        size: 6.5,
-      });
-    });
-    s.y += h;
+    const h = Math.max(10.8, height(l.name, c[2]! - c[1]! - 3) + 1.6);
+    if (y + h + 10.8 > Z2.bottom) {
+      pdf.addPage({ size: "A4", layout: "landscape", margin: 0 });
+      y = 28.35;
+      header();
+    }
+    cells(values, y);
+    for (const x of c) vline(x, y - 0.4, y + h + 0.4);
+    y += h;
+    hline(Z2.left, Z2.right, y);
   });
-  s.ensure(12);
-  s.text("Итого", 14, 22, s.y, 12, { align: "right", font: "b" });
-  const tot = [
-    qty(d.totals.quantity),
-    qty(d.totals.quantity),
-    "х",
-    num(d.totals.sumWithVat),
-    num(d.totals.vat),
-  ];
-  tot.forEach((v, j) => {
-    s.box(b[4 + j]!, b[5 + j]!, s.y, 12);
-    s.text(v, b[4 + j]!, b[5 + j]!, s.y, 12, { align: j === 2 ? "center" : "right", font: "b" });
-  });
-  s.y += 12 + 8;
 
-  // Итог прописью.
-  s.ensure(40);
-  const wordsTop = s.y;
-  s.text("Всего отпущено количество запасов (прописью)", 0, 13, wordsTop, 12, { pad: 0, valign: "bottom" });
-  s.field(d.quantityWords, 13, 22);
-  s.y = wordsTop;
-  s.text(` на сумму (прописью), в ${cur}`, 22, 30, wordsTop, 12, { pad: 0, valign: "bottom" });
-  s.field(d.amountWords, 30, 49, undefined, { font: "b" });
-  s.y = wordsTop + 26;
+  // Итого: подпись слева от колонки 5, ячейки — с колонки 5.
+  const totalTop = y;
+  put("Итого", c[3]!, c[4]! - 2.2, totalTop + 0.6, { align: "right" });
+  cells(
+    [
+      "",
+      "",
+      "",
+      "",
+      z2Quantity(d.totals.quantity),
+      z2Quantity(d.totals.quantity),
+      "",
+      z2Money(d.totals.sumWithVat),
+      d.totals.vat ? z2Money(d.totals.vat) : "",
+    ],
+    totalTop,
+  );
+  put("х", c[6]!, c[7]!, totalTop + 0.6, { align: "center" });
+  y = totalTop + 10.8;
+  hline(c[4]! - 0.4, Z2.right, y);
+  for (const x of c.slice(4)) vline(x, totalTop - 0.4, y + 0.4);
 
-  // Подписи (область «Подвал»).
-  s.ensure(110);
-  const row = (label: string, c: number, value: string, withPosition: boolean, position?: string) => {
-    const y = s.y;
-    s.text(label, c, c + 5, y, 12, { pad: 0, valign: "bottom" });
-    if (withPosition) {
-      s.text(position ?? "", c + 5, c + 10, y, 12, { align: "center", valign: "bottom" });
-      s.hline(c + 5, c + 10, y + 12);
-      s.text("должность", c + 5, c + 10, y + 12, 8, { size: 5.5, align: "center", pad: 0 });
-      s.text("/", c + 10, c + 11, y, 12, { align: "center", valign: "bottom", pad: 0 });
-      s.hline(c + 11, c + 16, y + 12);
-      s.text("подпись", c + 11, c + 16, y + 12, 8, { size: 5.5, align: "center", pad: 0 });
-      s.text("/", c + 16, c + 17, y, 12, { align: "center", valign: "bottom", pad: 0 });
-      s.text(value, c + 17, c + 25, y, 12, { align: "center", valign: "bottom" });
-      s.hline(c + 17, c + 25, y + 12);
-      s.text("расшифровка подписи", c + 17, c + 25, y + 12, 8, { size: 5.5, align: "center", pad: 0 });
+  // Прописью.
+  if (y + 145 > Z2.bottom + 25) {
+    pdf.addPage({ size: "A4", layout: "landscape", margin: 0 });
+    y = 28.35;
+  }
+  const words = y + 11.4;
+  put("Всего отпущено количество запасов (прописью)", 30.1, 230, words);
+  put(d.quantityWords, 232.3, 356.4, words, { font: "i" });
+  hline(230.4, 356.4, words + 10.2);
+  put(`на сумму (прописью), в ${cur}`, 368.6, 487, words);
+  put(d.amountWords, 489.6, 771.2, words, { font: "i" });
+  hline(487.7, 771.2, words + 10.2);
+
+  // Подписи: слева — отпуск разрешил, главный бухгалтер, М.П., отпустил; справа — доверенность и «Запасы получил».
+  const a = words + 10.2;
+  const caption = (t: string, x1: number, x2: number, yy: number) =>
+    put(t, x1, x2, yy, { font: "i", align: "center" });
+  /** Расшифровка над чертой: переносится вверх, последняя строка — на уровне подписи строки. */
+  const above = (t: string, x1: number, x2: number, baseY: number) => {
+    if (!t) return;
+    const h = height(t, x2 - x1);
+    put(t, x1, x2, baseY + Z2.pitch - h, { align: "center" });
+  };
+  const signLine = (label: string, top: number, value: string, position?: string) => {
+    put(label, 30.1, 112, top);
+    const lineY = top + 10.2;
+    if (position !== undefined) {
+      above(position, 112.2, 190.9, top);
+      hline(112.2, 190.9, lineY);
+      caption("должность", 112.2, 190.9, lineY + 0.6);
+      put("/", 193.8, 199, top);
+      hline(199.0, 277.7, lineY);
+      caption("подпись", 199.0, 277.7, lineY + 0.6);
+      put("/", 280.4, 285.5, top);
+      above(value, 285.5, 388.0, top);
+      hline(285.5, 388.0, lineY);
+      caption("расшифровка подписи", 285.5, 388.0, lineY + 0.6);
     } else {
-      s.hline(c + 5, c + 10, y + 12);
-      s.text("подпись", c + 5, c + 10, y + 12, 8, { size: 5.5, align: "center", pad: 0 });
-      s.text("/", c + 10, c + 11, y, 12, { align: "center", valign: "bottom", pad: 0 });
-      s.text(value, c + 11, c + 22, y, 12, { align: "center", valign: "bottom" });
-      s.hline(c + 11, c + 22, y + 12);
-      s.text("расшифровка подписи", c + 11, c + 22, y + 12, 8, { size: 5.5, align: "center", pad: 0 });
+      hline(112.2, 190.9, lineY);
+      caption("подпись", 112.2, 190.9, lineY + 0.6);
+      put("/", 193.8, 199, top);
+      above(value, 199.0, 356.4, top);
+      hline(199.0, 356.4, lineY);
+      caption("расшифровка подписи", 199.0, 356.4, lineY + 0.6);
     }
   };
-  const footTop = s.y;
-  row("Отпуск разрешил", 0, d.permittedBy?.name ?? "", true, d.permittedBy?.position);
-  // Доверенность — справа.
-  s.text("По доверенности", 26, 31, footTop, 12, { pad: 0, valign: "bottom" });
-  s.text(d.powerOfAttorney ?? "№ ______ от «___» __________ 20__ года", 31, 49, footTop, 12, {
-    valign: "bottom",
-  });
-  s.y = footTop + 26;
-  s.text("выданной", 26, 29, s.y, 12, { pad: 0, valign: "bottom" });
-  s.text(d.powerOfAttorneyPerson ?? "", 29, 49, s.y, 12, { valign: "bottom" });
-  s.hline(29, 49, s.y + 12);
-  const accTop = s.y + 16;
-  s.y = accTop;
-  row("Главный бухгалтер", 0, d.chiefAccountant ?? "", false);
-  s.text(d.powerOfAttorneyIssuedBy ?? "", 26, 49, accTop, 12, { valign: "bottom" });
-  s.hline(26, 49, accTop + 12);
-  s.y = accTop + 24;
-  s.text("Место печати", 0, 5, s.y, 10, { pad: 0 });
-  s.y += 16;
-  const lastTop = s.y;
-  row("Отпустил", 0, d.releasedBy ?? "", false);
-  s.text("Запасы получил", 26, 31, lastTop, 12, { pad: 0, valign: "bottom" });
-  s.hline(31, 37, lastTop + 12);
-  s.text("подпись", 31, 37, lastTop + 12, 8, { size: 5.5, align: "center", pad: 0 });
-  s.text("/", 37, 38, lastTop, 12, { align: "center", valign: "bottom", pad: 0 });
-  s.hline(38, 49, lastTop + 12);
-  s.text("расшифровка подписи", 38, 49, lastTop + 12, 8, { size: 5.5, align: "center", pad: 0 });
+  signLine("Отпуск разрешил", a + 20.6, d.permittedBy?.name ?? "", d.permittedBy?.position ?? "");
+  signLine("Главный бухгалтер", a + 61.1, d.chiefAccountant ?? "");
+  put("М.П.", 30.2, 112, a + 82.7, { font: "b" });
+  signLine("Отпустил", a + 101.5, d.releasedBy ?? "");
+
+  put("По доверенности", 421.3, 505, a + 20.6);
+  put(
+    d.powerOfAttorney ?? '№_____________ от "____"_____________________ 20___ года',
+    505.3,
+    771.2,
+    a + 20.6,
+  );
+  put("выданной", 421.3, 471, a + 42.2);
+  if (d.powerOfAttorneyPerson) put(d.powerOfAttorneyPerson, 473.5, 755.4, a + 42.2);
+  hline(472.0, 755.4, a + 52.4);
+  if (d.powerOfAttorneyIssuedBy) put(d.powerOfAttorneyIssuedBy, 420.9, 755.4, a + 61.1);
+  hline(419.4, 755.4, a + 71.3);
+  put("Запасы получил", 421.3, 503, a + 101.5);
+  hline(503.4, 589.9, a + 111.7);
+  caption("подпись", 503.4, 589.9, a + 112.3);
+  put("/", 592.8, 598, a + 101.5);
+  hline(598.0, 755.4, a + 111.7);
+  caption("расшифровка подписи", 598.0, 755.4, a + 112.3);
+  vline(404.1, a + 10.4, a + 122.9);
   return s.end();
 }

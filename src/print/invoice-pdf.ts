@@ -43,6 +43,8 @@ export interface InvoicePrintData {
   vatSum: number;
   total: number;
   currency: string;
+  /** «Параметры прописи» валюты из 1С — для суммы прописью («тенге» или «теңге», как настроено в базе). */
+  currencySpelling?: string | undefined;
   /** Исполнитель — как в подписи формы; без него 1С печатает «<Не указан>». */
   executor?: string | undefined;
 }
@@ -257,7 +259,7 @@ export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
     width: RULE.right - 35.8,
   });
   y += 13.2;
-  const words = `Всего к оплате: ${amountInWords(d.total, d.currency)}`;
+  const words = `Всего к оплате: ${amountInWords(d.total, d.currency, d.currencySpelling)}`;
   text(words, "b", F10, 35.9, y, { width: RULE.right - 35.9 });
   const rule2 =
     y + height(words, "b", F10, RULE.right - 35.9) - height("Всего", "b", F10, RULE.right - 35.9) + 19.47;

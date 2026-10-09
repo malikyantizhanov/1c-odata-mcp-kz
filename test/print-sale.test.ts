@@ -3,13 +3,15 @@ import PDFDocument from "pdfkit";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { quantityInWords } from "../src/print/amount-words.js";
+import { amountInWords, quantityInWords } from "../src/print/amount-words.js";
 import {
   actDate,
   partyPresentation,
   renderActR1Pdf,
   renderWaybillZ2Pdf,
   shortDate,
+  z2Money,
+  z2Quantity,
 } from "../src/print/sale-forms-pdf.js";
 import {
   contractPresentation,
@@ -396,8 +398,15 @@ describe("print_sale: данные форм", () => {
       quantityWords: "Шесть",
       receiver: 'ТОО "TRADESPACE"',
     });
-    expect(d.waybill!.amountWords).toMatch(/^Одна тысяча семьсот сорок/);
-    expect(d.notes.join(" ")).toMatch(/главный бухгалтер/);
+    // Сумма прописью — по «Параметрам прописи» валюты базы, как ЧислоПрописью 1С («теңге … тиын»).
+    expect(d.waybill!.amountWords).toBe("Одна тысяча семьсот сорок теңге 00 тиын");
+    // Как в З-2 из 1С: у ИП главный бухгалтер «Не предусмотрен», ответственный — ФИО ответственного документа,
+    // должность у «Отпуск разрешил» — только реальная (у ИП без физлица пустая).
+    expect(d.waybill!.chiefAccountant).toBe("Не предусмотрен");
+    expect(d.waybill!.permittedBy?.position).toBeUndefined();
+    expect(d.waybill!.responsible).toBe(d.waybill!.permittedBy?.name);
+    expect(d.notes.join(" ")).toMatch(/материально ответственное лицо/);
+    expect(d.notes.join(" ")).not.toMatch(/главный бухгалтер/);
   });
 
   it("рендеры дают PDF и для длинных таблиц (перенос на новую страницу)", async () => {
@@ -559,5 +568,21 @@ describe("print_sale: альбомный A4", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("З-2: форматы как в печатной форме 1С", () => {
+  it("суммы «1,000.00», количество «1» / «2.5», сумма прописью по параметрам валюты", () => {
+    expect(z2Money(1000)).toBe("1,000.00");
+    expect(z2Money(1234567.5)).toBe("1,234,567.50");
+    expect(z2Quantity(1)).toBe("1");
+    expect(z2Quantity(2.5)).toBe("2.5");
+    expect(z2Quantity(1500)).toBe("1,500");
+    const kzt = "теңге, теңге, теңге, м, тиын, тиын, тиын, м, 2";
+    expect(amountInWords(1000, "KZT", kzt)).toBe("Одна тысяча теңге 00 тиын");
+    expect(amountInWords(21.01, "USD", "доллар, доллара, долларов, м, цент, цента, центов, м, 2")).toBe(
+      "Двадцать один доллар 01 цент",
+    );
+    expect(amountInWords(15000)).toBe("Пятнадцать тысяч тенге 00 тиын");
   });
 });

@@ -193,8 +193,10 @@ export async function salePrintData(
   const signerPosition = position ?? (individual ? "Индивидуальный предприниматель" : undefined);
   const signer: Signer | undefined =
     signerName || signerPosition ? { name: signerName, position: signerPosition } : undefined;
-  if (!signerName)
-    notes.push("У ответственного документа нет физлица — расшифровка подписи исполнителя пустая (как в 1С).");
+  if (!signerName && services.length)
+    notes.push(
+      "Р-1: у ответственного документа нет физлица — расшифровка подписи исполнителя пустая (как в 1С).",
+    );
 
   const number = str(doc["Number"]).replace(/^0+(?=\d)/, "");
   const date = str(doc["Date"]).slice(0, 10);
@@ -298,28 +300,35 @@ export async function salePrintData(
     const totalSum = round2(lines.reduce((a, l) => a + l.sumWithVat, 0));
     const poaNumber = str(doc["ДоверенностьНомер"]);
     const poaDate = shortDate(str(doc["ДоверенностьДата"]));
+    // З-2 из 1С (образец): «Ответственный за поставку» и расшифровка «Отпуск разрешил» — полное ФИО ответственного
+    // документа (физлицо, а без него — сам пользователь), должность — только реальная; у ИП главный бухгалтер
+    // «Не предусмотрен».
+    const responsibleName = str(person["Description"]) || str(user["Description"]) || undefined;
     waybill = {
       number,
       date,
       organization: executor,
       receiver: customer.name,
-      responsible: signer?.name,
+      responsible: responsibleName,
       currency: curLabel,
       lines,
       totals: { quantity: totalQty, sumWithVat: totalSum, vat: round2(lines.reduce((a, l) => a + l.vat, 0)) },
       quantityWords: quantityInWords(totalQty),
-      amountWords: amountInWords(totalSum, cur),
-      permittedBy: signer,
+      amountWords: amountInWords(totalSum, cur, str(currency["ПараметрыПрописиНаРусском"]) || undefined),
+      permittedBy: { name: responsibleName, position },
+      chiefAccountant: individual ? "Не предусмотрен" : undefined,
       powerOfAttorney: poaNumber ? `№ ${poaNumber}${poaDate ? ` от ${poaDate}` : ""}` : undefined,
       powerOfAttorneyPerson: str(doc["ДоверенностьЛицо"]) || undefined,
       powerOfAttorneyIssuedBy: str(doc["ДоверенностьВыдана"]) || undefined,
     };
     notes.push(
-      "З-2: главный бухгалтер и материально ответственное лицо склада в OData не опубликованы (регистр «Ответственные лица " +
-        "организаций») — эти расшифровки пустые, заполните от руки.",
+      individual
+        ? "З-2: материально ответственное лицо склада в OData не опубликовано — расшифровка «Отпустил» пустая, заполните от руки."
+        : "З-2: главный бухгалтер и материально ответственное лицо склада в OData не опубликованы (регистр «Ответственные " +
+            "лица организаций») — эти расшифровки пустые, заполните от руки.",
     );
   }
-  if (orgContacts.unpublished || buyerContacts.unpublished)
+  if (act && (orgContacts.unpublished || buyerContacts.unpublished))
     notes.push(
       "Контактная информация (юридический адрес, телефоны) в OData не опубликована — в строках «Заказчик» / " +
         "«Исполнитель» только полное наименование.",

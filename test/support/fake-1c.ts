@@ -1,5 +1,5 @@
 import { afterAll, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -15,7 +15,8 @@ import { createServer } from "../../src/mcp/server.js";
 
 export const tmpRoots: string[] = [];
 export const tmp = () => {
-  const d = mkdtempSync(join(tmpdir(), "1c-quick-test-"));
+  // realpath: на macOS tmpdir() — ссылка /var → /private/var, а сохранение возвращает реальный путь каталога.
+  const d = realpathSync(mkdtempSync(join(tmpdir(), "1c-quick-test-")));
   tmpRoots.push(d);
   return d;
 };

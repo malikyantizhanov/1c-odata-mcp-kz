@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -27,7 +28,8 @@ import { isInside, resolvePrintDir, safeFileName, saveUnique } from "../src/prin
 const EMPTY_REF = "00000000-0000-4000-8000-000000000001";
 const tmpRoots: string[] = [];
 const tmp = () => {
-  const d = mkdtempSync(join(tmpdir(), "1c-print-test-"));
+  // realpath: на macOS tmpdir() — ссылка /var → /private/var, а сохранение возвращает реальный путь каталога.
+  const d = realpathSync(mkdtempSync(join(tmpdir(), "1c-print-test-")));
   tmpRoots.push(d);
   return d;
 };

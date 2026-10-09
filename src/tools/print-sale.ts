@@ -380,7 +380,7 @@ const CI_KINDS = "Catalog_ВидыКонтактнойИнформации";
  * «КонтактнаяИнформация» справочника или регистр сведений «КонтактнаяИнформация», если они опубликованы. Объекты
  * проверяются по порядку (организация, затем физлицо ИП) — берётся первый, у которого что-то нашлось.
  */
-async function partyContacts(
+export async function partyContacts(
   conn: Connection,
   objects: Array<[string, string | undefined]>,
 ): Promise<{ found: { address?: string; phones?: string }; unpublished: boolean }> {

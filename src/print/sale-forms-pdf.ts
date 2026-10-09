@@ -629,15 +629,15 @@ function fitOneLine(
   return { size: sz, h: pdf.fontSize(sz).heightOfString(str || " ", { width }) };
 }
 
-/** «1,000.00» — суммы и цена в З-2 так, как их печатает 1С (группы через «,», дробная часть через «.»). */
-export const z2Money = (n: number): string => {
-  const [int, frac] = Math.abs(n).toFixed(2).split(".");
-  return `${n < 0 ? "-" : ""}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${frac}`;
-};
-/** Количество в З-2: целое — «1», дробное — до трёх знаков через точку («2.5»). */
+/**
+ * Суммы и цена в З-2 — «1 000,00», по-русски. В образце из 1С было «1,000.00»: так 1С:Fresh печатает при английских
+ * региональных настройках системы пользователя; формы должны быть на русском.
+ */
+export const z2Money = (n: number): string => money(n);
+/** Количество в З-2: целое — «1», дробное — до трёх знаков через запятую («2,5»). */
 export const z2Quantity = (n: number): string => {
   const [int, frac] = String(Math.round(Math.abs(n) * 1000) / 1000).split(".");
-  return `${n < 0 ? "-" : ""}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac ? `.${frac}` : ""}`;
+  return `${n < 0 ? "-" : ""}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${frac ? `,${frac}` : ""}`;
 };
 
 /**

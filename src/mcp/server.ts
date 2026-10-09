@@ -23,6 +23,7 @@ import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerPrintTools } from "../tools/print.js";
 import { registerSalePrintTools } from "../tools/print-sale.js";
 import { registerTaxInvoicePrintTools } from "../tools/print-tax-invoice.js";
+import { registerReconciliationPrintTools } from "../tools/print-reconciliation.js";
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
@@ -189,6 +190,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerPrintTools(server, ctx);
   registerSalePrintTools(server, ctx);
   registerTaxInvoicePrintTools(server, ctx);
+  registerReconciliationPrintTools(server, ctx);
   registerWriteTools(server, ctx);
   registerDocumentWriteTools(server, ctx);
   registerQuickInvoiceTool(server, ctx);

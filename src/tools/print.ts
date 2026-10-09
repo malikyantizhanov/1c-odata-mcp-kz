@@ -229,6 +229,10 @@ export async function findDocumentByNumber(
     : opts.year
       ? [`${opts.year}-01-01T00:00:00`, `${opts.year}-12-31T23:59:59`]
       : undefined;
+  // У части документов (акт сверки) нет «СуммаДокумента» — лишнее поле в $select 1С отклоняет (400).
+  const meta = await conn.getMetadata().catch(() => undefined);
+  const props = meta?.entities.get(set)?.properties;
+  const hasSum = !props || props.some((p) => p.name === "СуммаДокумента");
   const { rows, truncated } = await fetchAll(
     conn.client,
     set,
@@ -238,7 +242,7 @@ export async function findDocumentByNumber(
         range ? cmp("Date", "ge", `datetime'${range[0]}'`) : undefined,
         range ? cmp("Date", "le", `datetime'${range[1]}'`) : undefined,
       ),
-      select: ["Ref_Key", "Number", "Date", "СуммаДокумента", "Posted", "DeletionMark"],
+      select: ["Ref_Key", "Number", "Date", ...(hasSum ? ["СуммаДокумента"] : []), "Posted", "DeletionMark"],
       orderby: "Date desc",
     },
     100,

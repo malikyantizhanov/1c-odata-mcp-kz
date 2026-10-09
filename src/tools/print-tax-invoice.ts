@@ -13,6 +13,7 @@ import { isKazakhstan } from "./write-kz.js";
 import { findDocumentByNumber, printTarget } from "./print.js";
 import { currencyLabel, partyContacts, printedFileSchema, shortFio } from "./print-sale.js";
 import { dateWords } from "../print/invoice-pdf.js";
+import { documentTitle } from "../print/doc-titles.js";
 import { renderTaxInvoicePdf, type TaxInvoiceData, type TaxInvoiceLine } from "../print/tax-invoice-pdf.js";
 import { safeFileName, saveUnique, type SavedFile } from "../print/save.js";
 
@@ -25,20 +26,6 @@ const round2 = (x: number): number => Math.round(x * 100) / 100;
 export const TAX_INVOICE_SET = "Document_СчетФактураВыданный";
 /** Подкаталог каталога печати (ODATA_PRINT_DIR) для счетов-фактур, если outputDir не задан. */
 export const TAX_INVOICE_SUBDIR = "счета-фактуры";
-
-/** Представления документов-оснований, как их печатает 1С в строке «Товарно-транспортная накладная». */
-const BASIS_TITLES: Record<string, string> = {
-  Document_РеализацияТоваровУслуг: "Реализация ТМЗ и услуг",
-  Document_АктОбОказанииПроизводственныхУслуг: "Акт об оказании производственных услуг",
-  Document_РеализацияУслугПоПереработке: "Реализация услуг по переработке",
-};
-/** «ВозвратТоваровПоставщику» → «Возврат товаров поставщику» для оснований вне таблицы. */
-const titleOf = (set: string): string => {
-  const known = BASIS_TITLES[set];
-  if (known) return known;
-  const words = set.replace(/^Document_/, "").split(/(?=[А-ЯЁA-Z])/);
-  return words.map((w, i) => (i ? w.toLowerCase() : w)).join(" ");
-};
 
 async function entity(
   conn: Connection,
@@ -248,7 +235,7 @@ export async function taxInvoicePrintData(conn: Connection, docRef: string): Pro
     shipmentMethod: str(doc["СпособОтправления"]) || undefined,
     waybill:
       basisNumber && basisSet
-        ? `${titleOf(basisSet)} № ${basisNumber}${basisDate ? ` от ${dateWords(basisDate)}` : ""}`
+        ? `${documentTitle(basisSet)} № ${basisNumber}${basisDate ? ` от ${dateWords(basisDate)}` : ""}`
         : undefined,
     consignor: undefined,
     consignee: consigneeText,

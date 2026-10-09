@@ -17,6 +17,7 @@ const kzWriteReason = `В казахстанской базе доступна �
 const kzDocumentReason = (entitySet: unknown) =>
   `Документ ${String(entitySet)} в казахстанской базе этим инструментом не пишется. Доступны: ${KZ_DOCUMENTS.join(", ")}.`;
 const kzDocumentsUsage = [
+  "Акт сверки с контрагентом — write.counterparty.quick_reconciliation одним вызовом: сам считает сальдо, документы и обороты по регистру (как «Заполнить» в 1С), план → confirm=true → акт без проведения и PDF. Не собирайте акт вручную через create_document.",
   "Документы флоу пишутся write.document.create_document / update_document и проводятся write.document.post_document; схема проводок, нормы НК и особенности каждого — read.system.kz_document_guide. Суммы, ставки и вычеты задаёте сами — 1С при записи через OData их не пересчитывает и счета учёта по умолчанию не подставляет: передавайте sampleRef — проведённый документ того же вида, сделанный в 1С; из него берутся только счета, субконто и виды операций НДС.",
   "Порядок всегда: create_document без confirm (dry-run) → прочитать notes → confirm=true с operationId → post_document → проверить posted, проводки и warnings в ответе → при необходимости read.accounting.get_account_turnover по счетам.",
   "Поля: read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'. Образец — документ того же вида, рассчитанный самой 1С по тому же сотруднику (read.document.get_document); сверяйте с ним суммы и строки, а не только с похожими документами.",

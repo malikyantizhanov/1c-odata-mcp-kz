@@ -737,7 +737,9 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     block: "расчёты",
     title: "Акт сверки взаиморасчётов",
     postings:
-      "Проводок нет; данные — ОСВ по 1210/3310/3510/1610 (read.accounting.get_account_turnover byAnalytics=true).",
+      "Проводок нет. Создавайте одним вызовом write.counterparty.quick_reconciliation: он сам считает сальдо и строки по " +
+      "документам (как «Заполнить» в 1С — счета с субконто «Контрагенты» и «Договоры») и печатает PDF; готовый акт — " +
+      "read.document.print_reconciliation.",
     legal: [KZ_SOURCES.buh],
     noPostings: true,
   },

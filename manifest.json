@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 79 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 80 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -4575,6 +4575,95 @@
       },
       "annotations": {
         "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.counterparty.quick_reconciliation",
+      "title": "Акт сверки с контрагентом в один вызов (Казахстан)",
+      "description": "Акт сверки взаиморасчетов за один-два вызова: сам находит контрагента (БИН/ИИН, ref или наименование) и договор, считает сальдо на начало, движения по документам за период, обороты и сальдо на конец по регистру бухгалтерии — как кнопка «Заполнить» акта в 1С (счета расчётов — с субконто «Контрагенты» и «Договоры»; внутренние обороты не включаются; сторона контрагента — зеркально). confirm=false — план: строки, сальдо, «задолженность в пользу …», possibleDuplicates (акт с тем же контрагентом и концом периода) и operationId; ничего не пишет. confirm=true с тем же operationId и аргументами — создаёт акт без проведения и сразу сохраняет PDF (pdf.path), как read.document.print_reconciliation. Без contract — по всем договорам; без from — с начала учёта; без to — сегодня. Показывайте план пользователю и подтверждайте только с его согласия.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "Контрагент: Ref_Key, БИН/ИИН (12 цифр) или наименование."
+          },
+          "contract": {
+            "description": "Договор: Ref_Key, номер или наименование. Не задан — сверка по всем договорам контрагента.",
+            "type": "string",
+            "maxLength": 300
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (без него — с начала учёта, сальдо на начало 0) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (по умолчанию — сегодня, Алматы) (YYYY-MM-DD)"
+          },
+          "outputDir": {
+            "description": "Подкаталог каталога печати; по умолчанию «акты сверки».",
+            "type": "string",
+            "maxLength": 500
+          },
+          "confirm": {
+            "default": false,
+            "description": "false — план с цифрами, ничего не пишет. true — создать акт (без проведения) и сразу PDF: передайте operationId из плана и те же аргументы.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "operationId из плана (обязателен при confirm=true)",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "counterparty"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "dryRun": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "database"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
         "openWorldHint": true
       }
     },

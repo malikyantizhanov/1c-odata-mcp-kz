@@ -53,7 +53,7 @@ async function entity(
  * Документы строк акта — «Реализация ТМЗ и услуг 19 от 09.10.2026», как в колонке «Документ» формы 1С. Номер и дату
  * читаем пачкой по каждому виду документа; строка без ссылки (у контрагента — текст или пусто) печатается как есть.
  */
-async function documentNames(conn: Connection, rows: ODataEntity[]): Promise<Map<string, string>> {
+export async function documentNames(conn: Connection, rows: ODataEntity[]): Promise<Map<string, string>> {
   const available = await conn.available();
   const byType = new Map<string, Set<string>>();
   for (const r of rows) {
@@ -175,6 +175,41 @@ export async function reconciliationPrintData(
   return { ref: docRef, number, date, closing, form, notes };
 }
 
+export interface PrintedReconciliation {
+  data: ReconciliationPrintData;
+  pdf: Buffer;
+  name: string;
+  saved?: SavedFile | undefined;
+  saveError?: string | undefined;
+  notes: string[];
+}
+
+/** PDF акта сверки по документу из базы и сохранение без перезаписи (общая часть print_reconciliation и quick). */
+export async function printReconciliation(
+  conn: Connection,
+  docRef: string,
+  target: { dir?: string | undefined; saveError?: string | undefined },
+): Promise<PrintedReconciliation> {
+  const data = await reconciliationPrintData(conn, docRef);
+  const pdf = await renderReconciliationPdf(data.form);
+  const name = `Акт сверки № ${data.number} от ${data.date.split("-").reverse().join(".")}.pdf`;
+  const notes = [...data.notes];
+  let saved: SavedFile | undefined;
+  let saveError = target.saveError;
+  if (target.dir) {
+    try {
+      saved = await saveUnique(target.dir, safeFileName(name), pdf);
+    } catch (e) {
+      saveError = `PDF не сохранён в ${target.dir}: ${(e as Error).message}`;
+    }
+  }
+  if (saved?.renamed)
+    notes.push(
+      `Файл «${safeFileName(name)}» уже был — новый сохранён как «${saved.fileName}», прежний не перезаписан.`,
+    );
+  return { data, pdf, name, saved, saveError, notes };
+}
+
 const RECONCILIATION_NUMBER_WORDS = {
   what: "Акт сверки",
   several: "актов сверки",
@@ -255,23 +290,7 @@ export function registerReconciliationPrintTools(server: McpServer, ctx: ServerC
           docRef ??
           (await findDocumentByNumber(conn, set, number!, { date, year }, RECONCILIATION_NUMBER_WORDS)).ref
         ).replace(/[{}]/g, "");
-        const data = await reconciliationPrintData(conn, r);
-        const pdf = await renderReconciliationPdf(data.form);
-        const name = `Акт сверки № ${data.number} от ${data.date.split("-").reverse().join(".")}.pdf`;
-        const notes = [...data.notes];
-        let saved: SavedFile | undefined;
-        let saveError = target.saveError;
-        if (target.dir) {
-          try {
-            saved = await saveUnique(target.dir, safeFileName(name), pdf);
-          } catch (e) {
-            saveError = `PDF не сохранён в ${target.dir}: ${(e as Error).message}`;
-          }
-        }
-        if (saved?.renamed)
-          notes.push(
-            `Файл «${safeFileName(name)}» уже был — новый сохранён как «${saved.fileName}», прежний не перезаписан.`,
-          );
+        const { data, pdf, name, saved, saveError, notes } = await printReconciliation(conn, r, target);
         const file = {
           form: "Акт сверки",
           name,

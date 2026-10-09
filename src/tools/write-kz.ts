@@ -33,6 +33,7 @@ export const KZ_WRITE_TOOLS = [
   "write.sales.create_invoice",
   "write.sales.quick_invoice",
   "write.sales.quick_sale",
+  "write.counterparty.quick_reconciliation",
   "write.entity.mark_for_deletion",
   "write.entity.update_entity",
   "write.operation.status",

@@ -1,0 +1,15 @@
+# Список баз 1С для 1c-odata-mcp (ODATA_CONFIG=~/.1c-odata/databases.yaml). Права файла: chmod 600.
+default: buh
+databases:
+  - name: buh
+    label: "ТОО «Ромашка» — Бухгалтерия"
+    base_url: https://1cfresh.kz/a/ea20/000000/odata/standard.odata/
+    username: odata
+    password_env: ODATA_PW_BUH # пароль — в переменной окружения, в файле секретов нет
+    writable: false
+  - name: ip
+    label: ИП Иванов
+    base_url: https://1cfresh.kz/a/ea20/111111/odata/standard.odata/
+    username: odata
+    password: "пароль-прямо-в-файле"
+    writable: false

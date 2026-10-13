@@ -7,3 +7,6 @@ dist/
 .metadata-cache.json
 coverage/
 *.mcpb
+databases.json
+databases.yaml
+databases.yml

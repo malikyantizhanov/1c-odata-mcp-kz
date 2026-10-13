@@ -2,6 +2,7 @@ import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve, join } from "node:path";
 import { DEFAULT_PRINT_DIR } from "../print/save.js";
+import { configPath, loadConfigFile } from "./file.js";
 import { DEFAULT_CACHE_DIR, DEFAULT_METADATA_TTL_HOURS } from "../odata/metadata-cache.js";
 
 /**
@@ -15,6 +16,13 @@ import { DEFAULT_CACHE_DIR, DEFAULT_METADATA_TTL_HOURS } from "../odata/metadata
  *       ODATA_DB_BUH_LABEL   (необязательно — человекочитаемое название)
  *       ODATA_DB_TORG_BASE_URL / ...
  *       ODATA_DEFAULT_DB=buh (необязательно; иначе первая по алфавиту)
+ *  3) Файл баз (JSON/YAML): ODATA_CONFIG=~/.1c-odata/databases.json; без ODATA_CONFIG — первый существующий из
+ *     ~/.1c-odata/databases.{json,yaml,yml}. Формат и пароли (password / password_env) — в ./file.ts.
+ *
+ * Слияние: базы из файла + базы из переменных окружения. Одинаковое имя — переменные окружения переопределяют
+ * базу из файла целиком (предупреждение в stderr). Одиночная база ODATA_BASE_URL (имя default или ODATA_DB_NAME)
+ * учитывается, только если нет ODATA_DB_<ИМЯ>_BASE_URL — как раньше. База по умолчанию: ODATA_DEFAULT_DB, затем
+ * "default" из файла, затем первая по алфавиту.
  */
 
 export interface ConnectionConfig {
@@ -58,6 +66,10 @@ export interface RuntimeConfig {
   defaultName: string;
   behavior: Behavior;
   logLevel: LogLevel;
+  /** Файл баз, если он прочитан. */
+  configFile?: string | undefined;
+  /** Предупреждения конфигурации (без секретов) — сервер пишет их в stderr при старте. */
+  warnings?: string[] | undefined;
 }
 
 const normalizeUrl = (u: string): string => (u.endsWith("/") ? u : `${u}/`);
@@ -126,27 +138,56 @@ function collectRawConnections(env: Env): Array<Record<string, unknown>> {
   return out;
 }
 
+/** Сводка конфигурации для лога старта — только имена, адреса и флаги, без логинов и паролей. */
+export function startupSummary(cfg: RuntimeConfig): Record<string, unknown> {
+  return {
+    databases: cfg.connections.map((c) => c.name),
+    default: cfg.defaultName,
+    readOnly: cfg.behavior.readOnly,
+    writable: cfg.connections.filter((c) => c.writable).map((c) => c.name),
+    configFile: cfg.configFile,
+  };
+}
+
 let cached: RuntimeConfig | undefined;
 
 export function loadConfig(): RuntimeConfig {
   if (cached) return cached;
-  cached = parseConfig(process.env as Env);
+  cached = parseConfig(process.env as Env, { home: homedir() });
   return cached;
 }
 
-/** Чистый разбор конфигурации из объекта env (без кеша) — удобно для тестов. */
-export function parseConfig(env: Env): RuntimeConfig {
+/**
+ * Разбор конфигурации из объекта env (без кеша) — удобно для тестов. home — домашний каталог для пути файла баз
+ * по умолчанию (~/.1c-odata/databases.*); не задан — файл читается только по ODATA_CONFIG.
+ */
+export function parseConfig(env: Env, opts: { home?: string | undefined } = {}): RuntimeConfig {
   const issues: string[] = [];
+  const warnings: string[] = [];
 
   const behaviorParsed = BehaviorSchema.safeParse(env);
   if (!behaviorParsed.success) {
     for (const i of behaviorParsed.error.issues) issues.push(`${i.path.join(".")}: ${i.message}`);
   }
 
-  const raw = collectRawConnections(env);
-  if (raw.length === 0) {
+  const fromEnv = collectRawConnections(env);
+  const path = configPath(env, opts.home);
+  const file = path ? loadConfigFile(path, env, issues, !!env.ODATA_CONFIG?.trim()) : undefined;
+  if (file) warnings.push(...file.warnings);
+  const envNames = new Set(fromEnv.map((r) => String(r.name)));
+  const raw: Array<Record<string, unknown>> = [];
+  for (const b of file?.bases ?? []) {
+    if (envNames.has(b.name)) {
+      warnings.push(`база "${b.name}" из файла ${file!.path} переопределена переменными окружения`);
+      continue;
+    }
+    raw.push({ ...b });
+  }
+  raw.push(...fromEnv);
+  if (raw.length === 0 && !issues.length) {
     issues.push(
-      "не задана ни одна база: укажите ODATA_BASE_URL (одна база) или ODATA_DB_<ИМЯ>_BASE_URL (несколько)",
+      "не задана ни одна база: укажите ODATA_CONFIG (файл со списком баз), ODATA_BASE_URL (одна база) или " +
+        "ODATA_DB_<ИМЯ>_BASE_URL (несколько)",
     );
   }
 
@@ -168,17 +209,21 @@ export function parseConfig(env: Env): RuntimeConfig {
   }
 
   if (issues.length > 0) {
-    throw new Error(`Некорректная конфигурация (.env):\n${issues.map((s) => `  • ${s}`).join("\n")}`);
+    throw new Error(`Некорректная конфигурация баз 1С:\n${issues.map((s) => `  • ${s}`).join("\n")}`);
   }
 
   const b = behaviorParsed.success ? behaviorParsed.data : BehaviorSchema.parse({});
-  const wantDefault = env.ODATA_DEFAULT_DB?.toLowerCase();
+  const wantDefault = env.ODATA_DEFAULT_DB?.toLowerCase() ?? file?.defaultName;
+  if (wantDefault && !seen.has(wantDefault))
+    warnings.push(`база по умолчанию "${wantDefault}" не найдена среди баз — выбрана первая по алфавиту`);
   const sortedNames = connections.map((c) => c.name).sort();
   const defaultName = wantDefault && seen.has(wantDefault) ? wantDefault : (sortedNames[0] as string);
 
   return {
     connections,
     defaultName,
+    configFile: file?.path,
+    warnings,
     logLevel: b.LOG_LEVEL,
     behavior: {
       timeoutMs: b.ODATA_TIMEOUT_MS,

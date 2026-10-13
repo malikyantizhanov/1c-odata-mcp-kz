@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "./config/env.js";
+import { loadConfig, startupSummary } from "./config/env.js";
 import { ServerContext } from "./context.js";
 import { createServer } from "./mcp/server.js";
 import { logger } from "./logger.js";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
+  // Предупреждения конфигурации (права файла баз, переопределения) — в stderr: stdout занят JSON-RPC.
+  for (const w of cfg.warnings ?? []) process.stderr.write(`1c-odata-mcp: предупреждение: ${w}\n`);
   const ctx = new ServerContext(cfg);
   const server = createServer(ctx);
 
@@ -14,14 +16,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   // Логи только в stderr — stdout занят JSON-RPC.
-  logger.info(
-    {
-      databases: cfg.connections.map((c) => c.name),
-      default: cfg.defaultName,
-      readOnly: cfg.behavior.readOnly,
-    },
-    "1c-odata-mcp запущен (stdio)",
-  );
+  logger.info(startupSummary(cfg), "1c-odata-mcp запущен (stdio)");
 }
 
 main().catch((err) => {

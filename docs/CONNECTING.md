@@ -268,6 +268,10 @@ claude mcp add 1c-odata -s user -- /opt/homebrew/bin/node \
 
 ## Несколько баз 1С
 
+> **Файл баз.** Список баз можно держать в отдельном файле JSON/YAML — `ODATA_CONFIG=~/.1c-odata/databases.json`
+> (без переменной берётся `~/.1c-odata/databases.{json,yaml,yml}`), пароли — в файле с правами 600 или через
+> `password_env`. Формат, слияние с переменными ниже и значения для Cursor Team Marketplace — в [TEAM.md](TEAM.md).
+
 Один сервер может обслуживать несколько баз. Опишите каждую в `.env` тройкой
 `ODATA_DB_<ИМЯ>_BASE_URL / _USERNAME / _PASSWORD` (+ необязательный `_LABEL`),
 при желании задайте `ODATA_DEFAULT_DB`. Полный пример — в `.env.example`.

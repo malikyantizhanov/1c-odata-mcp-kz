@@ -5,6 +5,21 @@
 
 ## [Не выпущено]
 
+### Добавлено — установка для команды: запуск из GitHub и файл баз
+
+- Запуск одной командой без локальной сборки: `npx -y github:malikyantizhanov/1c-odata-mcp-kz`. Скрипт `prepare`
+  (`tsc`) собирает сервер при установке из git (npm сам ставит devDependencies для `prepare` git-зависимости);
+  `bin` → `dist/index.js` (shebang), в пакет не попадают служебные `dist/scripts`. Требуется Node ≥ 20 и npm ≥ 10
+  (`engines`); с npm 9 установка git-зависимости с `prepare` через npx не работает. Первый запуск ≈ 17–19 с,
+  повторный ≈ 1,5 с.
+- Файл баз: `ODATA_CONFIG` — путь к JSON или YAML (`~` раскрывается); без переменной — `~/.1c-odata/databases.{json,
+  yaml,yml}`, если есть. Базы `{ name, label, base_url, username, password | password_env, writable }`, верхний
+  `default`. Слияние с `ODATA_BASE_URL` / `ODATA_DB_<ИМЯ>_*`: одноимённая база — из переменных окружения
+  (предупреждение). Ошибки — без значений полей и паролей; файл, доступный группе/всем, — предупреждение
+  «chmod 600». Лог старта — только сводка (имена баз, база по умолчанию, файл), без логинов и паролей.
+- Примеры `databases.example.json` / `databases.example.yaml`, инструкция с полями формы Cursor Team Marketplace —
+  `docs/TEAM.md`.
+
 ### Добавлено — доверенность (Д-1)
 
 - `read.document.print_power_of_attorney` — PDF «Доверенности» (Казахстан) по печатной форме 1С «Доверенность (Д-1)»,

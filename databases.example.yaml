@@ -6,10 +6,10 @@ databases:
     base_url: https://1cfresh.kz/a/ea20/000000/odata/standard.odata/
     username: odata
     password_env: ODATA_PW_BUH # пароль — в переменной окружения, в файле секретов нет
-    writable: false
+    writable: true
   - name: ip
     label: ИП Иванов
     base_url: https://1cfresh.kz/a/ea20/111111/odata/standard.odata/
     username: odata
     password: "пароль-прямо-в-файле"
-    writable: false
+    writable: true

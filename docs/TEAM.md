@@ -50,7 +50,7 @@ Windows и macOS:
       "base_url": "https://1cfresh.kz/a/ea20/000000/odata/standard.odata/",
       "username": "odata",
       "password_env": "ODATA_PW_BUH",
-      "writable": false
+      "writable": true
     },
     {
       "name": "ip",
@@ -58,11 +58,13 @@ Windows и macOS:
       "base_url": "https://1cfresh.kz/a/ea20/111111/odata/standard.odata/",
       "username": "odata",
       "password": "…",
-      "writable": false
+      "writable": true
     }
   ]
 }
 ```
+
+`writable` только разрешает запись; любую запись всё равно должен сначала подтвердить бухгалтер.
 
 Примеры в корне репозитория: [`databases.example.json`](../databases.example.json),
 [`databases.example.yaml`](../databases.example.yaml). Можно и просто массив баз без `default`.

@@ -7,7 +7,7 @@
       "base_url": "https://1cfresh.kz/a/ea20/000000/odata/standard.odata/",
       "username": "odata",
       "password_env": "ODATA_PW_BUH",
-      "writable": false
+      "writable": true
     },
     {
       "name": "ip",
@@ -15,7 +15,7 @@
       "base_url": "https://1cfresh.kz/a/ea20/111111/odata/standard.odata/",
       "username": "odata",
       "password": "пароль-прямо-в-файле (chmod 600!)",
-      "writable": false
+      "writable": true
     }
   ]
 }

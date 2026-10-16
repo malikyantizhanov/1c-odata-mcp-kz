@@ -267,30 +267,42 @@ export function renderReconciliationPdf(d: ReconciliationData): Promise<Buffer> 
   for (const x of [L[0]!, R[0]!, R[4]!]) vline(x, tableTop - 0.6, top + 0.6, THICK);
   vline(L[4]!, tableTop - 0.6, top);
 
-  // Итог по данным организации и подписи.
+  // Итог по данным организации и подписи. Блок целиком (итог + подписи) не рвётся между страницами; высота строки
+  // «От …» зависит от числа строк наименования (длинное переносится), остальные строки сдвигаются вниз.
+  const debt = debtStatement(d, t.closing);
+  const debtLines = lines(debt, 298.1 - 39.1, "b", F, 8.25);
+  const byData = `По данным ${d.organization.name}`;
+  // «По данным …» — одна строка 9,4 pt в 1С; длинное наименование переносится, итог идёт ниже.
+  const byDataH = 9.4 + (lines(byData, 300 - 39.0, "r", F, 8.1) - 1) * 8.1;
+  const SIGN_X = [
+    [39.0, 300, d.organization],
+    [325.7, RIGHT, d.counterparty],
+  ] as const;
+  const partyLines = (text: string, x: number, x2: number) => lines(text, x2 - x, "r", F, 8.1);
+  const nameLines = Math.max(...SIGN_X.map(([x, x2, p]) => partyLines(`От ${p.name}`, x, x2)));
+  const idLines = Math.max(...SIGN_X.map(([x, x2, p]) => partyLines(p.id, x, x2)));
+  // 9,1 pt у одной строки (как в 1С) и +8,1 pt на каждую следующую; та же прибавка для строки БИН/ИИН.
+  const shift = (nameLines - 1) * 8.1 + (idLines - 1) * 8.1;
+  const blockH = byDataH + debtLines * 8.25 + 12.45 + 63.8 + 9 + shift;
   let s = top + 9.1;
-  if (s + 125 > PAGE_BOTTOM) {
+  if (s + blockH > PAGE_BOTTOM) {
     pdf.addPage({ size: "A4", margin: 0 });
     s = 36;
   }
-  put(`По данным ${d.organization.name}`, 39.0, 300, s);
-  const debt = debtStatement(d, t.closing);
+  put(byData, 39.0, 300, s);
   // Ширина колонки итога подобрана по образцу: переносы строк совпадают с 1С («…теңге 00 / тиын)»).
-  put(debt, 39.1, 298.1, s + 9.4, { font: "b", pitch: 8.25 });
-  s += 9.4 + lines(debt, 298.1 - 39.1, "b", F, 8.25) * 8.25 + 12.45;
-  for (const [x, p, x2] of [
-    [39.0, d.organization, 300],
-    [325.7, d.counterparty, RIGHT],
-  ] as const) {
+  put(debt, 39.1, 298.1, s + byDataH, { font: "b", pitch: 8.25 });
+  s += byDataH + debtLines * 8.25 + 12.45;
+  for (const [x, x2, p] of SIGN_X) {
     put(`От ${p.name}`, x, x2, s);
-    put(p.id, x, x2, s + 9.1);
-    put("________________", x, x2, s + 27.3);
-    put("М.П.", x, x2, s + 63.8);
+    put(p.id, x, x2, s + 9.1 + (nameLines - 1) * 8.1);
+    put("________________", x, x2, s + 27.3 + shift);
+    put("М.П.", x, x2, s + 63.8 + shift);
   }
-  put("(_______________________)", 166.9, 300, s + 45.6);
-  put("(_______________________)", 451.8, RIGHT, s + 45.6);
-  hline(LEFT, 165.2, s + 54.4);
-  hline(324.0, 450.1, s + 54.4);
+  put("(_______________________)", 166.9, 300, s + 45.6 + shift);
+  put("(_______________________)", 451.8, RIGHT, s + 45.6 + shift);
+  hline(LEFT, 165.2, s + 54.4 + shift);
+  hline(324.0, 450.1, s + 54.4 + shift);
   pdf.end();
   return done;
 }

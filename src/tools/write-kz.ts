@@ -42,6 +42,8 @@ export const KZ_WRITE_TOOLS = [
   "write.document.update_document",
   "write.document.update_document_lines",
   "write.document.post_document",
+  "write.avr.set_basis",
+  "write.esf.link_invoice",
 ] as const;
 
 /**

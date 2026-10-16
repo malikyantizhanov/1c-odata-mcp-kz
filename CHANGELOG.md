@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.2] — 2026-10-16
+
 ### Добавлено — запись связей ЭАВР и ЭСФ (Казахстан)
 
 - `write.avr.set_basis`: в ЭАВР записывает `ДокументОснование` + `_Type` и, по желанию, договор (`Договор_Key`, `БезДоговора`). Проверки: документы существуют, организация и контрагент совпадают, основание не занято другим ЭАВР (документы и регистр `АктуальныеЭАВР`), ЭАВР не отозван и исходящий не отправлен в ИС; расхождение суммы и дат — предупреждения.
@@ -923,7 +925,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.1...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.6.0...v0.6.1

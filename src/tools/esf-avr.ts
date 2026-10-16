@@ -249,7 +249,11 @@ async function takenBases(conn: Connection, set: string, except?: string): Promi
 }
 
 /** Контрагент по БИН первого поставщика ЭАВР — когда в «Контрагент» ссылки нет. */
-async function counterpartyByBin(conn: Connection, avrSet: string, ref: string): Promise<string | undefined> {
+export async function counterpartyByBin(
+  conn: Connection,
+  avrSet: string,
+  ref: string,
+): Promise<string | undefined> {
   try {
     const full = await conn.client.getEntity(`${avrSet}(guid'${ref}')${buildQuery({})}`);
     const sup = (full["Поставщики"] as Array<Record<string, unknown>> | undefined) ?? [];

@@ -22,6 +22,7 @@ import { registerAuditTools } from "../tools/audit.js";
 import { registerPayrollTools } from "../tools/payroll.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerEsfAvrTools } from "../tools/esf-avr.js";
+import { registerEsfWriteTools } from "../tools/esf-write.js";
 import { registerPrintTools } from "../tools/print.js";
 import { registerSalePrintTools } from "../tools/print-sale.js";
 import { registerTaxInvoicePrintTools } from "../tools/print-tax-invoice.js";
@@ -192,6 +193,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerPayrollTools(server, ctx);
   registerKzRecordTools(server, ctx);
   registerEsfAvrTools(server, ctx);
+  registerEsfWriteTools(server, ctx);
   registerPrintTools(server, ctx);
   registerSalePrintTools(server, ctx);
   registerTaxInvoicePrintTools(server, ctx);

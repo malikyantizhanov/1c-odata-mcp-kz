@@ -238,6 +238,7 @@ export function fake1C(
   ]);
   vi.spyOn(conn, "getMetadata").mockResolvedValue({ entities } as never);
   const posts: Array<{ set: string; body: Row }> = [];
+  const patches: Array<{ set: string; ref: string; body: Row }> = [];
   const gets: string[] = [];
   let failNext: ((set: string) => Error | undefined) | undefined;
   let failGet: ((path: string) => Error | undefined) | undefined;
@@ -257,6 +258,15 @@ export function fake1C(
       (store[set] ??= []).push(created);
       posts.push({ set, body: body ?? {} });
       return created;
+    }
+    if (method === "PATCH") {
+      const ref = /\(guid'([^']+)'\)/.exec(p)?.[1];
+      const row = (store[set] ?? []).find((r) => r["Ref_Key"] === ref);
+      if (!ref || !row)
+        throw new ODataError({ kind: "not_found", status: 404, message: `${set}(${ref}) не найден` });
+      Object.assign(row, body);
+      patches.push({ set, ref, body: body ?? {} });
+      return { ...row };
     }
     gets.push(p);
     const getErr = failGet?.(p);
@@ -283,6 +293,7 @@ export function fake1C(
     conn,
     store,
     posts,
+    patches,
     gets,
     call,
     quick: (args: Row) => call("write.sales.quick_invoice", args),

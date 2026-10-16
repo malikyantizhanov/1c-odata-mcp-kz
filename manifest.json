@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 86 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 88 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -4658,6 +4658,252 @@
       },
       "annotations": {
         "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.avr.set_basis",
+      "title": "Привязать основание (и договор) к ЭАВР",
+      "description": "Записывает в ЭАВР (Document_ЭлектронныйАктВыполненныхРабот) документ-основание: ДокументОснование + _Type (поступление товаров и услуг для входящего ЭАВР, реализация — для исходящего) и, по желанию, договор: contractRef / contractFromBasis (Договор_Key, БезДоговора=false) либо withoutContract (БезДоговора=true). Меняет ТОЛЬКО эти поля; номер, даты, суммы, статус и регистрационный номер не трогает. Проверяет: ЭАВР и основание существуют, организация и контрагент совпадают, основание не занято другим ЭАВР (в т.ч. по регистру АктуальныеЭАВР), ЭАВР не отправлен в ИС и не отозван; суммы и даты — предупреждения. Предпросмотр «было → станет» по умолчанию; запись — confirm=true после согласия бухгалтера. Кандидатов подбирает read.esf.find_avr_basis.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "avrRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key ЭАВР"
+          },
+          "basisRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key документа-основания (поступление/реализация)"
+          },
+          "contractRef": {
+            "description": "Ref_Key договора контрагента (Договор_Key)",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "contractFromBasis": {
+            "description": "Взять договор из документа-основания",
+            "type": "boolean"
+          },
+          "withoutContract": {
+            "description": "Отметить «Без договора» (Договор_Key очищается)",
+            "type": "boolean"
+          },
+          "replaceExisting": {
+            "default": false,
+            "description": "Заменить уже заданное другое основание (по умолчанию отказ)",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "avrRef",
+          "basisRef"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "updated": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "database",
+          "entitySet",
+          "ref",
+          "fields",
+          "changes",
+          "checks",
+          "warnings"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.esf.link_invoice",
+      "title": "Привязать счёт-фактуру (и договор) к ЭСФ",
+      "description": "Записывает в ЭСФ (Document_ЭСФ) счёт-фактуру: СчетФактура + _Type (полученный — для входящего ЭСФ, выданный — для исходящего) и, по желанию, договор поставки ДоговорПоставки_Key (contractRef или contractFromInvoice). Меняет ТОЛЬКО эти поля; номер, даты, суммы, статус, регистрационный номер и реквизиты обмена с ИС не трогает. Отказ, если: ЭСФ проведён, отозван/аннулирован, в очереди отправки, исходящий ЭСФ уже отправлен/принят (регистры АктуальныеЭСФ, ИсторияЭСФ, ОчередьОтправкиЭСФ); организация или контрагент СФ не совпадают; СФ уже привязана к другому ЭСФ; договор не принадлежит контрагенту. Расхождение суммы и даты — предупреждения. Предпросмотр «было → станет» по умолчанию; запись — confirm=true после согласия бухгалтера. Кандидатов подбирает read.esf.find_esf_invoice.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "esfRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key ЭСФ"
+          },
+          "invoiceRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key счёта-фактуры (полученный/выданный по направлению ЭСФ)"
+          },
+          "contractRef": {
+            "description": "Ref_Key договора контрагента (ДоговорПоставки_Key)",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "contractFromInvoice": {
+            "description": "Взять договор из счёта-фактуры (ДоговорКонтрагента_Key)",
+            "type": "boolean"
+          },
+          "replaceExisting": {
+            "default": false,
+            "description": "Заменить уже привязанную другую счёт-фактуру (по умолчанию отказ)",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "esfRef",
+          "invoiceRef"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "updated": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "database",
+          "entitySet",
+          "ref",
+          "fields",
+          "changes",
+          "checks",
+          "warnings"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
         "openWorldHint": true
       }
     },

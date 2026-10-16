@@ -397,7 +397,10 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         "Меняет реквизиты шапки и/или табличные части документа из write.document.create_document. Табличная часть " +
         "заменяется целиком: прочитайте документ (read.document.get_document), измените строки и передайте все. " +
         "Проведённый документ не меняется — сначала отмените проведение (write.document.post_document post=false), " +
-        "затем измените и проведите снова. По умолчанию предпросмотр (dry-run); применение — при confirm=true.",
+        "затем измените и проведите снова. Субконто затрат в строках (СубконтоЗатратБУn/НУn): _Type допишется по субконто " +
+        "счёта затрат, в notes — итог и предупреждения о пустых слотах. Точечно править аналитику существующих строк " +
+        "(статья затрат по коду, подразделение, контрагент) без передачи всех строк — write.document.update_document_lines " +
+        "(analytics). По умолчанию предпросмотр (dry-run); применение — при confirm=true.",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -452,6 +455,10 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
           }
         }
         notes.push(...enumNotes(entitySet, patch));
+        // Субконто затрат в строках: _Type по виду субконто счёта, проверка типов, пустые слоты — как в create_document.
+        const subconto = await fillSubcontoTypes(conn, em, patch);
+        Object.assign(patch, subconto.payload);
+        notes.push(...subconto.notes);
         if (patch["Оплачено"] === true && !patch["ДатаВыписки"]) {
           notes.push(
             "Оплачено=true ставят по факту списания/зачисления по выписке и с согласия пользователя; проверьте, что ДатаВыписки заполнена.",

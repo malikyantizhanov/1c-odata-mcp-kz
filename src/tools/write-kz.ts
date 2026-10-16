@@ -40,6 +40,7 @@ export const KZ_WRITE_TOOLS = [
   "write.purchase.create_services_receipt",
   "write.document.create_document",
   "write.document.update_document",
+  "write.document.update_document_lines",
   "write.document.post_document",
 ] as const;
 

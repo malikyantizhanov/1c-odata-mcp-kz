@@ -1,0 +1,48 @@
+name: Version bump
+
+# После каждого слияния в main: patch-версия +1, manifest.json синхронизируется,
+# коммит «chore(release): vX.Y.Z [skip ci]» и тег vX.Y.Z.
+#
+# Защита от зацикливания:
+#  - коммит бота содержит [skip ci] — на него не запускаются workflow по push;
+#  - пуш делается GITHUB_TOKEN, а такие события вообще не запускают другие workflow
+#    (поэтому и publish.yml на тег от бота не срабатывает — публикация в npm остаётся ручной);
+#  - job пропускается, если последний коммит — релизный;
+#  - concurrency не даёт двум слияниям подряд гоняться за один тег.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') && !startsWith(github.event.head_commit.message, 'chore(release)') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Поднять версию, закоммитить, поставить тег
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm version patch --no-git-tag-version
+          version=$(node scripts/sync-version.mjs)
+          if git rev-parse "v$version" >/dev/null 2>&1; then
+            echo "Тег v$version уже есть — пропуск"; exit 1
+          fi
+          git add package.json package-lock.json manifest.json CHANGELOG.md
+          git commit -m "chore(release): v$version [skip ci]"
+          git tag "v$version"
+          git push origin main "v$version"

@@ -11,7 +11,7 @@ npx -y github:malikyantizhanov/1c-odata-mcp-kz
 
 При первом запуске npm скачивает репозиторий, ставит зависимости и собирает сервер (скрипт `prepare` → `tsc`).
 У git-зависимостей npm сам ставит devDependencies (TypeScript) на время сборки. Последующие запуски берут готовую
-сборку из кеша npx.
+сборку из кеша npx (см. п. 1а — как этого избежать).
 
 | | Время (проверено: Linux, Node 20, npm 10.9, пустой кеш) |
 |---|---|
@@ -34,6 +34,22 @@ Windows и macOS:
   храните файл в своём профиле (`%USERPROFILE%\.1c-odata\databases.json`).
 - **macOS:** Cursor, запущенный из Dock, не видит переменные из `~/.zshrc`. Пароли через `password_env` задавайте в
   поле «Env» сервера или держите пароль в самом файле с правами 600.
+
+## 1а. Запуск через обёртку (всегда свежая сборка)
+
+`npx -y github:…` без указания коммита может взять старую сборку из кеша npx. Чтобы каждый запуск брал актуальный `main`,
+определите SHA последнего коммита и запустите именно его. Пример скрипта-обёртки (`~/.1c-odata/run-mcp.sh`, `chmod 700`; секретов в нём нет —
+пароли берутся из переменных окружения `ODATA_PW_<…>`, которые задаёт клиент или ваш профиль):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+SHA=$(git ls-remote https://github.com/malikyantizhanov/1c-odata-mcp-kz refs/heads/main | cut -c1-40)
+exec npx -y "github:malikyantizhanov/1c-odata-mcp-kz#$SHA"
+```
+
+Новый SHA — новый ключ в кеше npx, поэтому устаревшая сборка не используется; если коммит не менялся, берётся готовая из кеша (быстро).
+В форме клиента: Command `bash`, Args `~/.1c-odata/run-mcp.sh` (абсолютный путь). Нужен git в PATH.
 
 ## 2. Файл баз (`ODATA_CONFIG`)
 
@@ -64,7 +80,11 @@ Windows и macOS:
 }
 ```
 
-`writable` только разрешает запись; любую запись всё равно должен сначала подтвердить бухгалтер.
+Запись в базу разрешает **один** флаг — `"writable": true` у этой базы (по умолчанию `false`). Глобальный `READ_ONLY`
+по умолчанию `false` и не мешает; `READ_ONLY=true` — необязательный режим «только чтение», включается только вручную.
+Любую запись всё равно должен сначала подтвердить бухгалтер (dry-run → «да» → `confirm=true`).
+В JSON-файле комментарии и неизвестные поля не допускаются (формат строгий), поэтому пояснение — здесь;
+в [`databases.example.yaml`](../databases.example.yaml) оно есть комментарием.
 
 Примеры в корне репозитория: [`databases.example.json`](../databases.example.json),
 [`databases.example.yaml`](../databases.example.yaml). Можно и просто массив баз без `default`.
@@ -76,7 +96,7 @@ Windows и macOS:
 | `base_url` | да | адрес OData `…/odata/standard.odata/` |
 | `username` | да | пользователь 1С с правом OData |
 | `password` или `password_env` | одно из двух | пароль прямо в файле **или** имя переменной окружения, где он лежит |
-| `writable` | нет | разрешить запись в эту базу (по умолчанию `false`; запись включается ещё и `READ_ONLY=false`) |
+| `writable` | нет | разрешить запись в эту базу (по умолчанию `false`; запись включается только этим флагом; общий `READ_ONLY=true` — необязательный явный запрет записи) |
 | `default` (верхний уровень) | нет | база по умолчанию |
 
 Безопасность:
@@ -108,8 +128,7 @@ Windows и macOS:
 | Args | `-y` `github:malikyantizhanov/1c-odata-mcp-kz` (Windows: `/c` `npx` `-y` `github:malikyantizhanov/1c-odata-mcp-kz`) |
 | Env | `ODATA_CONFIG=~/.1c-odata/databases.json` — необязательно (это и так путь по умолчанию) |
 
-Необязательные переменные Env: `ODATA_DEFAULT_DB` (база по умолчанию), `READ_ONLY` (`true` по умолчанию; `false` —
-разрешить запись в базы с `writable: true`), `ODATA_PRINT_DIR` (куда класть PDF), `ODATA_PW_<…>` — пароли для
+Необязательные переменные Env: `ODATA_DEFAULT_DB` (база по умолчанию), `READ_ONLY` (по умолчанию `false`; `true` — вручную запретить запись во всех базах, даже с `writable: true`), `ODATA_PRINT_DIR` (куда класть PDF), `ODATA_PW_<…>` — пароли для
 `password_env` (**секрет**; задавать у каждого пользователя, не в общей записи команды).
 
 Каждый бухгалтер один раз создаёт `~/.1c-odata/databases.json` со своими базами (`chmod 600`) и перезапускает Cursor;

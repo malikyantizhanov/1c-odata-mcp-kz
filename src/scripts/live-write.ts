@@ -52,7 +52,9 @@ async function main(): Promise<number> {
   const ctx = new ServerContext(cfg);
   const conn = ctx.db(db);
   if (cfg.behavior.readOnly || !conn.cfg.writable) {
-    line(`База "${db}" недоступна для записи: нужны READ_ONLY=false и WRITABLE для базы.`);
+    line(
+      `База "${db}" недоступна для записи: нужен WRITABLE для базы и не должен быть задан READ_ONLY=true.`,
+    );
     return 2;
   }
   const tools = (createServer(ctx) as unknown as { _registeredTools: Record<string, Tool> })._registeredTools;

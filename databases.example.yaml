@@ -1,3 +1,4 @@
+# Запись в базу включает ТОЛЬКО writable: true (по умолчанию false). Глобальный READ_ONLY=true — необязательный ручной запрет записи везде.
 # Список баз 1С для 1c-odata-mcp (ODATA_CONFIG=~/.1c-odata/databases.yaml). Права файла: chmod 600.
 default: buh
 databases:

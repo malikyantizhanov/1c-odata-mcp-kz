@@ -14,7 +14,7 @@
   <img src="docs/assets/demo-debtors.svg" alt="Диалог с Claude: на вопрос «кто из покупателей должен больше всего» приходит список должников и итог из 1С" width="720">
 </p>
 
-> 🇬🇧 **In short:** an MCP server that connects 1C:Enterprise to any MCP client (Claude, Cursor, VS Code, local models…) over the standard OData interface. Ask your accounting database in plain language (debtors, sales, taxes, cash flow, account turnover, document postings) and get the number back; opt-in, preview-gated write. Read-only by default. Run with `npx -y 1c-odata-mcp`. Works with any 1C where OData is published — cloud, SQL or local file base.
+> 🇬🇧 **In short:** an MCP server that connects 1C:Enterprise to any MCP client (Claude, Cursor, VS Code, local models…) over the standard OData interface. Ask your accounting database in plain language (debtors, sales, taxes, cash flow, account turnover, document postings) and get the number back; opt-in per-database, preview-gated write. A database is read-only unless `writable: true`. Run with `npx -y 1c-odata-mcp`. Works with any 1C where OData is published — cloud, SQL or local file base.
 
 **MCP-сервер (Model Context Protocol) для 1С:Предприятие через стандартный интерфейс OData.** Позволяет работать с данными 1С на естественном языке из **любого MCP-клиента** — Claude, Cursor, VS Code, JetBrains, локальные модели (Ollama, LM Studio): спрашивать про контрагентов, документы, остатки, дебиторку, продажи, движение денег, ОСВ и проводки — а при явном включении ещё и создавать/изменять справочники и документы, проводить, регистрировать оплаты.
 
@@ -317,6 +317,17 @@ Claude: Готово: контрагент 00-000123, счёт № … (черн
 `npx -y github:malikyantizhanov/1c-odata-mcp-kz` (Node ≥ 20, npm ≥ 10), базы — в файле `~/.1c-odata/databases.json`
 (JSON или YAML, путь — `ODATA_CONFIG`). Значения для формы Cursor и формат файла — **[docs/TEAM.md](docs/TEAM.md)**.
 
+Чтобы npx не брал старую сборку из кеша, запускайте через обёртку (без секретов):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+SHA=$(git ls-remote https://github.com/malikyantizhanov/1c-odata-mcp-kz refs/heads/main | cut -c1-40)
+exec npx -y "github:malikyantizhanov/1c-odata-mcp-kz#$SHA"
+```
+
+Каждый новый коммит `main` даёт новый SHA — и свежую сборку; без изменений берётся кеш. Запись в базу включается флагом `"writable": true` у базы (глобальный `READ_ONLY` по умолчанию `false`; `true` — необязательный ручной запрет записи).
+
 Полная настройка (адрес OData по площадкам, авторизация, запуск из исходников, Claude Code, диагностика ошибок) — в **[docs/CONNECTING.md](docs/CONNECTING.md)**.
 
 ---
@@ -430,10 +441,12 @@ Claude: Готово: контрагент 00-000123, счёт № … (черн
 
 ## Безопасность
 
-**По умолчанию сервер работает только на чтение.** Запись включается осознанно, через **два независимых предохранителя**:
+**Каждая база по умолчанию только для чтения.** Запись включается осознанно одним флагом:
 
-1. **Глобальный рубильник** `READ_ONLY=false`.
-2. **Пер-базовый флаг** `ODATA_DB_<ИМЯ>_WRITABLE=true` — базы без него остаются read-only даже при снятом глобальном. Так можно открыть запись в одну базу (напр. ИП) и защитить другие (напр. ООО).
+- **Флаг базы** `"writable": true` в файле баз (или `ODATA_DB_<ИМЯ>_WRITABLE=true`) — базы без него остаются read-only. Так можно открыть запись в одну базу (напр. ИП) и защитить другие (напр. ООО).
+- `READ_ONLY` — **необязательный** явный режим «только чтение» (по умолчанию `false`, т. е. не мешает). `READ_ONLY=true` включается только вручную и запрещает запись во всех базах, даже с `writable: true`.
+
+Подтверждение каждой записи (dry-run → `confirm=true`) остаётся в любом случае.
 
 Дополнительно при записи:
 

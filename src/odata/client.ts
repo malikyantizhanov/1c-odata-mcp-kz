@@ -32,16 +32,16 @@ export class ODataClient {
   }
 
   /**
-   * Гард записи — два явных предохранителя должны быть сняты:
-   *  1) глобально READ_ONLY=false (behavior.readOnly === false);
-   *  2) на конкретной базе ODATA_DB_<ИМЯ>_WRITABLE=true (conn.writable).
+   * Гард записи: запись запрещена, если
+   *  1) вручную включён READ_ONLY=true (по умолчанию выключен), или
+   *  2) у базы нет writable=true (ODATA_DB_<ИМЯ>_WRITABLE / "writable" в файле баз).
    */
   private assertWritable(method: string): void {
     if (READ_METHODS.has(method)) return;
     if (this.behavior.readOnly) {
       throw new ODataError({
         kind: "bad_request",
-        message: `Операция ${method} запрещена: сервер в режиме только-чтение (снимите READ_ONLY=false в .env)`,
+        message: `Операция ${method} запрещена: сервер в режиме только-чтение (включён явный режим READ_ONLY=true; уберите его или задайте READ_ONLY=false)`,
       });
     }
     if (!this.conn.writable) {
@@ -182,7 +182,7 @@ export class ODataClient {
     payload: Record<string, unknown>,
     { withRefKey = true }: { withRefKey?: boolean } = {},
   ): Promise<void> {
-    // Предпросмотр при выключенной записи ничего не пишет на диск (READ_ONLY по умолчанию).
+    // Предпросмотр при выключенной записи ничего не пишет на диск (READ_ONLY=true или база без writable).
     if (this.behavior.readOnly || !this.conn.writable) return;
     const operationId = currentWriteOperationId();
     const requestHash = currentWriteRequestHash();

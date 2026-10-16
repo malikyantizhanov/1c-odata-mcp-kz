@@ -12,7 +12,7 @@ describe("parseConfig — одна база (обратная совместим
     expect(c.connections[0]!.name).toBe("default");
     expect(c.connections[0]!.writable).toBe(false);
     expect(c.defaultName).toBe("default");
-    expect(c.behavior.readOnly).toBe(true);
+    expect(c.behavior.readOnly).toBe(false);
     expect(c.behavior.pageSize).toBe(100);
   });
   it("добавляет завершающий слэш к URL", () => {

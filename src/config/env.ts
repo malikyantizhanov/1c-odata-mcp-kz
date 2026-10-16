@@ -90,7 +90,7 @@ const BehaviorSchema = z.object({
     .max(24 * 365)
     .default(DEFAULT_METADATA_TTL_HOURS),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
-  READ_ONLY: z.enum(["true", "false"]).default("true"),
+  READ_ONLY: z.enum(["true", "false"]).default("false"),
 });
 
 const ConnSchema = z.object({

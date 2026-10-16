@@ -1172,7 +1172,7 @@ export async function withEnumValues(conn: Connection, e: unknown): Promise<unkn
 
 /**
  * Общий путь создания: при confirm=false возвращает предпросмотр (не пишет в 1С),
- * при confirm=true выполняет POST. Гард записи (READ_ONLY + WRITABLE) — в клиенте.
+ * при confirm=true выполняет POST. Гард записи (writable базы; READ_ONLY=true — явный режим только чтения) — в клиенте.
  */
 export async function createOrPreview(
   conn: Connection,
@@ -1196,7 +1196,7 @@ export async function createOrPreview(
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" сейчас запрещена — включите ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true (и READ_ONLY=false).`,
+        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" сейчас запрещена — задайте ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true.`,
     });
   }
   let created: ODataEntity;
@@ -1243,7 +1243,7 @@ export async function patchOrPreview(
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — включите ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true (и READ_ONLY=false).`,
+        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true.`,
     });
   }
   const updated = await conn.client.patch<ODataEntity>(`${entitySet}(guid'${guid}')?$format=json`, fields);

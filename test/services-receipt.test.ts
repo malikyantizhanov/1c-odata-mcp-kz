@@ -10,6 +10,8 @@ import { baseStore, BUYER, CONTRACT, fake1C, id, ORG, SERVICE, type Row } from "
 const KIND_ART = id(201);
 const KIND_DEP = id(202);
 const KIND_GRP = id(203);
+const KIND_CP = id(204);
+const ACC_7310 = id(247); // 1 Статьи затрат, 2 Контрагенты
 const ART_PROCHIE = id(211);
 const ART_BANK = id(212);
 const ART_PENYA1 = id(213);
@@ -77,10 +79,10 @@ function setup() {
     ...extra,
   });
   store["Catalog_СтатьиЗатрат"] = [
-    f(ART_PROCHIE, "Прочие расходы"),
-    f(ART_BANK, "Комиссия банка"),
-    f(ART_PENYA1, "Пеня по ОПВ"),
-    f(ART_PENYA2, "Пеня по СО"),
+    f(ART_PROCHIE, "Прочие расходы", { Code: "00001" }),
+    f(ART_BANK, "Комиссия банка", { Code: "00002" }),
+    f(ART_PENYA1, "Пеня по ОПВ", { Code: "00003" }),
+    f(ART_PENYA2, "Пеня по СО", { Code: "00004" }),
   ];
   store["Catalog_ПодразделенияОрганизаций"] = [f(DEP_ADM, "Администрация"), f(DEP_SALES, "Отдел продаж")];
   store["Catalog_НоменклатурныеГруппы"] = [f(GRP, "Услуги")];
@@ -88,11 +90,13 @@ function setup() {
     f(KIND_ART, "Статьи затрат"),
     f(KIND_DEP, "Подразделения"),
     f(KIND_GRP, "Номенклатурные группы"),
+    f(KIND_CP, "Контрагенты"),
   ];
   store["ChartOfAccounts_Типовой"] = [
     { Ref_Key: ACC_7210, Code: "7210", ExtDimensionTypes: dims(KIND_ART, KIND_DEP) },
     { Ref_Key: ACC_7110, Code: "7110", ExtDimensionTypes: dims(KIND_DEP) },
     { Ref_Key: ACC_8110, Code: "8110", ExtDimensionTypes: dims(KIND_ART, KIND_GRP, KIND_DEP) },
+    { Ref_Key: ACC_7310, Code: "7310", ExtDimensionTypes: dims(KIND_ART, KIND_CP) },
     { Ref_Key: ACC_3310, Code: "3310", ExtDimensionTypes: [] },
     { Ref_Key: ACC_1610, Code: "1610", ExtDimensionTypes: [] },
   ];
@@ -322,7 +326,7 @@ describe("write.purchase.create_services_receipt", () => {
     const { call } = setup();
     const res = (await call(TOOL, { ...base, expenseAccount: "7210" })) as Res;
     expect((body(res).notes ?? []).join("\n")).toContain(
-      "есть субконто «Статьи затрат», но оно не заполнено",
+      "слот 1 (вид «Статьи затрат») счёта 7210 (БУ) не заполнен",
     );
   });
 
@@ -342,6 +346,104 @@ describe("write.purchase.create_services_receipt", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0]!.set).toBe("Document_ПоступлениеТоваровУслуг");
     expect(posts[0]!.body["Услуги"]).toEqual(plan.Услуги);
+  });
+});
+
+describe("статья по коду, контрагент в субконто, предупреждения по слотам", () => {
+  it("costArticle принимает код справочника: точный, без нулей, с нулями до длины кодов", async () => {
+    const { call } = setup();
+    for (const code of ["00002", "2", "0000002"]) {
+      const res = (await call(TOOL, { ...base, expenseAccount: "7210", costArticle: code })) as Res;
+      expect(res.isError, `${code}: ${text(res)}`).toBeFalsy();
+      expect(body(res).payload.Услуги[0]!["СубконтоЗатратБУ1"], code).toBe(ART_BANK);
+    }
+  });
+
+  it("код, которого нет, а потом и названия — понятная ошибка", async () => {
+    const { call } = setup();
+    const res = (await call(TOOL, { ...base, expenseAccount: "7210", costArticle: "104" })) as Res;
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("не найдена в Catalog_СтатьиЗатрат");
+  });
+
+  it("слот «Контрагенты» (счёт 7310) заполняется контрагентом документа без предупреждений", async () => {
+    const { call } = setup();
+    const res = (await call(TOOL, {
+      ...base,
+      expenseAccount: "7310",
+      costArticle: "00001",
+      settlementAccount: "3310",
+      advanceAccount: "1610",
+    })) as Res;
+    expect(res.isError, text(res)).toBeFalsy();
+    expect(body(res).payload.Услуги[0]).toMatchObject({
+      СчетЗатратБУ_Key: ACC_7310,
+      СубконтоЗатратБУ1: ART_PROCHIE,
+      СубконтоЗатратБУ1_Type: TYPE("Catalog_СтатьиЗатрат"),
+      СубконтоЗатратБУ2: BUYER,
+      СубконтоЗатратБУ2_Type: TYPE("Catalog_Контрагенты"),
+    });
+    const notes = (body(res).notes ?? []).join("\n");
+    expect(notes).toContain("2) Контрагенты:");
+    expect(notes).not.toContain("не заполнен");
+    expect(notes).not.toContain("Пропущено");
+  });
+
+  it("subcontoCounterparty по названию заменяет контрагента документа; у счёта нет такого слота — предупреждение", async () => {
+    const { call } = setup();
+    const ok = (await call(TOOL, {
+      ...base,
+      expenseAccount: "7310",
+      costArticle: "00001",
+      subcontoCounterparty: "TRADESPACE",
+    })) as Res;
+    expect(body(ok).payload.Услуги[0]!["СубконтоЗатратБУ2"]).toBe(BUYER);
+    const warn = (await call(TOOL, {
+      ...base,
+      expenseAccount: "7210",
+      costArticle: "00001",
+      subcontoCounterparty: "TRADESPACE",
+    })) as Res;
+    expect(warn.isError, text(warn)).toBeFalsy();
+    expect((body(warn).notes ?? []).join("\n")).toContain("нет субконто «контрагенты»");
+  });
+
+  it("контрагент по умолчанию у счёта без такого субконто — молча, без предупреждения", async () => {
+    const { call } = setup();
+    const res = (await call(TOOL, {
+      ...base,
+      expenseAccount: "7210",
+      costArticle: "00001",
+      department: DEP_ADM,
+    })) as Res;
+    expect((body(res).notes ?? []).join("\n")).not.toContain("«контрагенты»");
+  });
+
+  it("незаполненный слот любого вида — предупреждение «слот N (вид X) не заполнен»", async () => {
+    const { call } = setup();
+    const res = (await call(TOOL, { ...base, expenseAccount: "7210", costArticle: "00001" })) as Res;
+    expect((body(res).notes ?? []).join("\n")).toContain(
+      "слот 2 (вид «Подразделения») счёта 7210 (БУ) не заполнен",
+    );
+  });
+
+  it("подразделение/группа, которых нет у счёта, — предупреждение, а не ошибка; статья — по-прежнему ошибка", async () => {
+    const { call } = setup();
+    const res = (await call(TOOL, {
+      ...base,
+      expenseAccount: "7310",
+      costArticle: "00001",
+      department: DEP_ADM,
+      nomenclatureGroup: GRP,
+    })) as Res;
+    expect(res.isError, text(res)).toBeFalsy();
+    const row = body(res).payload.Услуги[0]!;
+    expect(row).not.toHaveProperty("СубконтоЗатратБУ3");
+    const notes = (body(res).notes ?? []).join("\n");
+    expect(notes).toContain("нет субконто «подразделения»");
+    expect(notes).toContain("нет субконто «номенклатурные группы»");
+    const noArt = (await call(TOOL, { ...base, expenseAccount: "7110", costArticle: "00001" })) as Res;
+    expect(noArt.isError).toBe(true);
   });
 });
 

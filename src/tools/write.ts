@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { analyticsFields, applyLineAnalytics, type LineAnalytics } from "./line-analytics.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
 import { ok, fail, guard, databaseField, organizationField } from "./_shared.js";
@@ -27,6 +28,7 @@ import { currentWriteOperationId } from "../odata/write-operation-context.js";
 import { InputError } from "../errors.js";
 import {
   isKazakhstan,
+  KZ_DOCUMENTS,
   kzCounterpartyPayload,
   kzPostingWarnings,
   kzInvoiceRows,
@@ -627,6 +629,8 @@ async function getDocInfo(
   lines: GoodsLine[];
   section: Section;
   otherTotal: number;
+  counterparty?: string | undefined;
+  rawRows: Array<Record<string, unknown>>;
 }> {
   const doc = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({})}`);
   const section = pickSection(
@@ -645,6 +649,8 @@ async function getDocInfo(
     lines: sectionRows(doc, section).map(lineFromRow),
     section,
     otherTotal: rowsSum(sectionRows(doc, otherSection(section))),
+    counterparty: refOrUndefined(doc["Контрагент_Key"]),
+    rawRows: sectionRows(doc, section),
   };
 }
 
@@ -986,6 +992,23 @@ const saleLine = z.object({
   expenseAccount: expenseAccountField,
 });
 
+/** Правка аналитики затрат уже существующей строки по номеру (остальные поля строки не меняются). */
+const lineAnalyticsEdit = z.object({
+  lineNumber: z.number().int().positive().describe("Номер строки (с 1)"),
+  ...analyticsFields,
+});
+
+/** Строка ТЧ для PATCH как есть: без служебных ключей OData и ссылки на сам документ. */
+function rawRowForPatch(r: Record<string, unknown>, i: number): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (k === "Ref_Key" || k.includes("@") || k.startsWith("odata.")) continue;
+    out[k] = v;
+  }
+  out["LineNumber"] = i + 1;
+  return out;
+}
+
 /** Позиция документа закупки: счета доходов/расходов неприменимы. */
 const purchaseLine = z.object(baseLineShape);
 
@@ -1247,12 +1270,14 @@ async function patchLinesOrPreview(
   fields: Record<string, unknown>,
   confirm: boolean,
   check: { section: string; before: number; expected: number },
+  notes?: string[],
 ) {
   const guid = ref.replace(/[{}']/g, "");
   const key = { ref: guid };
+  const extra = notes?.length ? { notes } : {};
   if (!confirm) {
     await conn.client.prepareCreate(entitySet, key, { withRefKey: false });
-    return patchOrPreview(conn, entitySet, ref, fields, false);
+    return patchOrPreview(conn, entitySet, ref, fields, false, notes);
   }
   const updated = await conn.client.patchOnce<ODataEntity>(
     `${entitySet}(guid'${guid}')?$format=json`,
@@ -1273,6 +1298,7 @@ async function patchLinesOrPreview(
     entitySet,
     ref: updated["Ref_Key"] ?? guid,
     description: updated["Description"],
+    ...extra,
   });
 }
 
@@ -2460,11 +2486,17 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
     {
       title: "Изменить строки документа",
       description:
-        "Заменяет табличную часть «Товары» существующего документа новым набором строк и пересчитывает сумму. " +
+        "Меняет табличную часть («Товары» или «Услуги» — та, что заполнена) существующего документа и пересчитывает сумму. " +
         "Поддержаны: счёт покупателю, поступление, реализация (и товарами, и услугами), акт об оказании услуг. " +
-        "Строки пишутся в ту табличную часть, которая у документа заполнена («Товары» или «Услуги»). " +
-        "Документ должен быть НЕПРОВЕДЁННЫМ " +
-        "(если проведён — сначала отмените проведение через post_document). По умолчанию dry-run; применение — при confirm=true.",
+        "Два режима. (1) lines — НОВЫЙ полный набор строк (заменяет прежние: реквизиты старых строк не сохраняются, " +
+        "содержание и счета задавайте заново; в казахстанской базе не работает — там update_document). (2) analytics — точечная правка аналитики затрат существующих строк по " +
+        "номеру: счёт затрат БУ/НУ (costAccount/taxCostAccount — код или Ref_Key), статья затрат (costArticle — код, " +
+        "название или Ref_Key), подразделение, номенклатурная группа, контрагент (subcontoCounterparty) и явные " +
+        "СубконтоЗатратБУ1..3 / НУ1..3 (subconto); остальные поля строк и сумма документа остаются как есть. Раскладка по слотам и _Type — по субконто счёта " +
+        "затрат (как в write.purchase.create_services_receipt); в notes — что изменится (старое → новое) и " +
+        "предупреждения о пустых слотах. Документ должен быть НЕПРОВЕДЁННЫМ (проведённый — сначала post_document " +
+        "post=false); dry-run с analytics по проведённому документу показывает план, но применить его нельзя. " +
+        "По умолчанию dry-run; применение — при confirm=true.",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -2476,38 +2508,95 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         lines: z
           .array(saleLine)
           .min(1)
+          .optional()
           .describe(
             "Новый полный набор строк (заменяет прежние — реквизиты старых строк не сохраняются, " +
-              "задавайте content и счета заново)",
+              "задавайте content и счета заново). Только для баз с российскими счетами",
           ),
+        analytics: z
+          .array(lineAnalyticsEdit)
+          .min(1)
+          .optional()
+          .describe("Точечная правка аналитики затрат существующих строк по номеру (остальное не меняется)"),
         confirm: confirmField,
       },
       outputSchema: patchResultSchema,
     },
-    ({ database, entitySet, ref, lines, confirm }) =>
+    ({ database, entitySet, ref, lines, analytics, confirm }) =>
       guard("write.document.update_document_lines", async () => {
+        if (!lines?.length && !analytics?.length) return fail("Задайте lines и/или analytics.");
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
+        if (await isKazakhstan(conn)) {
+          // Режим lines собирает строки по российским правилам (счета 41/90, ставки НДС) — для казахстанской базы
+          // он не годится; допускается только точечная правка аналитики затрат (строки не пересобираются).
+          if (lines?.length)
+            return fail(
+              "В казахстанской базе строки целиком меняйте через write.document.update_document (tables). " +
+                "Здесь доступна только точечная правка аналитики существующих строк — параметр analytics.",
+            );
+          if (!KZ_DOCUMENTS.includes(entitySet))
+            return fail(
+              `Документ ${entitySet} не входит в список казахстанских документов (read.system.capabilities → kazakhstanDocuments).`,
+            );
+        }
         const info = await getDocInfo(conn, entitySet, ref.replace(/[{}']/g, ""));
-        if (info.posted) {
+        const withAnalytics = !!analytics?.length;
+        if (info.posted && (confirm || !withAnalytics)) {
           return fail(
             "Документ проведён. Сначала отмените проведение (post_document с post=false), затем меняйте строки.",
           );
         }
-        const built = await buildSectionRows(conn, entitySet, info.orgKey, lines, info.section);
-        if (!built) {
-          return fail(
-            "Поддерживаются: счёт покупателю, поступление/реализация товаров и услуг, акт об оказании " +
-              "услуг, возвраты, перемещение, оприходование, списание товаров.",
+        const notes: string[] = [];
+        if (info.posted)
+          notes.push(
+            "Документ ПРОВЕДЁН: это только план. Чтобы применить, сначала отмените проведение (post_document post=false), потом повторите с confirm=true и проведите снова.",
           );
+        let rows: Array<Record<string, unknown>>;
+        let total: number | undefined;
+        if (lines?.length) {
+          const built = await buildSectionRows(conn, entitySet, info.orgKey, lines, info.section);
+          if (!built) {
+            return fail(
+              "Поддерживаются: счёт покупателю, поступление/реализация товаров и услуг, акт об оказании " +
+                "услуг, возвраты, перемещение, оприходование, списание товаров.",
+            );
+          }
+          rows = built.rows;
+          // Вторая ТЧ остаётся как есть, но в сумму документа входит.
+          total = roundMoney(built.total + info.otherTotal);
+        } else {
+          if (!info.rawRows.length) return fail(`В документе нет строк табличной части «${info.section}».`);
+          rows = info.rawRows.map(rawRowForPatch);
+        }
+        const specs: Array<LineAnalytics | undefined> = rows.map(() => undefined);
+        for (const e of analytics ?? []) {
+          if (e.lineNumber > rows.length)
+            throw new InputError(
+              `В документе ${rows.length} строк(и), а analytics задана для строки ${e.lineNumber}.`,
+            );
+          const { lineNumber, ...rest } = e;
+          const own = specs[lineNumber - 1];
+          specs[lineNumber - 1] = { ...(own ?? {}), ...rest };
+        }
+        if (specs.some(Boolean)) {
+          const applied = await applyLineAnalytics(conn, {
+            entitySet,
+            section: info.section,
+            rows,
+            specs,
+            documentCounterparty: info.counterparty,
+          });
+          rows = applied.rows;
+          notes.push(...applied.notes);
         }
         return patchOrPreview(
           conn,
           entitySet,
           ref,
-          // Вторая ТЧ остаётся как есть, но в сумму документа входит.
-          { [info.section]: built.rows, СуммаДокумента: roundMoney(built.total + info.otherTotal) },
+          { [info.section]: rows, ...(total === undefined ? {} : { СуммаДокумента: total }) },
           confirm,
+          notes,
         );
       }),
   );
@@ -2844,7 +2933,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
       description:
         "Добавляет одну позицию в табличную часть «Товары» существующего НЕПРОВЕДЁННОГО документа " +
         "(счёт/поступление/реализация), сохраняя прежние строки со всеми их реквизитами " +
-        "(содержание, счета учёта, номенклатурная группа). dry-run/confirm.",
+        "(содержание, счета учёта, номенклатурная группа). Только для баз с российскими счетами: в казахстанской базе " +
+        "строки меняйте через write.document.update_document (tables), а аналитику затрат существующих строк " +
+        "(статья, подразделение, контрагент, СубконтоЗатрат…) — через write.document.update_document_lines (analytics). dry-run/confirm.",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -2875,14 +2966,17 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           return fail(
             "Поддерживаются: счёт, поступление/реализация, акт услуг, возвраты, перемещение, оприходование, списание.",
           );
+        const notes: string[] = [];
+        const rows = built.rows;
         return patchLinesOrPreview(
           conn,
           entitySet,
           ref,
           // Вторая ТЧ остаётся как есть, но в сумму документа входит.
-          { [info.section]: built.rows, СуммаДокумента: roundMoney(built.total + info.otherTotal) },
+          { [info.section]: rows, СуммаДокумента: roundMoney(built.total + info.otherTotal) },
           confirm,
           { section: info.section, before: info.lines.length, expected: info.lines.length + 1 },
+          notes,
         );
       }),
   );

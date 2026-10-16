@@ -40,6 +40,7 @@ export const SUBCONTO_ENTITY_BY_KIND: Readonly<Record<string, string>> = {
 export const KIND_ARTICLE = "статьи затрат";
 export const KIND_DEPARTMENT = "подразделения";
 export const KIND_GROUP = "номенклатурные группы";
+export const KIND_COUNTERPARTY = "контрагенты";
 
 export type Stage = "БУ" | "НУ";
 export const STAGES: readonly Stage[] = ["БУ", "НУ"];
@@ -111,42 +112,56 @@ export async function accountLayout(
 
 const slotKind = (s: SubcontoSlot): string => (s.kind ?? "").trim().toLowerCase();
 
+export interface AnalyticsWant {
+  article?: string | undefined;
+  department?: string | undefined;
+  group?: string | undefined;
+  counterparty?: string | undefined;
+}
+const WANT_KINDS: ReadonlyArray<[keyof AnalyticsWant, string, string]> = [
+  ["article", KIND_ARTICLE, "статья затрат"],
+  ["department", KIND_DEPARTMENT, "подразделение"],
+  ["group", KIND_GROUP, "номенклатурная группа"],
+  ["counterparty", KIND_COUNTERPARTY, "контрагент"],
+];
+
 /**
- * Раскладывает статью затрат, подразделение и номенклатурную группу по слотам субконто счёта. Вид, которого у счёта
- * нет, — ошибка вызова (иначе значение ушло бы не в тот слот): возвращает текст ошибки.
+ * Раскладывает статью затрат, подразделение, номенклатурную группу и контрагента по слотам субконто счёта.
+ * Статья затрат — главное: при strict её отсутствие у счёта — ошибка (иначе значение ушло бы не туда или пропало).
+ * Остальное, чего у счёта нет, пропускается с предупреждением (warnings); quiet — виды, о которых молчим
+ * (значение подставлено по умолчанию, а не запрошено явно, напр. контрагент документа).
  */
 export function placeAnalytics(
   layout: AccountLayout,
   stage: Stage,
-  want: { article?: string | undefined; department?: string | undefined; group?: string | undefined },
-): { fields: Record<string, string>; error?: string } {
+  want: AnalyticsWant,
+  opts: { strict?: boolean; quiet?: ReadonlyArray<keyof AnalyticsWant> } = {},
+): { fields: Record<string, string>; warnings: string[]; error?: string } {
   const fields: Record<string, string> = {};
-  const wanted: Array<[string, string | undefined, string]> = [
-    [KIND_ARTICLE, want.article, "статья затрат"],
-    [KIND_DEPARTMENT, want.department, "подразделение"],
-    [KIND_GROUP, want.group, "номенклатурная группа"],
-  ];
-  for (const [kind, ref, label] of wanted) {
+  const warnings: string[] = [];
+  for (const [key, kind, label] of WANT_KINDS) {
+    const ref = want[key];
     if (!ref) continue;
     const slot = layout.slots.find((s) => slotKind(s) === kind);
+    const have = layout.slots.map((s) => `${s.index}) ${s.kind ?? "?"}`).join(", ") || "субконто нет";
     if (!slot) {
-      const have = layout.slots.map((s) => `${s.index}) ${s.kind ?? "?"}`).join(", ") || "субконто нет";
-      return {
-        fields,
-        error:
-          `У счёта затрат ${layout.code} (${stage}) нет субконто «${kind}» — ${label} для него не задаётся. ` +
-          `Субконто счёта: ${have}. Выберите другой счёт затрат или уберите ${label}.`,
-      };
+      if (opts.quiet?.includes(key)) continue;
+      const text = `У счёта затрат ${layout.code} (${stage}) нет субконто «${kind}» — ${label} не задаётся. Субконто счёта: ${have}.`;
+      if (key === "article" && opts.strict)
+        return { fields, warnings, error: `${text} Выберите другой счёт затрат или уберите ${label}.` };
+      warnings.push(`${text} Пропущено.`);
+      continue;
     }
-    if (!slot.entity)
-      return {
-        fields,
-        error: `Не удалось определить справочник для субконто «${slot.kind}» счёта ${layout.code} — тип значения неизвестен.`,
-      };
+    if (!slot.entity) {
+      const text = `Не удалось определить справочник для субконто «${slot.kind}» счёта ${layout.code} (${stage}) — тип значения неизвестен.`;
+      if (key === "article" && opts.strict) return { fields, warnings, error: text };
+      warnings.push(`${text} Пропущено.`);
+      continue;
+    }
     fields[`СубконтоЗатрат${stage}${slot.index}`] = ref;
     fields[`СубконтоЗатрат${stage}${slot.index}_Type`] = typeName(slot.entity);
   }
-  return { fields };
+  return { fields, warnings };
 }
 
 const rowSetOf = (type: string): string | undefined =>
@@ -217,11 +232,12 @@ export async function fillSubcontoTypes(
           const field = `СубконтоЗатрат${stage}${slot.index}`;
           const value = row[field];
           if (!filled(value)) {
-            if (slotKind(slot) === KIND_ARTICLE)
-              notes.push(
-                `${where}: у счёта ${layout.code} (${stage}) есть субконто «Статьи затрат», но оно не заполнено — ` +
-                  "проводка пойдёт с пустой статьёй. Найдите статью: read.catalog.list_catalog (Catalog_СтатьиЗатрат).",
-              );
+            notes.push(
+              `${where}: слот ${slot.index} (вид «${slot.kind ?? "не прочитан"}») счёта ${layout.code} (${stage}) не заполнен` +
+                (slotKind(slot) === KIND_ARTICLE
+                  ? " — проводка пойдёт с пустой статьёй; найдите её: read.catalog.list_catalog (Catalog_СтатьиЗатрат)."
+                  : "."),
+            );
             continue;
           }
           const given = row[`${field}_Type`];

@@ -15,6 +15,7 @@ const RECEIPT = "Document_ПоступлениеТоваровУслуг";
 const ARTICLES = "Catalog_СтатьиЗатрат";
 const DEPARTMENTS = "Catalog_ПодразделенияОрганизаций";
 const GROUPS = "Catalog_НоменклатурныеГруппы";
+const COUNTERPARTIES = "Catalog_Контрагенты";
 
 const analyticsFields = {
   expenseAccount: z
@@ -37,6 +38,13 @@ const analyticsFields = {
     .string()
     .optional()
     .describe("Подразделение: название или Ref_Key (Catalog_ПодразделенияОрганизаций)"),
+  subcontoCounterparty: z
+    .string()
+    .optional()
+    .describe(
+      "Контрагент для субконто «Контрагенты» (название, код или Ref_Key); по умолчанию — контрагент документа. " +
+        "Подставляется в любой слот СубконтоЗатратБУn/НУn, где вид субконто счёта «Контрагенты»",
+    ),
   nomenclatureGroup: z
     .string()
     .optional()
@@ -69,7 +77,10 @@ export function registerServicesReceiptTool(server: McpServer, ctx: ServerContex
         "Создаёт НЕПРОВЕДЁННЫЙ документ «Поступление товаров и услуг» (ВидОперации=Услуги) с табличной частью «Услуги» " +
         "и аналитикой затрат — для расходов без склада: проценты и вознаграждение по займу, услуги банка, аренда, " +
         "консультации. Статья затрат и подразделение — это субконто счёта затрат (не отдельные реквизиты): " +
-        "укажите expenseAccount ('7210'), costArticle и department названием или Ref_Key (поиск — read.catalog.list_catalog); " +
+        "укажите expenseAccount ('7210', '7310'), costArticle (код '000000104', название или Ref_Key) и department " +
+        "(поиск — read.catalog.list_catalog); контрагент в субконто «Контрагенты» (напр. у 7310) берётся из " +
+        "counterpartyRef или subcontoCounterparty. Статья, которой нет у счёта БУ, — ошибка; подразделение, группа, " +
+        "контрагент и всё по НУ — предупреждение с пропуском; пустые слоты субконто тоже перечисляются в notes; " +
         "сервер сам положит их в нужные слоты СубконтоЗатратБУn и допишет _Type " +
         "(StandardODATA.Catalog_СтатьиЗатрат и т.д.) по субконто счёта. Валюта и курс: currencyRef, exchangeRate, " +
         "rateMultiplicity; счета расчётов: settlementAccount ('3310'), advanceAccount ('1610'). Сумму, ставку и курс " +
@@ -166,8 +177,14 @@ export function registerServicesReceiptTool(server: McpServer, ctx: ServerContex
           const article = await lookup(ARTICLES, pick(l, "costArticle"), "Статья затрат");
           const department = await lookup(DEPARTMENTS, pick(l, "department"), "Подразделение");
           const group = await lookup(GROUPS, pick(l, "nomenclatureGroup"), "Номенклатурная группа");
-          const want = { article, department, group };
-          const hasAnalytics = !!(article || department || group);
+          const cpExplicit = await lookup(
+            COUNTERPARTIES,
+            pick(l, "subcontoCounterparty"),
+            "Контрагент (субконто)",
+          );
+          const want = { article, department, group, counterparty: cpExplicit ?? a.counterpartyRef };
+          const explicit = !!(article || department || group || cpExplicit);
+          const quiet = cpExplicit ? [] : (["counterparty"] as const);
           const row: Row = {
             Номенклатура_Key: l.nomenclatureRef,
             ...(l.content === undefined ? {} : { Содержание: l.content }),
@@ -181,34 +198,29 @@ export function registerServicesReceiptTool(server: McpServer, ctx: ServerContex
           for (const stage of STAGES) {
             const acc = row[`СчетЗатрат${stage}_Key`];
             if (typeof acc !== "string") {
-              if (hasAnalytics && stage === "БУ")
+              if (explicit && stage === "БУ")
                 throw new InputError(
                   `${where}: статья затрат/подразделение — субконто счёта затрат; укажите expenseAccount (напр. '7210').`,
                 );
               continue;
             }
-            if (!hasAnalytics) continue;
             const layout = await layoutOf(stage, acc);
             if (!layout) {
-              if (stage === "БУ")
+              if (explicit && stage === "БУ")
                 throw new InputError(
                   `${where}: счёт затрат ${acc} не прочитан в плане счетов — не удалось определить субконто.`,
                 );
+              notes.push(
+                `${where}: счёт затрат ${stage} не прочитан в плане счетов — субконто не определены.`,
+              );
               continue;
             }
-            if (stage === "БУ") {
-              const placed = placeAnalytics(layout, stage, want);
-              if (placed.error) throw new InputError(`${where}: ${placed.error}`);
-              Object.assign(row, placed.fields);
-            } else {
-              // НУ: налоговый счёт может не иметь части субконто — кладём то, что есть, и сообщаем о пропуске.
-              for (const k of ["article", "department", "group"] as const) {
-                if (!want[k]) continue;
-                const placed = placeAnalytics(layout, stage, { [k]: want[k] });
-                if (placed.error) notes.push(`${where}: ${placed.error}`);
-                else Object.assign(row, placed.fields);
-              }
-            }
+            // Статья затрат обязательна для БУ-счёта (ошибка, если у счёта нет такого субконто); остальное и всё по НУ —
+            // предупреждение: налоговый счёт часто устроен иначе, и пропуск лучше, чем отказ.
+            const placed = placeAnalytics(layout, stage, want, { strict: stage === "БУ", quiet });
+            if (placed.error) throw new InputError(`${where}: ${placed.error}`);
+            Object.assign(row, placed.fields);
+            notes.push(...placed.warnings.map((w) => `${where}: ${w}`));
           }
           rows.push(row);
         }

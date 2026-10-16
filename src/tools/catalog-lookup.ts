@@ -4,12 +4,12 @@ import { catalogFields } from "../odata/catalog-fields.js";
 import { ODataError } from "../odata/errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { ensurePublished } from "../odata/publication.js";
-import { and, buildQuery, cmp, contains, odataString } from "../odata/query.js";
-import { noAccessMessage } from "./catalog-read.js";
+import { and, buildQuery, cmp, contains, or, odataString } from "../odata/query.js";
+import { codeFilterValues, noAccessMessage } from "./catalog-read.js";
 import { isGuid } from "./subconto.js";
 
 /**
- * Элемент справочника по Ref_Key или по названию: точное совпадение, иначе по части названия. Группы и помеченные на
+ * Элемент справочника по Ref_Key, по коду (только цифры: точный код с нормализацией нулей) или по названию: точное совпадение, иначе по части названия. Группы и помеченные на
  * удаление не берутся. Не найден или неоднозначен — InputError с вариантами (модель уточняет у пользователя).
  */
 export async function resolveCatalogItem(
@@ -63,6 +63,26 @@ export async function resolveCatalogItem(
         11,
       ),
     );
+  // Только цифры — это может быть код справочника («000000104», «104»): точное совпадение с нормализацией нулей.
+  if (/^\d+$/.test(text) && fields.code) {
+    let length: number | undefined;
+    try {
+      const sample = await conn.client.getCollection(entity + buildQuery({ select: [fields.code], top: 1 }));
+      const first = sample.value?.[0]?.[fields.code];
+      length = typeof first === "string" && first ? first.length : undefined;
+    } catch {
+      // образец кода не прочитан — ищем по введённым вариантам
+    }
+    const byCode = (
+      await find(or(...codeFilterValues(text, length).map((c) => cmp(fields.code, "eq", odataString(c)))))
+    ).rows;
+    if (byCode.length === 1)
+      return { ref: String(byCode[0]![fields.ref]), name: String(byCode[0]![fields.name]) };
+    if (byCode.length > 1)
+      throw new InputError(
+        `${label} с кодом «${text}» неоднозначна: ${byCode.map((r) => `«${String(r[fields.name])}» (${String(r[fields.ref])})`).join("; ")}. Передайте Ref_Key.`,
+      );
+  }
   const exact = (await find(cmp(fields.name, "eq", odataString(text)))).rows;
   const hits = exact.length ? exact : (await find(contains(fields.name, text))).rows;
   const list = (rows: typeof hits) =>

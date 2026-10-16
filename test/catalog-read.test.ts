@@ -32,6 +32,7 @@ function setup() {
       КатегорияЗатрат: "Банк",
     },
     { Ref_Key: A.folder, Code: "00003", Description: "Прочие группы", IsFolder: true, DeletionMark: false },
+    { Ref_Key: id(105), Code: "00005", Description: "Налог 2026", IsFolder: false, DeletionMark: false },
     { Ref_Key: A.deleted, Code: "00004", Description: "Прочие старые", IsFolder: false, DeletionMark: true },
   ];
   store["ChartOfCharacteristicTypes_ВидыСубконтоТиповые"] = [
@@ -55,7 +56,7 @@ describe("read.catalog.list_catalog", () => {
       rowsOf(res)
         .map((r) => r["name"])
         .sort(),
-    ).toEqual(["Комиссия банка", "Прочие расходы"]);
+    ).toEqual(["Комиссия банка", "Налог 2026", "Прочие расходы"]);
     expect(rowsOf(res)[0]).toMatchObject({ ref: expect.any(String), isFolder: false, deletionMark: false });
   });
 
@@ -66,7 +67,7 @@ describe("read.catalog.list_catalog", () => {
       includeFolders: true,
       includeDeleted: true,
     });
-    expect(rowsOf(res)).toHaveLength(4);
+    expect(rowsOf(res)).toHaveLength(5);
     expect(rowsOf(res).find((r) => r["ref"] === A.folder)).toMatchObject({ isFolder: true });
     expect(rowsOf(res).find((r) => r["ref"] === A.deleted)).toMatchObject({ deletionMark: true });
   });
@@ -116,7 +117,7 @@ describe("read.catalog.list_catalog", () => {
       expect(rowsOf(res).map((r) => r["name"])).toEqual(["Статьи затрат"]);
     }
     const bySyntax = await call("read.catalog.list_catalog", { entitySet: "Справочник.СтатьиЗатрат" });
-    expect(rowsOf(bySyntax)).toHaveLength(2);
+    expect(rowsOf(bySyntax)).toHaveLength(3);
   });
 
   it("документ не читает — отсылает к search_documents", async () => {
@@ -143,5 +144,80 @@ describe("read.catalog.list_catalog", () => {
     const res = await call("read.catalog.list_catalog", { entitySet: "Catalog_ВидыПрочихВыплат" });
     expect(res.isError).toBe(true);
     expect(text(res as never)).toContain("Нет прав OData на справочник Catalog_ВидыПрочихВыплат (HTTP 401)");
+  });
+
+  describe("поиск по коду", () => {
+    const names = (r: { structuredContent?: unknown }) => rowsOf(r).map((x) => x["name"]);
+
+    it("цифровой query: код без нулей дополняется до длины кодов справочника", async () => {
+      const { call } = setup();
+      const res = await call("read.catalog.list_catalog", { entitySet: "Catalog_СтатьиЗатрат", query: "2" });
+      // «2» — код 00002 и (по названию) «Налог 2026».
+      expect(names(res).sort()).toEqual(["Комиссия банка", "Налог 2026"]);
+      expect(rowsOf(res).find((r) => r["name"] === "Комиссия банка")).toMatchObject({
+        code: "00002",
+        matchedBy: "code",
+      });
+    });
+
+    it("цифровой query: точный код с нулями и ведущие нули в избытке", async () => {
+      const { call } = setup();
+      for (const q of ["00002", "0000002", "000000000002"]) {
+        const res = await call("read.catalog.list_catalog", { entitySet: "Catalog_СтатьиЗатрат", query: q });
+        expect(names(res), q).toEqual(["Комиссия банка"]);
+      }
+    });
+
+    it("цифровой query ищет и по названию: «2026» находит статью с годом в названии", async () => {
+      const { call } = setup();
+      const res = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        query: "2026",
+      });
+      expect(names(res)).toEqual(["Налог 2026"]);
+      expect(rowsOf(res)[0]).not.toHaveProperty("matchedBy");
+    });
+
+    it("параметр code — только по коду, не по названию", async () => {
+      const { call } = setup();
+      const byCode = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        code: "5",
+      });
+      expect(names(byCode)).toEqual(["Налог 2026"]);
+      const notByName = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        code: "2026",
+      });
+      expect(rowsOf(notByName)).toHaveLength(0);
+      expect(text(notByName as never)).toContain("Элемента с кодом «2026» нет");
+    });
+
+    it("несуществующий код — пустой результат с пояснением; скрытые (удалённые) не находит без includeDeleted", async () => {
+      const { call } = setup();
+      const none = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        query: "104",
+      });
+      expect(rowsOf(none)).toHaveLength(0);
+      expect((none.structuredContent as { note: string }).note).toContain("00104");
+      const hidden = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        code: "4",
+      });
+      expect(rowsOf(hidden)).toHaveLength(0);
+      const shown = await call("read.catalog.list_catalog", {
+        entitySet: "Catalog_СтатьиЗатрат",
+        code: "4",
+        includeDeleted: true,
+      });
+      expect(names(shown)).toEqual(["Прочие старые"]);
+    });
+
+    it("нецифровой query работает как раньше (только название)", async () => {
+      const { call, gets } = setup();
+      await call("read.catalog.list_catalog", { entitySet: "Catalog_СтатьиЗатрат", query: "банка" });
+      expect(gets.some((g) => g.includes("Code eq"))).toBe(false);
+    });
   });
 });

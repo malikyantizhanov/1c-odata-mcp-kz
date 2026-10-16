@@ -37,6 +37,7 @@ export const KZ_WRITE_TOOLS = [
   "write.entity.mark_for_deletion",
   "write.entity.update_entity",
   "write.operation.status",
+  "write.purchase.create_services_receipt",
   "write.document.create_document",
   "write.document.update_document",
   "write.document.post_document",

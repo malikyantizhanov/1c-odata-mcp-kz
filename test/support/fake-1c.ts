@@ -192,7 +192,20 @@ export function matches(row: Row, filter: string | undefined): boolean {
   }
 }
 
-export function fake1C(opts: { writable?: boolean; readOnly?: boolean; store?: Store } = {}) {
+export type FakeEntityMeta = {
+  properties: Array<{ name: string; type?: string }>;
+  navigations?: Array<{ name: string; toType: string; collection: boolean }>;
+};
+
+export function fake1C(
+  opts: {
+    writable?: boolean;
+    readOnly?: boolean;
+    store?: Store;
+    /** Явные метаданные объектов (типы полей, табличные части, связи) поверх выведенных из store. */
+    entities?: Record<string, FakeEntityMeta>;
+  } = {},
+) {
   const store = opts.store ?? baseStore();
   const behavior: Behavior = {
     timeoutMs: 1000,
@@ -218,9 +231,10 @@ export function fake1C(opts: { writable?: boolean; readOnly?: boolean; store?: S
   const props = (set: string) => ({
     properties: [...new Set((store[set] ?? []).flatMap((r) => Object.keys(r)))].map((name) => ({ name })),
   });
-  const entities = new Map<string, { properties: { name: string }[] }>([
-    ...Object.keys(store).map((s) => [s, props(s)] as [string, { properties: { name: string }[] }]),
+  const entities = new Map<string, FakeEntityMeta>([
+    ...Object.keys(store).map((s) => [s, props(s)] as [string, FakeEntityMeta]),
     ["ChartOfAccounts_Типовой", { properties: [] }],
+    ...Object.entries(opts.entities ?? {}),
   ]);
   vi.spyOn(conn, "getMetadata").mockResolvedValue({ entities } as never);
   const posts: Array<{ set: string; body: Row }> = [];

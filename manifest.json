@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 81 инструмент: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 83 инструмента: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -176,6 +176,137 @@
         },
         "required": [
           "database",
+          "rows",
+          "count",
+          "truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.catalog.list_catalog",
+      "title": "Элементы любого справочника или плана видов характеристик",
+      "description": "Читает строки любого справочника (Catalog_*) или плана видов характеристик (ChartOfCharacteristicTypes_*, виды субконто): Ref_Key, наименование, код, признак группы и пометки удаления. entitySet — техническое имя ('Catalog_СтатьиЗатрат'), без префикса или в синтаксисе 1С ('Справочник.СтатьиЗатрат'). query — поиск по части наименования (без учёта регистра); пустой query — список. По умолчанию группы и помеченные на удаление скрыты (includeFolders / includeDeleted). Для следующих страниц передавайте nextOffset. select — дополнительные поля (имена из read.schema.describe_entity), напр. ВидРасходовНУ_Key. Ref_Key статьи затрат, подразделения и т.п. нужен для create_services_receipt и create_document. Если у пользователя OData нет прав на справочник, инструмент так и скажет.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string",
+            "description": "Справочник или план видов характеристик: Catalog_СтатьиЗатрат, ChartOfCharacteristicTypes_ВидыСубконтоТиповые (префикс можно опустить, если имя однозначно)"
+          },
+          "query": {
+            "default": "",
+            "description": "Часть наименования; пусто — без отбора",
+            "type": "string",
+            "maxLength": 200
+          },
+          "select": {
+            "description": "Дополнительные поля (кроме Ref_Key, Description, Code, IsFolder, DeletionMark)",
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "includeFolders": {
+            "default": false,
+            "description": "Показывать группы (IsFolder=true)",
+            "type": "boolean"
+          },
+          "includeDeleted": {
+            "default": false,
+            "description": "Показывать помеченные на удаление",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entitySet"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "isFolder": {
+                  "type": "boolean"
+                },
+                "deletionMark": {
+                  "type": "boolean"
+                },
+                "fields": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "ref",
+                "name"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "nextOffset": {
+            "type": "number"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "entitySet",
           "rows",
           "count",
           "truncated"
@@ -9720,7 +9851,7 @@
     {
       "name": "write.document.create_document",
       "title": "Создать документ (флоу бухгалтера: продажи, закупки, деньги, склад, зарплата, налоги)",
-      "description": "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: реализация, поступление, возвраты, счета-фактуры, ПП/платёжные ордера, ПКО/РКО, склад, авансовый отчёт, акт сверки, закрытие месяца, зарплата и кадры — список, схемы проводок и нормы НК РК: read.system.kz_document_guide. Счета учёта можно передать кодами Типового плана ('1330', для НУ — счёт Налогового плана) — сервер подставит ссылки; или взять из образца (sampleRef, другого вида — sampleEntitySet). Суммы и ставки считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц (read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
+      "description": "Создаёт документ казахстанской базы с заданными реквизитами шапки и табличными частями: реализация, поступление, возвраты, счета-фактуры, ПП/платёжные ордера, ПКО/РКО, склад, авансовый отчёт, акт сверки, закрытие месяца, зарплата и кадры — список, схемы проводок и нормы НК РК: read.system.kz_document_guide. Счета учёта можно передать кодами Типового плана ('1330', для НУ — счёт Налогового плана) — сервер подставит ссылки; или взять из образца (sampleRef, другого вида — sampleEntitySet). Суммы и ставки считаете сами — 1С их не пересчитает. Состав полей — read.schema.describe_entity по документу и по '<Документ>_<ТабличнаяЧасть>'; образец заполнения — read.document.get_document существующего документа того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц (read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. Субконто затрат в строках (СубконтоЗатратБУ1..3 / НУ1..3) — составные ссылки: значение + <поле>_Type ('StandardODATA.Catalog_СтатьиЗатрат'); _Type сервер допишет по субконто счёта затрат и покажет итог в notes. Пример «Услуги»: {\"Номенклатура_Key\":\"<GUID>\",\"Количество\":1,\"Цена\":1000,\"Сумма\":1000,\"СчетЗатратБУ_Key\":\"7210\",\"СубконтоЗатратБУ1\":\"<Ref_Key статьи затрат>\",\"СубконтоЗатратБУ2\":\"<Ref_Key подразделения>\"}; статью найдите read.catalog.list_catalog, для поступления услуг удобнее write.purchase.create_services_receipt. По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -10367,6 +10498,260 @@
         "required": [
           "database"
         ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.purchase.create_services_receipt",
+      "title": "Создать поступление услуг (со статьёй затрат и подразделением)",
+      "description": "Создаёт НЕПРОВЕДЁННЫЙ документ «Поступление товаров и услуг» (ВидОперации=Услуги) с табличной частью «Услуги» и аналитикой затрат — для расходов без склада: проценты и вознаграждение по займу, услуги банка, аренда, консультации. Статья затрат и подразделение — это субконто счёта затрат (не отдельные реквизиты): укажите expenseAccount ('7210'), costArticle и department названием или Ref_Key (поиск — read.catalog.list_catalog); сервер сам положит их в нужные слоты СубконтоЗатратБУn и допишет _Type (StandardODATA.Catalog_СтатьиЗатрат и т.д.) по субконто счёта. Валюта и курс: currencyRef, exchangeRate, rateMultiplicity; счета расчётов: settlementAccount ('3310'), advanceAccount ('1610'). Сумму, ставку и курс считаете сами — 1С их не пересчитывает. Предпросмотр (confirm=false) в notes показывает итоговые субконто по строкам и предупреждает о незаполненных счетах расчётов и пустой статье затрат; создание — confirm=true после согласия пользователя. Проведение — write.document.post_document. Пример: {\"counterpartyRef\":\"<GUID>\",\"contractRef\":\"<GUID>\",\"expenseAccount\":\"7210\",\"costArticle\":\"Прочие расходы\",\"department\":\"Администрация\",\"settlementAccount\":\"3310\",\"lines\":[{\"nomenclatureRef\":\"<GUID услуги>\",\"content\":\"Вознаграждение по займу за сентябрь\",\"price\":125000}]}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "counterpartyRef": {
+            "type": "string",
+            "description": "Ref_Key контрагента-поставщика"
+          },
+          "contractRef": {
+            "description": "Ref_Key договора (вид «СПоставщиком»)",
+            "type": "string"
+          },
+          "date": {
+            "description": "Дата документа YYYY-MM-DD (по умолчанию сегодня)",
+            "type": "string"
+          },
+          "comment": {
+            "description": "Комментарий (напр. расчёт ставки овернайт)",
+            "type": "string"
+          },
+          "incomingNumber": {
+            "description": "Номер входящего документа поставщика",
+            "type": "string"
+          },
+          "incomingDate": {
+            "description": "Дата входящего документа YYYY-MM-DD",
+            "type": "string"
+          },
+          "currencyRef": {
+            "description": "Ref_Key валюты документа (ВалютаДокумента_Key)",
+            "type": "string"
+          },
+          "exchangeRate": {
+            "description": "Курс взаиморасчётов (КурсВзаиморасчетов)",
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "rateMultiplicity": {
+            "description": "Кратность (КратностьВзаиморасчетов)",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "settlementAccount": {
+            "description": "Счёт расчётов с контрагентом: код ('3310') или Ref_Key",
+            "type": "string"
+          },
+          "advanceAccount": {
+            "description": "Счёт расчётов по авансам: код ('1610') или Ref_Key",
+            "type": "string"
+          },
+          "sumIncludesVat": {
+            "description": "Сумма включает НДС",
+            "type": "boolean"
+          },
+          "fields": {
+            "default": {},
+            "description": "Другие реквизиты шапки по $metadata (как в create_document)",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "sampleRef": {
+            "description": "Ref_Key проведённого поступления того же вида — взять недостающие настройки учёта",
+            "type": "string"
+          },
+          "expenseAccount": {
+            "description": "Счёт затрат БУ: код Типового плана ('7210', '7110', '8110') или Ref_Key. Субконто зависят от счёта",
+            "type": "string"
+          },
+          "taxExpenseAccount": {
+            "description": "Счёт затрат НУ: код Налогового плана ('7210Н') или Ref_Key",
+            "type": "string"
+          },
+          "costArticle": {
+            "description": "Статья затрат: название (точное или часть) или Ref_Key из read.catalog.list_catalog (Catalog_СтатьиЗатрат)",
+            "type": "string"
+          },
+          "department": {
+            "description": "Подразделение: название или Ref_Key (Catalog_ПодразделенияОрганизаций)",
+            "type": "string"
+          },
+          "nomenclatureGroup": {
+            "description": "Номенклатурная группа: название или Ref_Key — только если у счёта есть такое субконто",
+            "type": "string"
+          },
+          "lines": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nomenclatureRef": {
+                  "type": "string",
+                  "description": "Ref_Key номенклатуры (услуги)"
+                },
+                "content": {
+                  "description": "Содержание услуги (печатается в документе)",
+                  "type": "string"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "price": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "Цена за единицу"
+                },
+                "amount": {
+                  "description": "Сумма строки; по умолчанию количество × цена",
+                  "type": "number",
+                  "minimum": 0
+                },
+                "vatRateRef": {
+                  "description": "Ref_Key ставки НДС (Catalog_СтавкиНДС); без неё СтавкаНДС не задаётся",
+                  "type": "string"
+                },
+                "vatAmount": {
+                  "description": "Сумма НДС строки (1С её не пересчитывает)",
+                  "type": "number",
+                  "minimum": 0
+                },
+                "expenseAccount": {
+                  "description": "Счёт затрат БУ: код Типового плана ('7210', '7110', '8110') или Ref_Key. Субконто зависят от счёта",
+                  "type": "string"
+                },
+                "taxExpenseAccount": {
+                  "description": "Счёт затрат НУ: код Налогового плана ('7210Н') или Ref_Key",
+                  "type": "string"
+                },
+                "costArticle": {
+                  "description": "Статья затрат: название (точное или часть) или Ref_Key из read.catalog.list_catalog (Catalog_СтатьиЗатрат)",
+                  "type": "string"
+                },
+                "department": {
+                  "description": "Подразделение: название или Ref_Key (Catalog_ПодразделенияОрганизаций)",
+                  "type": "string"
+                },
+                "nomenclatureGroup": {
+                  "description": "Номенклатурная группа: название или Ref_Key — только если у счёта есть такое субконто",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "nomenclatureRef",
+                "price"
+              ]
+            },
+            "description": "Строки «Услуги»; аналитика строки перекрывает аналитику документа"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "counterpartyRef",
+          "lines"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
       },

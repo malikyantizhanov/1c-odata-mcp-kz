@@ -10,6 +10,7 @@ import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { databaseField, fail, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
+import { fillSubcontoTypes } from "./subconto.js";
 import {
   enumNotes,
   fillFromSample,
@@ -228,6 +229,84 @@ async function documentMeta(conn: Connection, entitySet: string): Promise<Entity
   return em;
 }
 
+/** Параметры подготовки документа: общий путь create_document и профильных инструментов (поступление услуг). */
+export interface PrepareDocumentArgs {
+  organization?: string | undefined;
+  entitySet: string;
+  date?: string | undefined;
+  fields?: Record<string, Scalar>;
+  tables?: Record<string, Array<Record<string, Scalar>>>;
+  sampleRef?: string | undefined;
+  sampleEntitySet?: string | undefined;
+}
+
+/**
+ * Собирает payload документа казахстанской базы: проверка полей по $metadata, счета по кодам, настройки из образца,
+ * типы субконто затрат (_Type), предупреждения. Запись — createOrPreview.
+ */
+export async function prepareDocument(
+  conn: Connection,
+  {
+    organization,
+    entitySet,
+    date,
+    fields = {},
+    tables = {},
+    sampleRef,
+    sampleEntitySet,
+  }: PrepareDocumentArgs,
+): Promise<{ payload: Record<string, unknown>; notes: string[] }> {
+  const em = await documentMeta(conn, entitySet);
+  const header = normalizeFields(em, fields, entitySet);
+  const hasOrg = em.properties.some((p) => p.name === "Организация_Key");
+  const org = hasOrg && !header["Организация_Key"] ? await resolveOrg(conn, organization) : undefined;
+  const when = date ? (DATE_ONLY.test(date) ? `${date}T00:00:00` : date) : odataDate(new Date());
+  let payload: Record<string, unknown> = {
+    ...header,
+    Date: when,
+    Posted: false,
+    ...(org ? { Организация_Key: org.key } : {}),
+    ...(await normalizeTables(conn, em, tables)),
+  };
+  const notes =
+    entitySet === ACCRUAL_DOC
+      ? await sameMonthAccruals(conn, payload)
+      : CLASSIC_TAX_DOCS.includes(entitySet)
+        ? await singlePaymentForMonth(conn, payload)
+        : [];
+  const codes = await resolveAccountCodes(conn, em, payload);
+  payload = codes.payload;
+  if (codes.resolved.length)
+    notes.push(`Счета по кодам Типового плана заменены на ссылки: ${codes.resolved.join(", ")}.`);
+  if (sampleRef) {
+    const sguid = sampleRef.replace(/[{}']/g, "");
+    const sampleSet = sampleEntitySet ?? entitySet;
+    if (!/^Document_[\p{L}\p{N}_]+$/u.test(sampleSet))
+      throw new InputError(`sampleEntitySet должен быть документом (Document_…), получено: ${sampleSet}.`);
+    const sample = await conn.client.getEntity(`${sampleSet}(guid'${sguid}')${buildQuery({})}`);
+    if (sample["DeletionMark"] === true) {
+      throw new InputError(
+        "Образец помечен на удаление — такие документы не используют. Возьмите другой проведённый документ того же вида.",
+      );
+    }
+    const filled = fillFromSample(await conn.getMetadata(), em, payload, sample);
+    payload = filled.payload;
+    notes.push(
+      filled.filled.length
+        ? `Из образца № ${String(sample["Number"] ?? "")} от ${String(sample["Date"] ?? "").slice(0, 10)} взяты настройки учёта: ${filled.filled.join("; ")}.`
+        : `Образец № ${String(sample["Number"] ?? "")}: все настройки учёта уже заданы или в образце пусты — ничего не подставлено.`,
+    );
+    if (sample["Posted"] !== true)
+      notes.push("Образец не проведён — его счета 1С не проверяла; надёжнее взять проведённый документ.");
+  }
+  const subconto = await fillSubcontoTypes(conn, em, payload);
+  payload = subconto.payload;
+  notes.push(...subconto.notes);
+  notes.push(...(await kzCreateNotes(conn, em, payload, { sampleUsed: !!sampleRef })));
+  notes.push(...vatRateNotes(when, payload, em, await vatRateNames(conn)));
+  return { payload, notes };
+}
+
 export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext): void {
   server.registerTool(
     "write.document.create_document",
@@ -244,6 +323,11 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         "того же вида, лучше рассчитанного самой 1С по тому же сотруднику. Перед начислением проверьте месяц " +
         "(read.payroll.get_accruals): повторное начисление предпросмотр покажет в notes. Документы, помеченные на " +
         "удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. " +
+        "Субконто затрат в строках (СубконтоЗатратБУ1..3 / НУ1..3) — составные ссылки: значение + <поле>_Type " +
+        "('StandardODATA.Catalog_СтатьиЗатрат'); _Type сервер допишет по субконто счёта затрат и покажет итог в notes. " +
+        'Пример «Услуги»: {"Номенклатура_Key":"<GUID>","Количество":1,"Цена":1000,"Сумма":1000,"СчетЗатратБУ_Key":"7210",' +
+        '"СубконтоЗатратБУ1":"<Ref_Key статьи затрат>","СубконтоЗатратБУ2":"<Ref_Key подразделения>"}; статью найдите ' +
+        "read.catalog.list_catalog, для поступления услуг удобнее write.purchase.create_services_receipt. " +
         "По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия пользователя.",
       inputSchema: {
         database: databaseField,
@@ -292,53 +376,15 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
     }) =>
       guard("write.document.create_document", async () => {
         const conn = ctx.db(database);
-        const em = await documentMeta(conn, entitySet);
-        const header = normalizeFields(em, fields, entitySet);
-        const hasOrg = em.properties.some((p) => p.name === "Организация_Key");
-        const org = hasOrg && !header["Организация_Key"] ? await resolveOrg(conn, organization) : undefined;
-        const when = date ? (DATE_ONLY.test(date) ? `${date}T00:00:00` : date) : odataDate(new Date());
-        let payload: Record<string, unknown> = {
-          ...header,
-          Date: when,
-          Posted: false,
-          ...(org ? { Организация_Key: org.key } : {}),
-          ...(await normalizeTables(conn, em, tables)),
-        };
-        const notes =
-          entitySet === ACCRUAL_DOC
-            ? await sameMonthAccruals(conn, payload)
-            : CLASSIC_TAX_DOCS.includes(entitySet)
-              ? await singlePaymentForMonth(conn, payload)
-              : [];
-        const codes = await resolveAccountCodes(conn, em, payload);
-        payload = codes.payload;
-        if (codes.resolved.length)
-          notes.push(`Счета по кодам Типового плана заменены на ссылки: ${codes.resolved.join(", ")}.`);
-        if (sampleRef) {
-          const sguid = sampleRef.replace(/[{}']/g, "");
-          const sampleSet = sampleEntitySet ?? entitySet;
-          if (!/^Document_[\p{L}\p{N}_]+$/u.test(sampleSet))
-            return fail(`sampleEntitySet должен быть документом (Document_…), получено: ${sampleSet}.`);
-          const sample = await conn.client.getEntity(`${sampleSet}(guid'${sguid}')${buildQuery({})}`);
-          if (sample["DeletionMark"] === true) {
-            return fail(
-              "Образец помечен на удаление — такие документы не используют. Возьмите другой проведённый документ того же вида.",
-            );
-          }
-          const filled = fillFromSample(await conn.getMetadata(), em, payload, sample);
-          payload = filled.payload;
-          notes.push(
-            filled.filled.length
-              ? `Из образца № ${String(sample["Number"] ?? "")} от ${String(sample["Date"] ?? "").slice(0, 10)} взяты настройки учёта: ${filled.filled.join("; ")}.`
-              : `Образец № ${String(sample["Number"] ?? "")}: все настройки учёта уже заданы или в образце пусты — ничего не подставлено.`,
-          );
-          if (sample["Posted"] !== true)
-            notes.push(
-              "Образец не проведён — его счета 1С не проверяла; надёжнее взять проведённый документ.",
-            );
-        }
-        notes.push(...(await kzCreateNotes(conn, em, payload, { sampleUsed: !!sampleRef })));
-        notes.push(...vatRateNotes(when, payload, em, await vatRateNames(conn)));
+        const { payload, notes } = await prepareDocument(conn, {
+          organization,
+          entitySet,
+          date,
+          fields,
+          tables,
+          sampleRef,
+          sampleEntitySet,
+        });
         return createOrPreview(conn, entitySet, payload, confirm, notes);
       }),
   );

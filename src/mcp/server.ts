@@ -11,6 +11,7 @@ import { ANY_ENTITY_PARAMS, DOCUMENT_ENTITY_PARAMS, normalizeToolArgs } from "..
 import { registerMetaTools } from "../tools/meta.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
+import { registerServicesReceiptTool } from "../tools/services-receipt.js";
 import { registerRegisterTools } from "../tools/registers.js";
 import { registerCashflowTools } from "../tools/cashflow.js";
 import { registerSalesTools } from "../tools/sales.js";
@@ -199,6 +200,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerDocumentWriteTools(server, ctx);
   registerQuickInvoiceTool(server, ctx);
   registerQuickSaleTool(server, ctx);
+  registerServicesReceiptTool(server, ctx);
 
   return server;
 }

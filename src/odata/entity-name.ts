@@ -64,7 +64,7 @@ export function normalizeDocumentEntity(name: string): string {
 
 /**
  * Имя объекта любого класса: точное имя — как есть; синтаксис 1С — в префикс OData; без префикса — ищется среди
- * опубликованных Document_<имя> и Catalog_<имя>: ровно одно — оно, оба — ошибка с вариантами, ни одного — как есть
+ * опубликованных Document_<имя>, Catalog_<имя> и ChartOfCharacteristicTypes_<имя>: ровно одно — оно, несколько — ошибка с вариантами, ни одного — как есть
  * (инструмент сам скажет, что объект не опубликован).
  */
 export async function resolveEntityName(conn: Connection, name: string): Promise<string> {
@@ -72,7 +72,9 @@ export async function resolveEntityName(conn: Connection, name: string): Promise
   if (!n || hasClassPrefix(n)) return n;
   const available = await conn.available();
   if (available.has(n)) return n;
-  const hits = ["Document_", "Catalog_"].map((p) => p + n).filter((c) => available.has(c));
+  const hits = ["Document_", "Catalog_", "ChartOfCharacteristicTypes_"]
+    .map((p) => p + n)
+    .filter((c) => available.has(c));
   if (hits.length === 1) return hits[0]!;
   if (hits.length > 1)
     throw new InputError(`Имя «${n}» неоднозначно: ${hits.join(" или ")}. Укажите полное имя с префиксом.`);
@@ -99,6 +101,7 @@ export const DOCUMENT_ENTITY_PARAMS: Readonly<Record<string, string>> = {
 /** Параметры-объекты любого класса: префикс подбирается по опубликованным объектам. */
 export const ANY_ENTITY_PARAMS: Readonly<Record<string, string>> = {
   "read.schema.describe_entity": "entitySet",
+  "read.catalog.list_catalog": "entitySet",
   "write.entity.mark_for_deletion": "entitySet",
   "write.entity.update_entity": "entitySet",
   "read.files.list_attachments": "entitySet",

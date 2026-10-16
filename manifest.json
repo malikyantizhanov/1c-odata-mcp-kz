@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.6.1",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 83 инструмента: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 86 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -4266,6 +4266,392 @@
           "mimeType",
           "size",
           "decoded"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.esf.list_avr",
+      "title": "Электронные акты выполненных работ (ЭАВР)",
+      "description": "Список ЭАВР (Казахстан, документ «Электронный акт выполненных работ»): номер, дата, дата выполнения, направление, статус и состояние, контрагент, договор (или «без договора»), валюта, суммы с учётом и без косвенных налогов, НДС, и основание — первичный документ (поступление/реализация), к которому привязан ЭАВР. hasBasis=false — ЭАВР без основания (кандидатов подбирает read.esf.find_avr_basis). Фильтры: период, direction/status как в 1С, counterpartyRef, hasBasis. Сначала новые. Только чтение.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (YYYY-MM-DD)"
+          },
+          "direction": {
+            "description": "Направление: «Входящий» / «Исходящий»",
+            "type": "string",
+            "maxLength": 100
+          },
+          "status": {
+            "description": "Статус — значение как в 1С",
+            "type": "string",
+            "maxLength": 100
+          },
+          "counterpartyRef": {
+            "description": "Ref_Key контрагента",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "hasBasis": {
+            "description": "true — только с основанием, false — только без",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "avr": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "hasBasis": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ref",
+                "hasBasis"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "count",
+          "truncated",
+          "avr"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.esf.find_avr_basis",
+      "title": "Подбор основания (поступления) для ЭАВР",
+      "description": "Для ЭАВР без основания подбирает документы-кандидаты: поступление товаров и услуг (входящий ЭАВР) или реализацию (исходящий) — тот же контрагент и организация, сумма равна сумме ЭАВР (с налогами или без), дата в окне windowDays (по умолчанию ±31 день от даты акта или даты выполнения), документ не занят другим ЭАВР. Договор в ЭАВР часто не совпадает с договором документа — он только повышает оценку. Вердикт: unique — один кандидат; ambiguous — несколько (решает бухгалтер, в matchedBy видно, чем отличаются); none — нет; no_counterparty — контрагента ЭАВР не определить. Передайте avrRef (один ЭАВР) или без него — пакет из limit ЭАВР без основания, сначала новые. Ничего не записывает: привязку делает бухгалтер в 1С.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "avrRef": {
+            "description": "Ref_Key ЭАВР; без него — пакет ЭАВР без основания",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода ЭАВР (для пакета) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода ЭАВР (для пакета) (YYYY-MM-DD)"
+          },
+          "windowDays": {
+            "default": 31,
+            "description": "Окно дат, дней",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365
+          },
+          "tolerance": {
+            "default": 0.01,
+            "description": "Допуск по сумме",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "maxCandidates": {
+            "default": 5,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "limit": {
+            "default": 50,
+            "description": "Сколько ЭАВР без основания обработать",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "unique": {
+                "type": "number"
+              },
+              "ambiguous": {
+                "type": "number"
+              },
+              "none": {
+                "type": "number"
+              },
+              "noCounterparty": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "unique",
+              "ambiguous",
+              "none",
+              "noCounterparty"
+            ],
+            "additionalProperties": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "avrRef": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "unique",
+                    "ambiguous",
+                    "none",
+                    "no_counterparty"
+                  ]
+                },
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string"
+                      },
+                      "number": {
+                        "type": "string"
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "score": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "ref",
+                      "number",
+                      "date",
+                      "score"
+                    ],
+                    "additionalProperties": {}
+                  }
+                }
+              },
+              "required": [
+                "avrRef",
+                "verdict",
+                "candidates"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "summary",
+          "items"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.esf.find_esf_invoice",
+      "title": "Подбор счёта-фактуры для ЭСФ без связи",
+      "description": "Находит ЭСФ без привязанного счёта-фактуры и подбирает кандидатов: счёт-фактуру полученный (входящий ЭСФ) или выданный (исходящий) — та же организация и контрагент, сумма равна сумме ЭСФ, дата в окне windowDays, счёт-фактура не занята другим ЭСФ. Отозванные и аннулированные ЭСФ помечаются notNeeded: связывать их не нужно. Вердикты как у find_avr_basis (unique / ambiguous / none / no_counterparty). Передайте esfRef или возьмите пакет (limit). Ничего не записывает.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "esfRef": {
+            "description": "Ref_Key ЭСФ; без него — пакет ЭСФ без счёта-фактуры",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода ЭСФ (для пакета) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода ЭСФ (для пакета) (YYYY-MM-DD)"
+          },
+          "windowDays": {
+            "default": 31,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365
+          },
+          "tolerance": {
+            "default": 0.01,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "maxCandidates": {
+            "default": 5,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "unique": {
+                "type": "number"
+              },
+              "ambiguous": {
+                "type": "number"
+              },
+              "none": {
+                "type": "number"
+              },
+              "noCounterparty": {
+                "type": "number"
+              },
+              "notNeeded": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "unique",
+              "ambiguous",
+              "none",
+              "noCounterparty",
+              "notNeeded"
+            ],
+            "additionalProperties": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "esfRef": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "esfRef",
+                "verdict"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "summary",
+          "items"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}

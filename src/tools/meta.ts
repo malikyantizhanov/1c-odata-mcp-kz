@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerNomenclatureRead } from "./nomenclature-read.js";
+import { registerCatalogRead } from "./catalog-read.js";
 import { registerCapabilities } from "./capabilities.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
@@ -34,6 +35,7 @@ const CLASS_LABEL: Record<EntityClass, string> = {
 
 export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
   registerNomenclatureRead(server, ctx);
+  registerCatalogRead(server, ctx);
   registerCapabilities(server, ctx);
   server.registerTool(
     "read.system.list_databases",

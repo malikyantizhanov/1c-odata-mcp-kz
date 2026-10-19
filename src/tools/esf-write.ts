@@ -312,6 +312,94 @@ async function applyOrPreview(
   });
 }
 
+/**
+ * Проведённый документ: отмена проведения → PATCH полей → проведение. PATCH проведённого документа без
+ * перепроведения оставил бы движения (регистры ЭСФ со связью) старыми, поэтому только так. Успех каждого шага —
+ * по перечитанному признаку Posted, а не по HTTP 200.
+ */
+async function repostAndPatch(
+  conn: Connection,
+  set: string,
+  ref: string,
+  fields: Record<string, unknown>,
+  info: ReturnType<typeof result>,
+  confirm: boolean,
+) {
+  const g = guidOf(ref);
+  const steps = [
+    `1) отменить проведение: ${set}(${g})/Unpost`,
+    `2) записать поля: ${Object.keys(fields).join(", ")}`,
+    `3) провести заново: ${set}(${g})/Post`,
+  ];
+  if (!confirm)
+    return ok({
+      dryRun: true,
+      ...info,
+      repost: true,
+      steps,
+      willPatch: `${set}(${g})`,
+      note: conn.cfg.writable
+        ? "Предпросмотр. ЭСФ проведён: будет выполнено три шага (см. steps). Для записи повторите с confirm=true после согласия бухгалтера."
+        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
+    });
+  if (conn.behavior.readOnly)
+    return fail("Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).");
+  if (!conn.cfg.writable)
+    return fail(`Запись в базу "${conn.cfg.name}" запрещена: у базы нет writable: true.`);
+  const postedNow = async () =>
+    (await conn.client.getEntity(`${set}(guid'${g}')${buildQuery({ select: ["Posted"] })}`))["Posted"] ===
+    true;
+  await conn.client.action(`${set}(guid'${g}')/Unpost?$format=json`);
+  if (await postedNow())
+    return fail("1С не отменила проведение ЭСФ — связь не записана, документ не изменён.");
+  try {
+    await patchOrPreview(conn, set, ref, fields, true, info.warnings);
+  } catch (e) {
+    let reposted = false;
+    try {
+      await conn.client.action(`${set}(guid'${g}')/Post?$format=json`);
+      reposted = await postedNow();
+    } catch {
+      /* сообщим ниже */
+    }
+    throw new InputError(
+      `Связь не записана: ${(e as Error).message}. ` +
+        (reposted
+          ? "ЭСФ проведён обратно без изменений."
+          : "ВНИМАНИЕ: ЭСФ остался НЕпроведённым — проведите его в 1С."),
+    );
+  }
+  let postError = "";
+  try {
+    await conn.client.action(`${set}(guid'${g}')/Post?$format=json`);
+  } catch (e) {
+    postError = (e as Error).message;
+  }
+  const reposted = await postedNow();
+  const after = await conn.client.getEntity(
+    `${set}(guid'${g}')${buildQuery({ select: Object.keys(fields) })}`,
+  );
+  const mismatched = Object.entries(fields).filter(
+    ([k, v]) => !(k.endsWith("_Type") ? sameValue(typeOf(after[k]), typeOf(v)) : sameValue(after[k], v)),
+  );
+  if (!reposted)
+    return fail(
+      `Связь записана, но ЭСФ НЕ проведён заново${postError ? ` (1С: ${postError})` : ""}. Проведите ЭСФ в 1С и проверьте ` +
+        "регистры ЭСФ; до проведения связь в регистрах не обновится.",
+    );
+  return ok({
+    updated: true,
+    ...info,
+    repost: true,
+    steps,
+    verified: mismatched.length === 0,
+    ...(mismatched.length ? { notVerified: mismatched.map(([k]) => k) } : {}),
+    note: mismatched.length
+      ? "ЭСФ перепроведён, но после перечитывания часть полей отличается — проверьте документ в 1С."
+      : "Проведение отменено, связь записана, ЭСФ проведён заново; проверено повторным чтением.",
+  });
+}
+
 const resultSchema = z
   .object({
     dryRun: z.boolean().optional(),
@@ -623,7 +711,9 @@ export function registerEsfWriteTools(server: McpServer, ctx: ServerContext): vo
         "Записывает в ЭСФ (Document_ЭСФ) счёт-фактуру: СчетФактура + _Type (полученный — для входящего ЭСФ, выданный — " +
         "для исходящего) и, по желанию, договор поставки ДоговорПоставки_Key (contractRef или contractFromInvoice). " +
         "Меняет ТОЛЬКО эти поля; номер, даты, суммы, статус, регистрационный номер и реквизиты обмена с ИС не трогает. " +
-        "Отказ, если: ЭСФ проведён, отозван/аннулирован, в очереди отправки, исходящий ЭСФ уже отправлен/принят " +
+        "Проведённый ЭСФ — только с repost=true: отмена проведения → запись связи → проведение (шаги в предпросмотре; " +
+        "при сбое проведения ЭСФ остаётся непроведённым с записанной связью — об этом будет сказано). " +
+        "Отказ, если: ЭСФ отозван/аннулирован, в очереди отправки, исходящий ЭСФ уже отправлен/принят " +
         "(регистры АктуальныеЭСФ, ИсторияЭСФ, ОчередьОтправкиЭСФ); организация или контрагент СФ не совпадают; СФ уже " +
         "привязана к другому ЭСФ; договор не принадлежит контрагенту. Расхождение суммы и даты — предупреждения. " +
         "Предпросмотр «было → станет» по умолчанию; запись — confirm=true после согласия бухгалтера. Кандидатов " +
@@ -641,11 +731,17 @@ export function registerEsfWriteTools(server: McpServer, ctx: ServerContext): vo
           .boolean()
           .default(false)
           .describe("Заменить уже привязанную другую счёт-фактуру (по умолчанию отказ)"),
+        repost: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Для проведённого ЭСФ: отменить проведение → записать связь → провести заново (по умолчанию отказ)",
+          ),
         confirm: confirmField,
       },
       outputSchema: resultSchema,
     },
-    ({ database, esfRef, invoiceRef, contractRef, contractFromInvoice, replaceExisting, confirm }) =>
+    ({ database, esfRef, invoiceRef, contractRef, contractFromInvoice, replaceExisting, repost, confirm }) =>
       guard("write.esf.link_invoice", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, [ESF], "Документ «ЭСФ»");
@@ -704,9 +800,12 @@ export function registerEsfWriteTools(server: McpServer, ctx: ServerContext): vo
         const warnings: string[] = [];
         const checks: string[] = [];
         if (esf["DeletionMark"] === true) refuse.push("ЭСФ помечен на удаление.");
-        if (esf["Posted"] === true)
+        const posted = esf["Posted"] === true;
+        if (posted && !repost)
           refuse.push(
-            "ЭСФ проведён — снимите проведение в 1С, затем повторите (инструмент проведённые документы не меняет).",
+            "ЭСФ проведён. Связь пишется в регистры ЭСФ при проведении, поэтому правка проведённого ЭСФ без перепроведения " +
+              "оставила бы регистры со старой связью. Передайте repost=true: инструмент отменит проведение, запишет связь " +
+              "и проведёт ЭСФ заново (шаги видны в предпросмотре).",
           );
         if (inv["DeletionMark"] === true) refuse.push("Счёт-фактура помечена на удаление.");
         else checks.push(`счёт-фактура найдена: ${invSet.replace("Document_", "")} ${docLabel(inv)}`);
@@ -913,14 +1012,13 @@ export function registerEsfWriteTools(server: McpServer, ctx: ServerContext): vo
         if (refuse.length) return refusal("Привязка счёта-фактуры к ЭСФ", refuse, warnings, checks);
         const changes = buildChanges(esf, fields, texts);
         const changed = Object.fromEntries(changes.map((c) => [c.field, c.will]));
-        return applyOrPreview(
-          conn,
-          set,
-          esfRef,
-          changed,
-          result(conn, `ЭСФ ${docLabel(esf)}`, set, esfRef, changed, changes, checks, warnings),
-          confirm,
-        );
+        const info = result(conn, `ЭСФ ${docLabel(esf)}`, set, esfRef, changed, changes, checks, warnings);
+        if (posted) {
+          if (changes.length === 0)
+            return fail("Менять нечего: перечисленные поля уже имеют нужные значения.");
+          return repostAndPatch(conn, set, esfRef, changed, info, confirm);
+        }
+        return applyOrPreview(conn, set, esfRef, changed, info, confirm);
       }),
   );
 }

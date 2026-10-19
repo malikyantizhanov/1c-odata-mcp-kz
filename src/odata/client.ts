@@ -253,6 +253,14 @@ export class ODataClient {
     return this.request<T>(path, "PATCH", payload);
   }
 
+  /**
+   * Заменяет объект целиком (PUT) по полному пути с ключом. Нужен для набора записей регистра
+   * (AccountingRegister_X(Recorder=…, Recorder_Type=…)): набор пишется только целиком.
+   */
+  async put<T extends ODataEntity = ODataEntity>(path: string, payload: object): Promise<T> {
+    return this.request<T>(path, "PUT", payload);
+  }
+
   /** Вызывает bound-действие (напр. .../Post). POST без тела. */
   async action<T = unknown>(path: string): Promise<T> {
     return this.request<T>(path, "POST");

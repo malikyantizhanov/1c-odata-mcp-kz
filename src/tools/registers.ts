@@ -35,6 +35,7 @@ import {
   getDocumentPostingsResultSchema,
 } from "../schemas/output.js";
 import { InputError } from "../errors.js";
+import { fetchAll } from "../odata/pagination.js";
 import { getDocumentMovements } from "../odata/movements.js";
 import type { ODataEntity } from "../types/odata.js";
 
@@ -182,6 +183,64 @@ export function redBalanceNote(t: TurnoverCents): { note?: string } {
  * Строгое число из поля записи регистра: отсутствие/null/не-число — ошибка
  * (с ИМЕНЕМ поля, без значения), а не молчаливый 0.
  */
+/** Валюта по коду (840), наименованию (USD) или Ref_Key. */
+async function currencyByCode(conn: Connection, q: string): Promise<{ ref: string; name: string }> {
+  const set = resolveEntity(CATALOGS.currencies, await conn.available());
+  if (!set) throw new InputError("Справочник «Валюты» не опубликован.");
+  const { rows } = await fetchAll(
+    conn.client,
+    set,
+    { select: ["Ref_Key", "Code", "Description"] },
+    200,
+    1000,
+  );
+  const s = q.trim().replace(/[{}']/g, "").toLowerCase();
+  const hit = rows.find(
+    (r) =>
+      String(r["Ref_Key"]).toLowerCase() === s ||
+      String(r["Code"] ?? "").trim() === s ||
+      String(r["Description"] ?? "")
+        .trim()
+        .toLowerCase() === s,
+  );
+  if (!hit)
+    throw new InputError(`Валюта «${q}» не найдена в справочнике «Валюты» (укажите код 840 или USD).`);
+  return { ref: String(hit["Ref_Key"]), name: String(hit["Description"] ?? q) };
+}
+
+/** Валютные ресурсы «Остатков и оборотов» (есть у счетов с валютным учётом). */
+const CURRENCY_FIELDS = {
+  openingDr: "ВалютнаяСуммаOpeningBalanceDr",
+  openingCr: "ВалютнаяСуммаOpeningBalanceCr",
+  turnoverDr: "ВалютнаяСуммаTurnoverDr",
+  turnoverCr: "ВалютнаяСуммаTurnoverCr",
+  closingDr: "ВалютнаяСуммаClosingBalanceDr",
+  closingCr: "ВалютнаяСуммаClosingBalanceCr",
+} as const;
+
+/**
+ * Разбивка ОСВ по валютам (измерение Валюта_Key): суммы в валюте и в тенге по каждой валюте. Строки без валюты
+ * (счёт без валютного учёта) не попадают. Валютные суммы разных валют не складываются — только внутри валюты.
+ */
+export function aggregateByCurrency(
+  rows: readonly ODataEntity[],
+): Array<{ currencyRef: string; currency: TurnoverCents; amount: TurnoverCents }> {
+  const f = BALANCE_AND_TURNOVERS.fields;
+  const per = new Map<string, { currency: TurnoverCents; amount: TurnoverCents }>();
+  for (const r of rows) {
+    const cur = String(r["Валюта_Key"] ?? "");
+    if (!cur || cur === EMPTY_GUID) continue;
+    if (!Object.values(CURRENCY_FIELDS).some((k) => k in r)) continue;
+    const g = per.get(cur) ?? { currency: zeroTurnover(), amount: zeroTurnover() };
+    for (const k of Object.keys(CURRENCY_FIELDS) as Array<keyof TurnoverCents>) {
+      g.currency[k] += toCents(r[CURRENCY_FIELDS[k]]);
+      g.amount[k] += toCents(r[f[k]]);
+    }
+    per.set(cur, g);
+  }
+  return [...per.entries()].map(([currencyRef, g]) => ({ currencyRef, ...g }));
+}
+
 function strictNumber(v: unknown, field: string, row: number): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
@@ -634,10 +693,16 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
               "или контрагенту, и обязательна, когда в ответе «красное» сальдо: итог может скрывать долг одному " +
               "и переплату другому.",
           ),
+        currency: z
+          .string()
+          .trim()
+          .max(60)
+          .optional()
+          .describe("Только строки в этой валюте (код 840 или USD) — ОСВ по валютному счёту в одной валюте"),
       },
       outputSchema: getAccountTurnoverResultSchema,
     },
-    ({ database, organization, account, from, to, byAnalytics }) =>
+    ({ database, organization, account, from, to, byAnalytics, currency }) =>
       guard("read.accounting.get_account_turnover", async () => {
         const t0 = Date.now();
         if (from > to) return fail(`Период задан наоборот: from (${from}) позже to (${to}).`);
@@ -662,8 +727,30 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
           to,
           org.key,
         );
-        const agg = aggregateAccountTurnover(rows, accounts);
-        const analytics = byAnalytics ? await turnoverAnalytics(conn, rows, accounts) : undefined;
+        let curRef: { ref: string; name: string } | undefined;
+        if (currency) {
+          curRef = await currencyByCode(conn, currency);
+        }
+        const scoped = curRef
+          ? rows.filter((r) => String(r["Валюта_Key"] ?? "").toLowerCase() === curRef!.ref.toLowerCase())
+          : rows;
+        const agg = aggregateAccountTurnover(scoped, accounts);
+        const analytics = byAnalytics ? await turnoverAnalytics(conn, scoped, accounts) : undefined;
+        const curGroups = aggregateByCurrency(scoped);
+        const curNames = curGroups.length
+          ? await resolveNames(
+              conn,
+              "Catalog_Валюты",
+              curGroups.map((g) => g.currencyRef),
+            ).catch(() => new Map<string, string>())
+          : new Map<string, string>();
+        const byCurrency = curGroups.map((g) => ({
+          currency: curNames.get(g.currencyRef) ?? g.currencyRef,
+          currencyRef: g.currencyRef,
+          inCurrency: turnoverToRub(g.currency),
+          inTenge: turnoverToRub(g.amount),
+          closingNetInCurrency: (g.currency.closingDr - g.currency.closingCr) / 100,
+        }));
         return ok({
           database: conn.cfg.name,
           organization: org.name,
@@ -680,10 +767,16 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
           ...(analytics
             ? { analytics: analytics.items, ...(analytics.truncated ? { analyticsTruncated: true } : {}) }
             : {}),
+          ...(curRef ? { currencyFilter: curRef.name } : {}),
+          ...(byCurrency.length ? { byCurrency } : {}),
           openingNet: (agg.total.openingDr - agg.total.openingCr) / 100,
           closingNet: (agg.total.closingDr - agg.total.closingCr) / 100,
-          ...(rows.length === 0
-            ? { note: "За период нет ни остатков, ни движений по счёту." }
+          ...(scoped.length === 0
+            ? {
+                note: curRef
+                  ? `За период нет ни остатков, ни движений по счёту в валюте ${curRef.name}.`
+                  : "За период нет ни остатков, ни движений по счёту.",
+              }
             : redBalanceNote(agg.total)),
           scan: { rowsScanned: meta.rowsScanned, windows: meta.chunks, elapsedMs: Date.now() - t0 },
         });

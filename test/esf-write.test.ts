@@ -235,6 +235,57 @@ describe("write.esf.link_invoice", () => {
     expect(text(await link(c))).toMatch(/Контрагент счёта-фактуры не совпадает/);
   });
 
+  it("проведённый ЭСФ с repost=true: предпросмотр шагов, в 1С ничего не пишется", async () => {
+    const f = make();
+    f.store["Document_ЭСФ"]![0]!["Posted"] = true;
+    const r = await link(f, { repost: true });
+    expect(r.isError, text(r)).toBeFalsy();
+    const d = r.structuredContent as Record<string, any>;
+    expect(d).toMatchObject({ dryRun: true, repost: true });
+    expect(d["steps"]).toHaveLength(3);
+    expect(d["steps"][0]).toMatch(/Unpost/);
+    expect(d["steps"][2]).toMatch(/Post/);
+    expect(f.patches).toHaveLength(0);
+    expect(f.actions).toHaveLength(0);
+  });
+
+  it("repost=true, confirm: отмена проведения → запись связи → проведение, проверено перечитыванием", async () => {
+    const f = make();
+    f.store["Document_ЭСФ"]![0]!["Posted"] = true;
+    const r = await link(f, { repost: true, confirm: true });
+    expect(r.isError, text(r)).toBeFalsy();
+    expect(r.structuredContent).toMatchObject({ updated: true, repost: true, verified: true });
+    expect(f.actions).toEqual(["Document_ЭСФ/Unpost", "Document_ЭСФ/Post"]);
+    expect(f.patches).toHaveLength(1);
+    const esf = f.store["Document_ЭСФ"]![0]!;
+    expect(esf["Posted"]).toBe(true);
+    expect(esf["СчетФактура"]).toBe(INV);
+  });
+
+  it("repost=true: 1С не провела заново — ошибка «ЭСФ НЕ проведён»; PATCH упал — проводим обратно", async () => {
+    const f = make();
+    f.store["Document_ЭСФ"]![0]!["Posted"] = true;
+    f.failOn((set) =>
+      set === "Document_ЭСФ/Post"
+        ? new ODataError({ kind: "bad_request", status: 400, message: "Ошибка проведения" })
+        : undefined,
+    );
+    const r = await link(f, { repost: true, confirm: true });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toMatch(/НЕ проведён заново.*Ошибка проведения/s);
+    expect(f.store["Document_ЭСФ"]![0]!["Posted"]).toBe(false);
+
+    const g = make();
+    g.store["Document_ЭСФ"]![0]!["Posted"] = true;
+    g.conn.client.patch = (async () => {
+      throw new ODataError({ kind: "bad_request", status: 400, message: "Поле не найдено" });
+    }) as typeof g.conn.client.patch;
+    const r2 = await link(g, { repost: true, confirm: true });
+    expect(r2.isError).toBe(true);
+    expect(text(r2)).toMatch(/Связь не записана.*проведён обратно без изменений/s);
+    expect(g.store["Document_ЭСФ"]![0]!["Posted"]).toBe(true);
+  });
+
   it("отказ: исходящий ЭСФ уже отправлен в ИС (рег. номер, история)", async () => {
     const f = make({ Document_СчетФактураВыданный: [invRow()] });
     Object.assign(f.store["Document_ЭСФ"]![0]!, {

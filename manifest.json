@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.2",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 88 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 96 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -1720,6 +1720,11 @@
             "default": false,
             "description": "true — добавить разбивку по аналитике счёта (субконто 1–2: сотрудник, контрагент, вид налога) с названиями и чистым сальдо по каждой строке. Нужна, чтобы ответить по конкретному сотруднику или контрагенту, и обязательна, когда в ответе «красное» сальдо: итог может скрывать долг одному и переплату другому.",
             "type": "boolean"
+          },
+          "currency": {
+            "description": "Только строки в этой валюте (код 840 или USD) — ОСВ по валютному счёту в одной валюте",
+            "type": "string",
+            "maxLength": 60
           }
         },
         "required": [
@@ -4789,7 +4794,7 @@
     {
       "name": "write.esf.link_invoice",
       "title": "Привязать счёт-фактуру (и договор) к ЭСФ",
-      "description": "Записывает в ЭСФ (Document_ЭСФ) счёт-фактуру: СчетФактура + _Type (полученный — для входящего ЭСФ, выданный — для исходящего) и, по желанию, договор поставки ДоговорПоставки_Key (contractRef или contractFromInvoice). Меняет ТОЛЬКО эти поля; номер, даты, суммы, статус, регистрационный номер и реквизиты обмена с ИС не трогает. Отказ, если: ЭСФ проведён, отозван/аннулирован, в очереди отправки, исходящий ЭСФ уже отправлен/принят (регистры АктуальныеЭСФ, ИсторияЭСФ, ОчередьОтправкиЭСФ); организация или контрагент СФ не совпадают; СФ уже привязана к другому ЭСФ; договор не принадлежит контрагенту. Расхождение суммы и даты — предупреждения. Предпросмотр «было → станет» по умолчанию; запись — confirm=true после согласия бухгалтера. Кандидатов подбирает read.esf.find_esf_invoice.",
+      "description": "Записывает в ЭСФ (Document_ЭСФ) счёт-фактуру: СчетФактура + _Type (полученный — для входящего ЭСФ, выданный — для исходящего) и, по желанию, договор поставки ДоговорПоставки_Key (contractRef или contractFromInvoice). Меняет ТОЛЬКО эти поля; номер, даты, суммы, статус, регистрационный номер и реквизиты обмена с ИС не трогает. Проведённый ЭСФ — только с repost=true: отмена проведения → запись связи → проведение (шаги в предпросмотре; при сбое проведения ЭСФ остаётся непроведённым с записанной связью — об этом будет сказано). Отказ, если: ЭСФ отозван/аннулирован, в очереди отправки, исходящий ЭСФ уже отправлен/принят (регистры АктуальныеЭСФ, ИсторияЭСФ, ОчередьОтправкиЭСФ); организация или контрагент СФ не совпадают; СФ уже привязана к другому ЭСФ; договор не принадлежит контрагенту. Расхождение суммы и даты — предупреждения. Предпросмотр «было → станет» по умолчанию; запись — confirm=true после согласия бухгалтера. Кандидатов подбирает read.esf.find_esf_invoice.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4819,6 +4824,11 @@
           "replaceExisting": {
             "default": false,
             "description": "Заменить уже привязанную другую счёт-фактуру (по умолчанию отказ)",
+            "type": "boolean"
+          },
+          "repost": {
+            "default": false,
+            "description": "Для проведённого ЭСФ: отменить проведение → записать связь → провести заново (по умолчанию отказ)",
             "type": "boolean"
           },
           "confirm": {
@@ -4895,6 +4905,903 @@
           "ref",
           "fields",
           "changes",
+          "checks",
+          "warnings"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.esf.create_draft",
+      "title": "Черновик исходящего ЭСФ по счёту-фактуре / реализации",
+      "description": "Создаёт НЕпроведённый черновик исходящего ЭСФ (Document_ЭСФ, Вид «Обычный») по счёту-фактуре выданному (basisRef) или по реализации (берётся её счёт-фактура выданный). Заполняет: организацию и контрагента, СчетФактура, дату оборота, договор поставки, документ, подтверждающий поставку (реализация), валюту и курс, поставщика (БИН, наименование, свидетельство НДС, ИИК/БИК/банк, КБе) и получателя (БИН/ИИН, наименование), строки Товары (наименование, единица, количество, цена, суммы без НДС/с НДС, ставка и сумма НДС; услугам признак происхождения 6). Поля обмена с ИС ЭСФ (рег. номер, статус, ЭЦП) не заполняет, не проводит. Отказ, если по счёту-фактуре уже есть ЭСФ, СФ помечена на удаление, не «Обычный» или выставлена на бумаге. Адреса, признаки происхождения товаров и прочие сведения проверьте в 1С; подписание и отправка в ИС ЭСФ — только в 1С. Предпросмотр по умолчанию; создание — confirm=true с operationId после согласия бухгалтера.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "basisRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key счёта-фактуры выданного или реализации товаров и услуг"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата ЭСФ (по умолчанию — сегодня) (YYYY-MM-DD)"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "basisRef"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.avr.create_draft",
+      "title": "Черновик исходящего ЭАВР по реализации услуг",
+      "description": "Создаёт НЕпроведённый черновик исходящего ЭАВР (Document_ЭлектронныйАктВыполненныхРабот, тип «Первичный») по реализации товаров и услуг (basisRef): ДокументОснование, организация, заказчик, договор (номер/дата) или «Без договора», валюта и курс, дата выполнения работ, исполнитель (БИН, наименование, свидетельство НДС, ИИК/БИК/банк, КБе), заказчик (БИН/ИИН, наименование), строки Услуги (наименование, единица, количество, цена, стоимость без/с косвенными налогами, ставка и сумма НДС, размер оборота) и итоги. В ЭАВР идут только услуги (строки «Товары» реализации пропускаются с предупреждением). Поля обмена с ИС (рег. номер, статус, ЭЦП, подписи) не заполняет, не проводит. Отказ, если по реализации уже есть ЭАВР, она помечена на удаление или в ней нет услуг. Подписание и отправка — только в 1С. Предпросмотр по умолчанию; создание — confirm=true с operationId после согласия бухгалтера.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "basisRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$",
+            "description": "Ref_Key реализации товаров и услуг"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата ЭАВР (по умолчанию — сегодня) (YYYY-MM-DD)"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "basisRef"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.accounting.get_chart_of_accounts",
+      "title": "План счетов",
+      "description": "План счетов базы (Казахстан — «Типовой», Россия — «Хозрасчётный»): код, наименование, родитель (субсчета), вид А/П/АП, признаки валютного, количественного и забалансового учёта, запрет проводок на группу и виды субконто (до 3) с допустимыми типами значений и признаками «только обороты», валютный/количественный учёт по субконто. Фильтры: codePrefix (напр. 10, 12, 33), currencyOnly, quantityOnly. Только чтение.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "codePrefix": {
+            "description": "Префикс кода счёта, напр. 10 или 1210",
+            "type": "string",
+            "maxLength": 20
+          },
+          "search": {
+            "description": "Часть наименования счёта",
+            "type": "string",
+            "maxLength": 100
+          },
+          "currencyOnly": {
+            "default": false,
+            "description": "Только счета с валютным учётом",
+            "type": "boolean"
+          },
+          "quantityOnly": {
+            "default": false,
+            "description": "Только счета с количественным учётом",
+            "type": "boolean"
+          },
+          "includeDeleted": {
+            "default": false,
+            "description": "Показывать помеченные на удаление",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 500,
+            "description": "Максимум счетов в ответе",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "chart": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "subconto": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": {}
+                  }
+                }
+              },
+              "required": [
+                "code",
+                "description",
+                "subconto"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "chart",
+          "count",
+          "accounts"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.accounting.get_account",
+      "title": "Счёт плана счетов",
+      "description": "Карточка счёта по коду (или Ref_Key): вид А/П/АП, валютный/количественный/забалансовый учёт, запрет проводок (группа), родитель и субсчета, виды субконто 1–3 с допустимыми типами значений (Catalog_…/Document_…/перечисление) и признаками учёта по субконто. Нужна перед составлением проводок ручной операции (write.accounting.set_operation_entries). Только чтение.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Код счёта (напр. 1030) или Ref_Key"
+          }
+        },
+        "required": [
+          "account"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "account": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "subconto": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": [
+              "code",
+              "description",
+              "subconto"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "database",
+          "account"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.catalog.create_security",
+      "title": "Создать ценную бумагу",
+      "description": "Создаёт элемент справочника «Ценные бумаги» (Catalog_ЦенныеБумаги) — наименование и (опц.) код. Перед созданием ищет дубль по наименованию (без учёта регистра) и коду; найден — отказ с Ref_Key существующего. Ценная бумага — вид субконто счетов финансовых инвестиций (1110, 1150, 2010, 2050 и т.п.). По умолчанию предпросмотр (dry-run); создание — при confirm=true после согласия бухгалтера.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Наименование ценной бумаги"
+          },
+          "code": {
+            "description": "Код (по умолчанию присвоит 1С)",
+            "type": "string",
+            "maxLength": 20
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.register.get_information_register",
+      "title": "Регистр сведений",
+      "description": "Читает любой регистр сведений (InformationRegister_<Имя>, префикс можно опустить): mode=records — записи (для периодических — от новых к старым, from/to ограничивают Period), mode=sliceLast/sliceFirst — срез последних/первых на дату date (виртуальная таблица SliceLast/SliceFirst). Отбор filters: [{field, op, value}] по полям из $metadata (GUID, строка, число, дата; составные поля — eq/ne на стороне MCP). Подчинённые регистратору регистры читаются через <Регистр>_RecordType. Служебные регистры (авторизация, сессии, сертификаты, ЭЦП) закрыты, поля с паролями/токенами вырезаются. Только чтение. Курсы валют удобнее через read.currency.get_rates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "register": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Имя регистра, напр. КурсыВалют или InformationRegister_ЦеныНоменклатуры"
+          },
+          "mode": {
+            "default": "records",
+            "type": "string",
+            "enum": [
+              "records",
+              "sliceLast",
+              "sliceFirst"
+            ]
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата среза (для sliceLast/sliceFirst; по умолчанию — текущая) (YYYY-MM-DD)"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (records, периодический регистр) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (records, периодический регистр) (YYYY-MM-DD)"
+          },
+          "filters": {
+            "default": [],
+            "description": "Отбор по полям регистра",
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "description": "Поле регистра (измерение/ресурс/реквизит), напр. Валюта_Key"
+                },
+                "op": {
+                  "default": "eq",
+                  "type": "string",
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "gt",
+                    "ge",
+                    "lt",
+                    "le"
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "description": "Значение: GUID, строка, число, дата YYYY-MM-DD"
+                }
+              },
+              "required": [
+                "field",
+                "value"
+              ]
+            }
+          },
+          "limit": {
+            "default": 200,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "register"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "register": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "register",
+          "count",
+          "rows"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.currency.get_rates",
+      "title": "Курсы валют",
+      "description": "Курсы валют из регистра «Курсы валют» (InformationRegister_КурсыВалют): на дату date — последний курс на эту дату по каждой валюте (срез последних), либо за период from–to — все установленные курсы. currencies — коды (840), буквенные коды (USD) или Ref_Key; без них — все валюты. В ответе курс, кратность и perUnit (тенге за 1 единицу = Курс / Кратность). Только чтение.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата курса (по умолчанию — сегодня) (YYYY-MM-DD)"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (вместо date) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (вместо date) (YYYY-MM-DD)"
+          },
+          "currencies": {
+            "description": "Валюты: 840, USD, EUR или Ref_Key",
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "rates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "rates"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.accounting.set_operation_entries",
+      "title": "Записать проводки ручной операции",
+      "description": "Записывает проводки (Дт/Кт, субконто 1–3, сумма в тенге, валюта и валютная сумма, количество, содержание) в ручную операцию «Операция (бухгалтерский учёт)» (Document_ОперацияБух) — набор записей регистра бухгалтерии с регистратором = документ (PUT набора целиком; шапку создаёт write.document.create_document). Проверки по плану счетов: счёт существует и не группа (запрет проводок), субконто по видам счёта и их типам, значения существуют, валюта/валютная сумма — только для валютного счёта (для тенге на валютном счёте подставляются KZT и сумма), количество — только для количественного, одна сторона — только для забалансового; валютная сумма сверяется с курсом на дату. Набор уже есть — отказ без replaceExisting. Предпросмотр (таблица проводок) по умолчанию; запись — confirm=true после согласия бухгалтера. После записи набор перечитывается с субконто; не сохранились — откат (если набор был пуст). СуммаОперации шапки приводится к сумме проводок.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "documentRef": {
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\}?$",
+            "description": "Ref_Key ручной операции (Document_ОперацияБух)"
+          },
+          "entries": {
+            "minItems": 1,
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "debit": {
+                  "description": "Код счёта Дт (напр. 1030). Пусто — только для забалансового Кт",
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "credit": {
+                  "description": "Код счёта Кт. Пусто — только для забалансового Дт",
+                  "type": "string",
+                  "maxLength": 20
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "Сумма проводки в тенге (валюта регламентированного учёта)"
+                },
+                "debitSubconto": {
+                  "description": "Субконто 1–3 по порядку видов субконто счёта (read.accounting.get_account); null — пропустить слот",
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 150
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 150,
+                            "description": "Ref_Key элемента или значение перечисления"
+                          },
+                          "type": {
+                            "description": "Тип значения: Catalog_Контрагенты, Document_…, имя перечисления; нужен, если у вида субконто несколько типов",
+                            "type": "string",
+                            "maxLength": 150
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "creditSubconto": {
+                  "description": "Субконто 1–3 по порядку видов субконто счёта (read.accounting.get_account); null — пропустить слот",
+                  "maxItems": 3,
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 150
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 150,
+                            "description": "Ref_Key элемента или значение перечисления"
+                          },
+                          "type": {
+                            "description": "Тип значения: Catalog_Контрагенты, Document_…, имя перечисления; нужен, если у вида субконто несколько типов",
+                            "type": "string",
+                            "maxLength": 150
+                          }
+                        },
+                        "required": [
+                          "value"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "debitCurrency": {
+                  "description": "Валюта Дт (840 / USD) — только для валютного счёта",
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "creditCurrency": {
+                  "description": "Валюта Кт — только для валютного счёта",
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "debitCurrencyAmount": {
+                  "description": "Валютная сумма Дт",
+                  "type": "number"
+                },
+                "creditCurrencyAmount": {
+                  "description": "Валютная сумма Кт",
+                  "type": "number"
+                },
+                "debitQuantity": {
+                  "description": "Количество Дт — только для количественного счёта",
+                  "type": "number"
+                },
+                "creditQuantity": {
+                  "description": "Количество Кт — только для количественного счёта",
+                  "type": "number"
+                },
+                "content": {
+                  "description": "Содержание проводки",
+                  "type": "string",
+                  "maxLength": 150
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "description": "Проводки"
+          },
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата проводок (по умолчанию — дата документа) (YYYY-MM-DD)"
+          },
+          "replaceExisting": {
+            "default": false,
+            "description": "Заменить уже записанные проводки документа",
+            "type": "boolean"
+          },
+          "updateOperationAmount": {
+            "default": true,
+            "description": "Привести СуммаОперации шапки к сумме проводок",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "documentRef",
+          "entries"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "documentRef": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "database",
+          "documentRef",
+          "entries",
           "checks",
           "warnings"
         ],

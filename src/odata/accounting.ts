@@ -22,7 +22,7 @@ import { ODataError } from "./errors.js";
  * с контрагентом/номенклатурой в ExtDimension1.
  */
 
-const CHART_CANDIDATES = ["ChartOfAccounts_Хозрасчетный", "ChartOfAccounts_Типовой"] as const;
+export const CHART_CANDIDATES = ["ChartOfAccounts_Хозрасчетный", "ChartOfAccounts_Типовой"] as const;
 
 /** Счета расчётов с покупателями: 62 в российском плане счетов, 1210 в казахстанском «Типовом». */
 export async function receivablePrefixes(conn: Connection): Promise<readonly string[]> {

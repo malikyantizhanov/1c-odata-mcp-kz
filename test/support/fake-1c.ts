@@ -204,6 +204,8 @@ export function fake1C(
     store?: Store;
     /** Явные метаданные объектов (типы полей, табличные части, связи) поверх выведенных из store. */
     entities?: Record<string, FakeEntityMeta>;
+    /** PUT набора записей: 1С «молча» не сохраняет субконто (ExtDimension…) — для проверки отката. */
+    dropSubcontoOnPut?: boolean;
   } = {},
 ) {
   const store = opts.store ?? baseStore();
@@ -240,12 +242,40 @@ export function fake1C(
   const posts: Array<{ set: string; body: Row }> = [];
   const patches: Array<{ set: string; ref: string; body: Row }> = [];
   const gets: string[] = [];
+  const puts: Array<{ path: string; body: Row }> = [];
+  const actions: string[] = [];
   let failNext: ((set: string) => Error | undefined) | undefined;
   let failGet: ((path: string) => Error | undefined) | undefined;
   let counter = 0;
   vi.spyOn(conn.client, "request").mockImplementation((async (path: string, method = "GET", body?: Row) => {
     const p = decodeURIComponent(path);
     const set = /^[^(?]+/.exec(p)![0];
+    // Набор записей регистра по регистратору: AccountingRegister_X(Recorder=guid'…',Recorder_Type='…').
+    const recorder = /\(Recorder=guid'([^']+)'/.exec(p)?.[1];
+    if (method === "PUT") {
+      const err = failNext?.(`${set}/PUT`);
+      if (err) throw err;
+      puts.push({ path: p, body: body ?? {} });
+      const rows = ((body?.["RecordSet"] as Row[] | undefined) ?? []).map((r) =>
+        opts.dropSubcontoOnPut
+          ? Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith("ExtDimension")))
+          : { ...r },
+      );
+      const ext = `${set}/RecordsWithExtDimensions`;
+      store[ext] = [...(store[ext] ?? []).filter((r) => r["Recorder"] !== recorder), ...rows];
+      return {};
+    }
+    const act = /\(guid'([^']+)'\)\/(Post|Unpost)/.exec(p);
+    if (method === "POST" && act) {
+      const err = failNext?.(`${set}/${act[2]!}`);
+      if (err) throw err;
+      actions.push(`${set}/${act[2]!}`);
+      const row = (store[set] ?? []).find((r) => r["Ref_Key"] === act[1]);
+      if (!row)
+        throw new ODataError({ kind: "not_found", status: 404, message: `${set}(${act[1]}) не найден` });
+      row["Posted"] = act[2] === "Post";
+      return {};
+    }
     if (method === "POST") {
       const err = failNext?.(set);
       if (err) throw err;
@@ -271,6 +301,16 @@ export function fake1C(
     gets.push(p);
     const getErr = failGet?.(p);
     if (getErr) throw getErr;
+    if (recorder) {
+      const rows = (store[`${set}/RecordsWithExtDimensions`] ?? []).filter((r) => r["Recorder"] === recorder);
+      if (!rows.length)
+        throw new ODataError({
+          kind: "not_found",
+          status: 404,
+          message: `${set}(Recorder=${recorder}) не найден`,
+        });
+      return { Recorder: recorder, RecordSet: rows.map((r) => ({ ...r })) };
+    }
     const key = /\(guid'([^']+)'\)/.exec(p)?.[1];
     if (key) {
       const row = (store[set] ?? []).find((r) => r["Ref_Key"] === key);
@@ -295,6 +335,8 @@ export function fake1C(
     posts,
     patches,
     gets,
+    puts,
+    actions,
     call,
     quick: (args: Row) => call("write.sales.quick_invoice", args),
     failOn: (fn: typeof failNext) => (failNext = fn),

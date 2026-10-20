@@ -94,6 +94,22 @@ export interface NomAccounts {
 }
 
 const NOM_ACCOUNTS_REG = ["InformationRegister_СчетаУчетаНоменклатуры"] as const;
+/** Поля регистра «Счета учёта номенклатуры»: российская конфигурация (БП 3.0). */
+const RU_NOM_ACCOUNT_FIELDS: Record<keyof NomAccounts, string> = {
+  goods: "СчетУчета_Key",
+  incomingVat: "СчетУчетаНДСПоПриобретеннымЦенностям_Key",
+  outgoingVat: "СчетУчетаНДСПоРеализации_Key",
+  income: "СчетДоходовОтРеализации_Key",
+  expense: "СчетРасходовОтРеализации_Key",
+};
+/** Казахстанская конфигурация: счета БУ (НУ — отдельные поля, здесь не нужны), себестоимость — расход от реализации. */
+const KZ_NOM_ACCOUNT_FIELDS: Record<keyof NomAccounts, string> = {
+  goods: "СчетУчетаБУ_Key",
+  incomingVat: "СчетУчетаНДСПоПриобретению_Key",
+  outgoingVat: "СчетУчетаНДСПоРеализации_Key",
+  income: "СчетДоходовОтРеализацииБУ_Key",
+  expense: "СчетСебестоимостиПриРеализацииБУ_Key",
+};
 const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
 const norm = (g: unknown): string | undefined => {
   const s = typeof g === "string" ? g : "";
@@ -113,11 +129,16 @@ export async function nomenclatureAccounts(
   const available = await conn.available();
   const reg = resolveEntity(NOM_ACCOUNTS_REG, available);
   if (!reg) return undefined;
+  // Поля регистра — по $metadata: в казахстанской конфигурации счета БУ/НУ раздельные (СчетУчетаБУ_Key,
+  // СчетДоходовОтРеализацииБУ_Key …) и измерения «Вид номенклатуры» нет; в российской — СчетУчета_Key и вид.
+  const props = new Set((await conn.getMetadata()).entities.get(reg)?.properties.map((p) => p.name) ?? []);
+  const fields = props.has("СчетУчетаБУ_Key") ? KZ_NOM_ACCOUNT_FIELDS : RU_NOM_ACCOUNT_FIELDS;
+  const hasKind = props.size === 0 || props.has("ВидНоменклатуры_Key");
 
   // Вид номенклатуры нужен для матчинга измерения ВидНоменклатуры в регистре.
   let vidRef: string | undefined;
   const nomSet = resolveEntity(CATALOGS.nomenclature, available);
-  if (nomSet) {
+  if (nomSet && hasKind) {
     try {
       const item = await conn.client.getEntity(
         `${nomSet}(guid'${nomRef.replace(/[{}']/g, "")}')${buildQuery({ select: ["ВидНоменклатуры_Key"] })}`,
@@ -135,12 +156,8 @@ export async function nomenclatureAccounts(
       select: [
         "Организация_Key",
         "Номенклатура_Key",
-        "ВидНоменклатуры_Key",
-        "СчетУчета_Key",
-        "СчетУчетаНДСПоПриобретеннымЦенностям_Key",
-        "СчетУчетаНДСПоРеализации_Key",
-        "СчетДоходовОтРеализации_Key",
-        "СчетРасходовОтРеализации_Key",
+        ...(hasKind ? ["ВидНоменклатуры_Key"] : []),
+        ...Object.values(fields),
       ],
     },
     conn.behavior.pageSize,
@@ -163,11 +180,11 @@ export async function nomenclatureAccounts(
   }
   if (!best) return undefined;
   return {
-    goods: norm(best["СчетУчета_Key"]),
-    incomingVat: norm(best["СчетУчетаНДСПоПриобретеннымЦенностям_Key"]),
-    outgoingVat: norm(best["СчетУчетаНДСПоРеализации_Key"]),
-    income: norm(best["СчетДоходовОтРеализации_Key"]),
-    expense: norm(best["СчетРасходовОтРеализации_Key"]),
+    goods: norm(best[fields.goods]),
+    incomingVat: norm(best[fields.incomingVat]),
+    outgoingVat: norm(best[fields.outgoingVat]),
+    income: norm(best[fields.income]),
+    expense: norm(best[fields.expense]),
   };
 }
 

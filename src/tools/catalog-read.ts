@@ -9,8 +9,15 @@ import { ensurePublished } from "../odata/publication.js";
 import { and, buildQuery, cmp, contains, or, odataString } from "../odata/query.js";
 import { databaseField, guard, ok } from "./_shared.js";
 
-/** Классы объектов, которые читает read.catalog.list_catalog: справочники и планы видов характеристик (субконто). */
-export const CATALOG_CLASSES = ["Catalog_", "ChartOfCharacteristicTypes_"] as const;
+/**
+ * Классы объектов, которые читает read.catalog.list_catalog: справочники, планы видов характеристик (субконто) и
+ * планы видов расчёта (виды начислений и удержаний зарплаты — ВидРасчета_Key в документах зарплаты).
+ */
+export const CATALOG_CLASSES = [
+  "Catalog_",
+  "ChartOfCharacteristicTypes_",
+  "ChartOfCalculationTypes_",
+] as const;
 
 /** Сообщение о 401/403 при чтении справочника: чинится правами пользователя OData, а не запросом. */
 export const noAccessMessage = (set: string, status?: number): string =>
@@ -37,10 +44,13 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
   server.registerTool(
     "read.catalog.list_catalog",
     {
-      title: "Элементы любого справочника или плана видов характеристик",
+      title: "Элементы любого справочника, плана видов характеристик или плана видов расчёта",
       description:
         "Читает строки любого справочника (Catalog_*) или плана видов характеристик (ChartOfCharacteristicTypes_*, " +
-        "виды субконто): Ref_Key, наименование, код, признак группы и пометки удаления. entitySet — техническое имя " +
+        "виды субконто) или плана видов расчёта (ChartOfCalculationTypes_*: виды начислений и удержаний зарплаты — " +
+        "ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций, ChartOfCalculationTypes_УдержанияОрганизаций; " +
+        "Ref_Key идёт в ВидРасчета_Key документов зарплаты): Ref_Key, наименование, код, признак группы и пометки " +
+        "удаления. entitySet — техническое имя " +
         "('Catalog_СтатьиЗатрат'), без префикса или в синтаксисе 1С ('Справочник.СтатьиЗатрат'). query — поиск по " +
         "части наименования (без учёта регистра); если query состоит из цифр — ещё и по коду (точно, а также без " +
         "ведущих нулей и с нулями до длины кодов справочника: «104» найдёт «000000104»); code — только по коду; " +
@@ -54,7 +64,8 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         entitySet: z
           .string()
           .describe(
-            "Справочник или план видов характеристик: Catalog_СтатьиЗатрат, ChartOfCharacteristicTypes_ВидыСубконтоТиповые " +
+            "Справочник, план видов характеристик или план видов расчёта: Catalog_СтатьиЗатрат, " +
+              "ChartOfCharacteristicTypes_ВидыСубконтоТиповые, ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций " +
               "(префикс можно опустить, если имя однозначно)",
           ),
         query: z
@@ -116,8 +127,8 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         const conn = ctx.db(database);
         if (!CATALOG_CLASSES.some((p) => entitySet.startsWith(p)))
           throw new InputError(
-            `«${entitySet}» — не справочник и не план видов характеристик. Здесь читаются Catalog_* и ` +
-              "ChartOfCharacteristicTypes_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
+            `«${entitySet}» — не справочник, не план видов характеристик и не план видов расчёта. Здесь читаются ` +
+              "Catalog_*, ChartOfCharacteristicTypes_* и ChartOfCalculationTypes_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
           );
         ensurePublished(await conn.available(), entitySet);
         const fields = await catalogFields(conn, entitySet);

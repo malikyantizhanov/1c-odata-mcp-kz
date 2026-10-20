@@ -37,6 +37,7 @@ const ONEC_SYNTAX: ReadonlyArray<[RegExp, string]> = [
   [/^(?:РегистрБухгалтерии|AccountingRegister)\./i, "AccountingRegister_"],
   [/^(?:ПланСчетов|ChartOfAccounts)\./i, "ChartOfAccounts_"],
   [/^(?:ПланВидовХарактеристик|ChartOfCharacteristicTypes)\./i, "ChartOfCharacteristicTypes_"],
+  [/^(?:ПланВидовРасчета|ChartOfCalculationTypes)\./i, "ChartOfCalculationTypes_"],
   [/^(?:Перечисление|Enum)\./i, "Enum_"],
 ];
 
@@ -64,7 +65,7 @@ export function normalizeDocumentEntity(name: string): string {
 
 /**
  * Имя объекта любого класса: точное имя — как есть; синтаксис 1С — в префикс OData; без префикса — ищется среди
- * опубликованных Document_<имя>, Catalog_<имя> и ChartOfCharacteristicTypes_<имя>: ровно одно — оно, несколько — ошибка с вариантами, ни одного — как есть
+ * опубликованных Document_<имя>, Catalog_<имя>, ChartOfCharacteristicTypes_<имя> и ChartOfCalculationTypes_<имя>: ровно одно — оно, несколько — ошибка с вариантами, ни одного — как есть
  * (инструмент сам скажет, что объект не опубликован).
  */
 export async function resolveEntityName(conn: Connection, name: string): Promise<string> {
@@ -72,7 +73,7 @@ export async function resolveEntityName(conn: Connection, name: string): Promise
   if (!n || hasClassPrefix(n)) return n;
   const available = await conn.available();
   if (available.has(n)) return n;
-  const hits = ["Document_", "Catalog_", "ChartOfCharacteristicTypes_"]
+  const hits = ["Document_", "Catalog_", "ChartOfCharacteristicTypes_", "ChartOfCalculationTypes_"]
     .map((p) => p + n)
     .filter((c) => available.has(c));
   if (hits.length === 1) return hits[0]!;

@@ -24,10 +24,12 @@ const registered = (
 const names = Object.keys(registered).sort();
 const reads = names.filter((n) => n.startsWith("read.")).length;
 const writes = names.filter((n) => n.startsWith("write.")).length;
+const metas = names.filter((n) => n.startsWith("meta.")).length;
 
 describe("документация совпадает с кодом", () => {
-  it("каждый инструмент — read.* или write.*", () => {
-    expect(reads + writes).toBe(names.length);
+  it("каждый инструмент — read.*, write.* или служебный meta.* (ровно два, имена неизменны)", () => {
+    expect(reads + writes + metas).toBe(names.length);
+    expect(names.filter((n) => n.startsWith("meta."))).toEqual(["meta.call_tool", "meta.list_tools"]);
   });
 
   it("manifest.json: тот же состав инструментов, что регистрирует сервер", () => {
@@ -54,7 +56,9 @@ describe("документация совпадает с кодом", () => {
     const few = [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100);
     const word = one ? "инструмент" : few ? "инструмента" : "инструментов";
     const genitive = one ? "инструмента" : "инструментов";
-    expect(readme).toContain(`${n} ${word} (${reads} чтение/аналитика + ${writes} записей)`);
+    expect(readme).toContain(
+      `${n} ${word} (${reads} чтение/аналитика + ${writes} записей + ${metas} служебных \`meta.*\`)`,
+    );
     expect(readme).toContain(`У всех ${n} ${genitive}`);
     expect(pkg.description).toContain(`${n} tools`);
     expect(manifest.long_description).toContain(`${n} ${word}`);

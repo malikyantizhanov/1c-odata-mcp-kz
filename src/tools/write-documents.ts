@@ -7,7 +7,7 @@ import { fetchAll } from "../odata/pagination.js";
 import { and, buildQuery, cmp, odataGuid } from "../odata/query.js";
 import { createResultSchema, patchResultSchema } from "../schemas/output.js";
 import type { EntityMeta, ODataEntity } from "../types/odata.js";
-import { databaseField, fail, guard, organizationField } from "./_shared.js";
+import { databaseField, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
 import { fillSubcontoTypes } from "./subconto.js";
@@ -307,6 +307,71 @@ export async function prepareDocument(
   return { payload, notes };
 }
 
+/** Параметры изменения документа: общий путь update_document и профильных инструментов (доверенность, комплектация). */
+export interface PrepareDocumentPatchArgs {
+  entitySet: string;
+  ref: string;
+  fields?: Record<string, Scalar>;
+  tables?: Record<string, Array<Record<string, Scalar>>>;
+}
+
+/**
+ * Собирает patch документа казахстанской базы: проверка полей по $metadata, счета по кодам, типы субконто, предупреждения.
+ * Проведённый и помеченный на удаление документ — InputError. Запись — patchOrPreview.
+ */
+export async function prepareDocumentPatch(
+  conn: Connection,
+  { entitySet, ref, fields = {}, tables = {} }: PrepareDocumentPatchArgs,
+): Promise<{ guid: string; patch: Record<string, unknown>; notes: string[] }> {
+  const em = await documentMeta(conn, entitySet);
+  if (!Object.keys(fields).length && !Object.keys(tables).length)
+    throw new InputError("Не заданы fields или tables для изменения.");
+  const patch = (
+    await resolveAccountCodes(conn, em, {
+      ...normalizeFields(em, fields, entitySet),
+      ...(await normalizeTables(conn, em, tables)),
+    })
+  ).payload;
+  const guid = ref.replace(/[{}']/g, "");
+  const doc = await conn.client.getEntity(
+    `${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted", "DeletionMark"] })}`,
+  );
+  if (doc["DeletionMark"] === true) {
+    throw new InputError(
+      "Документ помечен на удаление — не используйте его и не снимайте пометку: создайте новый документ.",
+    );
+  }
+  if (doc["Posted"] === true) {
+    throw new InputError(
+      "Документ проведён — так его не меняют. Отмените проведение (write.document.post_document post=false), " +
+        "внесите изменения и проведите снова.",
+    );
+  }
+  const notes: string[] = [];
+  if (entitySet === "Document_ПлатежноеПоручениеИсходящее") {
+    const codes = Object.keys(patch).some(
+      (k) => k === "КодБК" || k === "КодНазначенияПлатежа" || k === "ВидОперации",
+    );
+    if (codes) {
+      const cur = await conn.client.getEntity(
+        `${entitySet}(guid'${guid}')${buildQuery({ select: ["КодБК", "КодНазначенияПлатежа", "ВидОперации"] })}`,
+      );
+      notes.push(...paymentCodeNotes({ ...cur, ...patch }));
+    }
+  }
+  notes.push(...enumNotes(entitySet, patch));
+  // Субконто затрат в строках: _Type по виду субконто счёта, проверка типов, пустые слоты — как в create_document.
+  const subconto = await fillSubcontoTypes(conn, em, patch);
+  Object.assign(patch, subconto.payload);
+  notes.push(...subconto.notes);
+  if (patch["Оплачено"] === true && !patch["ДатаВыписки"]) {
+    notes.push(
+      "Оплачено=true ставят по факту списания/зачисления по выписке и с согласия пользователя; проверьте, что ДатаВыписки заполнена.",
+    );
+  }
+  return { guid, patch, notes };
+}
+
 export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext): void {
   server.registerTool(
     "write.document.create_document",
@@ -418,52 +483,7 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
     ({ database, entitySet, ref, fields = {}, tables = {}, confirm }) =>
       guard("write.document.update_document", async () => {
         const conn = ctx.db(database);
-        const em = await documentMeta(conn, entitySet);
-        if (!Object.keys(fields).length && !Object.keys(tables).length)
-          return fail("Не заданы fields или tables для изменения.");
-        const patch = (
-          await resolveAccountCodes(conn, em, {
-            ...normalizeFields(em, fields, entitySet),
-            ...(await normalizeTables(conn, em, tables)),
-          })
-        ).payload;
-        const guid = ref.replace(/[{}']/g, "");
-        const doc = await conn.client.getEntity(
-          `${entitySet}(guid'${guid}')${buildQuery({ select: ["Posted", "DeletionMark"] })}`,
-        );
-        if (doc["DeletionMark"] === true) {
-          return fail(
-            "Документ помечен на удаление — не используйте его и не снимайте пометку: создайте новый документ.",
-          );
-        }
-        if (doc["Posted"] === true) {
-          return fail(
-            "Документ проведён — так его не меняют. Отмените проведение (write.document.post_document post=false), " +
-              "внесите изменения и проведите снова.",
-          );
-        }
-        const notes: string[] = [];
-        if (entitySet === "Document_ПлатежноеПоручениеИсходящее") {
-          const codes = Object.keys(patch).some(
-            (k) => k === "КодБК" || k === "КодНазначенияПлатежа" || k === "ВидОперации",
-          );
-          if (codes) {
-            const cur = await conn.client.getEntity(
-              `${entitySet}(guid'${guid}')${buildQuery({ select: ["КодБК", "КодНазначенияПлатежа", "ВидОперации"] })}`,
-            );
-            notes.push(...paymentCodeNotes({ ...cur, ...patch }));
-          }
-        }
-        notes.push(...enumNotes(entitySet, patch));
-        // Субконто затрат в строках: _Type по виду субконто счёта, проверка типов, пустые слоты — как в create_document.
-        const subconto = await fillSubcontoTypes(conn, em, patch);
-        Object.assign(patch, subconto.payload);
-        notes.push(...subconto.notes);
-        if (patch["Оплачено"] === true && !patch["ДатаВыписки"]) {
-          notes.push(
-            "Оплачено=true ставят по факту списания/зачисления по выписке и с согласия пользователя; проверьте, что ДатаВыписки заполнена.",
-          );
-        }
+        const { guid, patch, notes } = await prepareDocumentPatch(conn, { entitySet, ref, fields, tables });
         if (!confirm) {
           notes.push(
             "operationId для update_document не нужен: изменение идемпотентно — повтор с confirm=true запишет те же поля.",

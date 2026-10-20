@@ -12,6 +12,7 @@ import { registerMetaTools } from "../tools/meta.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
 import { registerServicesReceiptTool } from "../tools/services-receipt.js";
+import { registerPoaKittingTools } from "../tools/write-poa-kitting.js";
 import { registerRegisterTools } from "../tools/registers.js";
 import { registerCashflowTools } from "../tools/cashflow.js";
 import { registerSalesTools } from "../tools/sales.js";
@@ -214,6 +215,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerQuickInvoiceTool(server, ctx);
   registerQuickSaleTool(server, ctx);
   registerServicesReceiptTool(server, ctx);
+  registerPoaKittingTools(server, ctx);
   // Шлюз — последним и в обход обёртки (без префлайта базы): целевой вызов идёт через tools/call целиком.
   registerGatewayTools(server, original, readVersion());
 

@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.5",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 98 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 102 инструмента: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -12346,6 +12346,752 @@
             "type": "string"
           },
           "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.document.create_power_of_attorney",
+      "title": "Создать доверенность на получение ТМЦ",
+      "description": "Создаёт документ «Доверенность» (Document_Доверенность): кому выдана (personRef — физлицо), срок действия (validUntil), у кого получать (counterpartyRef, contractRef, receiveFrom), по какому документу (byDocument) и список ТМЦ (lines: nomenclatureRef или name строкой, единица по классификатору, количество). Доверенность не проводится. Предпросмотр (confirm=false) показывает тело запроса и предупреждения; создание — confirm=true после согласия пользователя. Печать — read.document.print_power_of_attorney. Изменить — write.document.update_power_of_attorney. Пример: {\"personRef\":\"<GUID>\",\"validUntil\":\"2026-10-31\",\"counterpartyRef\":\"<GUID>\",\"byDocument\":\"Счёт № 15 от 01.10.2026\",\"lines\":[{\"name\":\"Бумага А4\",\"quantity\":10}]}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?$",
+            "description": "Дата доверенности (по умолчанию — сейчас)"
+          },
+          "personRef": {
+            "type": "string",
+            "description": "Ref_Key физлица, которому выдана доверенность (Catalog_ФизическиеЛица, ФизЛицо_Key)"
+          },
+          "validUntil": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?$",
+            "description": "Срок действия — по какую дату включительно (ДатаДействия)"
+          },
+          "counterpartyRef": {
+            "type": "string",
+            "description": "Ref_Key контрагента-поставщика, у которого получают ТМЦ (Контрагент_Key)"
+          },
+          "contractRef": {
+            "type": "string",
+            "description": "Ref_Key договора с поставщиком (ДоговорКонтрагента_Key)"
+          },
+          "receiveFrom": {
+            "type": "string",
+            "description": "«На получение от» — от кого получать ТМЦ, как в печатной форме (НаПолучениеОт)"
+          },
+          "byDocument": {
+            "type": "string",
+            "description": "«По документу» — наряд, счёт и т.п.: «Счёт на оплату № 15 от 01.10.2026» (ПоДокументу)"
+          },
+          "basisRef": {
+            "type": "string",
+            "description": "Ref_Key документа-основания (ДокументОснование_Key)"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Комментарий"
+          },
+          "fields": {
+            "default": {},
+            "description": "Другие реквизиты шапки по $metadata (как в create_document); перекрывают понятные аргументы",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "lines": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nomenclatureRef": {
+                  "description": "Ref_Key номенклатуры (Catalog_Номенклатура) — если ТМЦ есть в справочнике",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Наименование ТМЦ строкой — если в справочнике её нет (одно из nomenclatureRef / name)",
+                  "type": "string"
+                },
+                "unitRef": {
+                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Количество"
+                }
+              },
+              "required": [
+                "quantity"
+              ]
+            },
+            "description": "Строки «Товары» — что получить"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "personRef",
+          "validUntil",
+          "lines"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.document.update_power_of_attorney",
+      "title": "Изменить доверенность",
+      "description": "Меняет доверенность из write.document.create_power_of_attorney: срок, физлицо, контрагента, «по документу», ТМЦ. Передавайте только то, что меняется; lines заменяют табличную часть «Товары» целиком. Помеченную на удаление доверенность не меняет. По умолчанию предпросмотр; применение — confirm=true после согласия пользователя.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Ref_Key доверенности (GUID)"
+          },
+          "personRef": {
+            "type": "string",
+            "description": "Ref_Key физлица, которому выдана доверенность (Catalog_ФизическиеЛица, ФизЛицо_Key)"
+          },
+          "validUntil": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?$",
+            "description": "Срок действия — по какую дату включительно (ДатаДействия)"
+          },
+          "counterpartyRef": {
+            "type": "string",
+            "description": "Ref_Key контрагента-поставщика, у которого получают ТМЦ (Контрагент_Key)"
+          },
+          "contractRef": {
+            "type": "string",
+            "description": "Ref_Key договора с поставщиком (ДоговорКонтрагента_Key)"
+          },
+          "receiveFrom": {
+            "type": "string",
+            "description": "«На получение от» — от кого получать ТМЦ, как в печатной форме (НаПолучениеОт)"
+          },
+          "byDocument": {
+            "type": "string",
+            "description": "«По документу» — наряд, счёт и т.п.: «Счёт на оплату № 15 от 01.10.2026» (ПоДокументу)"
+          },
+          "basisRef": {
+            "type": "string",
+            "description": "Ref_Key документа-основания (ДокументОснование_Key)"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Комментарий"
+          },
+          "fields": {
+            "default": {},
+            "description": "Другие реквизиты шапки по $metadata (как в create_document); перекрывают понятные аргументы",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "lines": {
+            "description": "Новые строки «Товары» — заменяют все",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nomenclatureRef": {
+                  "description": "Ref_Key номенклатуры (Catalog_Номенклатура) — если ТМЦ есть в справочнике",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Наименование ТМЦ строкой — если в справочнике её нет (одно из nomenclatureRef / name)",
+                  "type": "string"
+                },
+                "unitRef": {
+                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Количество"
+                }
+              },
+              "required": [
+                "quantity"
+              ]
+            }
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "willPatch": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "updated": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.warehouse.create_kitting",
+      "title": "Создать комплектацию / разукомплектацию номенклатуры",
+      "description": "Создаёт НЕПРОВЕДЁННЫЙ документ «Комплектация номенклатуры» (Document_КомплектацияНоменклатуры): operation «Комплектация» (собрать комплект nomenclatureRef из components) или «Разукомплектация» (разобрать; доли стоимости — costShare). Склад, количество комплектов, единица и счета учёта (код '1330' или Ref_Key) — в шапке, комплектующие — в табличной части «Комплектующие». Остатки и себестоимость 1С проверит при проведении (write.document.post_document). sampleRef — проведённая комплектация, из которой взять счета и настройки учёта. Предпросмотр (confirm=false) по умолчанию; создание — confirm=true после согласия пользователя. Пример: {\"operation\":\"Комплектация\",\"warehouseRef\":\"<GUID>\",\"nomenclatureRef\":\"<GUID комплекта>\",\"quantity\":5,\"account\":\"1330\",\"components\":[{\"nomenclatureRef\":\"<GUID>\",\"quantity\":10,\"account\":\"1330\"}]}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2})?$",
+            "description": "Дата документа (по умолчанию — сейчас)"
+          },
+          "operation": {
+            "default": "Комплектация",
+            "type": "string",
+            "enum": [
+              "Комплектация",
+              "Разукомплектация"
+            ],
+            "description": "Комплектация — собрать комплект из комплектующих; Разукомплектация — разобрать комплект"
+          },
+          "warehouseRef": {
+            "type": "string",
+            "description": "Ref_Key склада (Catalog_Склады)"
+          },
+          "nomenclatureRef": {
+            "type": "string",
+            "description": "Ref_Key комплекта (Catalog_Номенклатура)"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Количество комплектов"
+          },
+          "unitRef": {
+            "type": "string",
+            "description": "Ref_Key единицы комплекта (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры"
+          },
+          "coefficient": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Коэффициент единицы комплекта (по умолчанию 1)"
+          },
+          "account": {
+            "type": "string",
+            "description": "Счёт учёта комплекта БУ: код ('1330') или Ref_Key"
+          },
+          "taxAccount": {
+            "type": "string",
+            "description": "Счёт учёта комплекта НУ: код или Ref_Key"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Комментарий"
+          },
+          "fields": {
+            "default": {},
+            "description": "Другие реквизиты шапки по $metadata (как в create_document); перекрывают понятные аргументы",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "sampleRef": {
+            "description": "Ref_Key проведённой комплектации — взять недостающие счета и настройки учёта",
+            "type": "string"
+          },
+          "components": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nomenclatureRef": {
+                  "type": "string",
+                  "description": "Ref_Key комплектующей (Catalog_Номенклатура)"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Количество комплектующей на весь комплект документа"
+                },
+                "unitRef": {
+                  "description": "Ref_Key единицы (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
+                  "type": "string"
+                },
+                "coefficient": {
+                  "description": "Коэффициент единицы (по умолчанию 1)",
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "costShare": {
+                  "description": "Доля стоимости (целое число, ДоляСтоимости) — для разукомплектации: как делить стоимость комплекта",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "account": {
+                  "description": "Счёт учёта БУ: код ('1330') или Ref_Key",
+                  "type": "string"
+                },
+                "taxAccount": {
+                  "description": "Счёт учёта НУ: код или Ref_Key",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "nomenclatureRef",
+                "quantity"
+              ]
+            },
+            "description": "Строки «Комплектующие»"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "warehouseRef",
+          "nomenclatureRef",
+          "quantity",
+          "components"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.warehouse.update_kitting",
+      "title": "Изменить комплектацию номенклатуры",
+      "description": "Меняет непроведённую комплектацию из write.warehouse.create_kitting: вид операции, склад, комплект, количество, счета, комплектующие (components заменяют табличную часть «Комплектующие» целиком). Проведённый документ не меняется — сначала write.document.post_document post=false. По умолчанию предпросмотр; применение — confirm=true после согласия пользователя.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Ref_Key комплектации (GUID)"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "Комплектация",
+              "Разукомплектация"
+            ],
+            "description": "Комплектация — собрать комплект из комплектующих; Разукомплектация — разобрать комплект"
+          },
+          "warehouseRef": {
+            "type": "string",
+            "description": "Ref_Key склада (Catalog_Склады)"
+          },
+          "nomenclatureRef": {
+            "type": "string",
+            "description": "Ref_Key комплекта (Catalog_Номенклатура)"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Количество комплектов"
+          },
+          "unitRef": {
+            "type": "string",
+            "description": "Ref_Key единицы комплекта (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры"
+          },
+          "coefficient": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Коэффициент единицы комплекта (по умолчанию 1)"
+          },
+          "account": {
+            "type": "string",
+            "description": "Счёт учёта комплекта БУ: код ('1330') или Ref_Key"
+          },
+          "taxAccount": {
+            "type": "string",
+            "description": "Счёт учёта комплекта НУ: код или Ref_Key"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Комментарий"
+          },
+          "fields": {
+            "default": {},
+            "description": "Другие реквизиты шапки по $metadata (как в create_document); перекрывают понятные аргументы",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "components": {
+            "description": "Новые строки «Комплектующие» — заменяют все",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nomenclatureRef": {
+                  "type": "string",
+                  "description": "Ref_Key комплектующей (Catalog_Номенклатура)"
+                },
+                "quantity": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "description": "Количество комплектующей на весь комплект документа"
+                },
+                "unitRef": {
+                  "description": "Ref_Key единицы (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
+                  "type": "string"
+                },
+                "coefficient": {
+                  "description": "Коэффициент единицы (по умолчанию 1)",
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "costShare": {
+                  "description": "Доля стоимости (целое число, ДоляСтоимости) — для разукомплектации: как делить стоимость комплекта",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "account": {
+                  "description": "Счёт учёта БУ: код ('1330') или Ref_Key",
+                  "type": "string"
+                },
+                "taxAccount": {
+                  "description": "Счёт учёта НУ: код или Ref_Key",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "nomenclatureRef",
+                "quantity"
+              ]
+            }
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "willPatch": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "updated": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
             "type": "string"
           },
           "description": {

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { analyticsFields, applyLineAnalytics, type LineAnalytics } from "./line-analytics.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
@@ -39,6 +40,7 @@ import {
 import { ODataError, htmlText } from "../odata/errors.js";
 import { getDocumentMovements } from "../odata/movements.js";
 import { getDocumentPostings } from "./registers.js";
+import { PAYROLL_SUM_SETS, payrollPostRefusal } from "./payroll-sums.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
@@ -1337,6 +1339,61 @@ async function createSubordinate(
 }
 
 /** Тело ответа 1С для сообщения: HTML-страницу сервиса не вываливаем целиком. */
+/** Зарплатный расчётный документ с пустыми суммами: текст отказа проведения (документ читается из 1С). */
+async function payrollRefusal(
+  conn: Connection,
+  entitySet: string,
+  guid: string,
+): Promise<string | undefined> {
+  if (!PAYROLL_SUM_SETS.has(entitySet)) return undefined;
+  const doc = await conn.client.getEntity(`${entitySet}(guid'${guid}')?$format=json`);
+  return payrollPostRefusal(entitySet, doc);
+}
+
+/** Сырой ответ 1С на Post/Unpost — отдельным полем, без разметки HTML в основном тексте. */
+export function rawResponse(raw: { status: number; body: string }): Record<string, unknown> {
+  const isHtml = /^\s*<!DOCTYPE HTML|^\s*<html/i.test(raw.body ?? "");
+  return {
+    status: raw.status,
+    contentType: isHtml ? "html" : raw.body ? "text" : "empty",
+    ...(isHtml ? { text: htmlText(raw.body) } : {}),
+    body: raw.body.length > 4000 ? `${raw.body.slice(0, 4000)}…` : raw.body,
+  };
+}
+
+/**
+ * 1С ответила 2xx, но состояние проведения не изменилось. При проведении 1С:Фреш на исключение в обработке
+ * проведения отдаёт общую HTML-страницу («сервис частично недоступен») — это не сбой сервиса, а отказ 1С;
+ * сам текст ошибки виден только при проведении в форме. Сырой ответ — в поле rawResponse.
+ */
+export function postRejected(
+  post: boolean,
+  raw: { status: number; body: string },
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  hint = "",
+): CallToolResult {
+  const state = `Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}`;
+  const message = post
+    ? `1С отклонила проведение; причина видна при проведении в форме 1С. Документ НЕ проведён (${state}; ` +
+      `HTTP ${raw.status}).${hint} Сырой ответ 1С — в поле rawResponse.`
+    : `1С не отменила проведение: документ остался проведённым (${state}; HTTP ${raw.status}).${hint} ` +
+      "Отмените проведение в форме 1С. Сырой ответ 1С — в поле rawResponse.";
+  const data = {
+    done: false,
+    rejected: true,
+    action: post ? "Post" : "Unpost",
+    posted: after["Posted"] === true,
+    message,
+    rawResponse: rawResponse(raw),
+  };
+  return {
+    content: [{ type: "text", text: `${message}\n${JSON.stringify(data.rawResponse)}` }],
+    structuredContent: data,
+    isError: true,
+  };
+}
+
 export function describeBody(body: string | undefined | null): string {
   if (!body) return "(пустое тело)";
   if (/^\s*<!DOCTYPE HTML|^\s*<html/i.test(body)) {
@@ -1906,6 +1963,8 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           if (post) {
             const missing = await missingContract(conn, entitySet, guid);
             if (missing) notes.push(missing);
+            const refusal = await payrollRefusal(conn, entitySet, guid);
+            if (refusal) notes.push(refusal);
           }
           return ok({
             dryRun: true,
@@ -1918,6 +1977,8 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         if (post) {
           const missing = await missingContract(conn, entitySet, guid);
           if (missing) return fail(missing);
+          const refusal = await payrollRefusal(conn, entitySet, guid);
+          if (refusal) return fail(refusal);
         }
         // Состояние до и после действия: 1С может ответить 2xx, но документ не провести
         // (напр. платёжка без «Оплачено» записывается без проведения). Успех — только по Posted.
@@ -1956,12 +2017,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             const flow = KZ_FLOW_BY_SET.get(entitySet);
             if (flow?.postFailureHint) hint = ` ${flow.postFailureHint}`;
           }
-          return fail(
-            `1С ответила HTTP ${raw.status} на ${action}, но документ ${post ? "НЕ проведён" : "остался проведённым"} ` +
-              `(Posted=${String(after["Posted"])}, DataVersion ${String(before["DataVersion"])} → ${String(after["DataVersion"])}).` +
-              hint +
-              ` Ответ 1С: ${describeBody(raw.body)}`,
-          );
+          return postRejected(post, raw, before, after, hint);
         }
         // Что провёл документ — сразу в ответе: проводки по регистру Хозрасчетный.
         // Сбой чтения проводок не отменяет проведения, только поясняется.

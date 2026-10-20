@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.9] — 2026-10-20
+
 ### Добавлено — зарплата за месяц: проверка, остатки фондов, ведомость, перечисления (Казахстан)
 
 Суммы считает 1С: «Заполнить», «Рассчитать» и проведение расчётных документов бухгалтер делает в форме 1С. MCP суммы не рассчитывает — берёт их из остатков регистров 1С или из строк проведённого документа.
@@ -1012,7 +1014,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.8...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.9...HEAD
+[0.7.9]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.7...v0.7.8
 [0.7.7]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.6...v0.7.7
 [0.7.6]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.5...v0.7.6

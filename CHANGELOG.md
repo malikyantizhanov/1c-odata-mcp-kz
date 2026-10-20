@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.6] — 2026-10-20
+
 ### Добавлено — доверенность и комплектация номенклатуры (запись, Казахстан)
 
 - `write.document.create_power_of_attorney` / `write.document.update_power_of_attorney` — документ «Доверенность»: физлицо (`personRef`), срок действия (`validUntil`, не раньше даты документа), поставщик, договор, «на получение от», «по документу», основание и строки ТМЦ (`nomenclatureRef` — ссылка на номенклатуру с `НаименованиеТовара_Type = StandardODATA.Catalog_Номенклатура`, или `name` строкой — `Edm.String`). Доверенность не проводится; печать — прежний `read.document.print_power_of_attorney`.
@@ -969,7 +971,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.5...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.2...v0.7.3

@@ -49,6 +49,7 @@ export const KZ_WRITE_TOOLS = [
   "write.avr.set_basis",
   "write.esf.link_invoice",
   "write.esf.create_draft",
+  "write.esf.update_draft",
   "write.avr.create_draft",
   "write.accounting.set_operation_entries",
   "write.catalog.create_security",

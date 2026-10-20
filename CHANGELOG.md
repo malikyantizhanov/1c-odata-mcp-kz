@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.4] — 2026-10-20
+
 ### Добавлено — шлюз для клиентов с кэшем списка инструментов
 
 - `meta.list_tools`: актуальный список инструментов из того же реестра, что `tools/list` (версия сервера, число, имя, заголовок, описание, `inputSchema`, аннотации); фильтры `prefix`, `search`, `includeSchema`.
@@ -944,7 +946,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.3...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.0...v0.7.1

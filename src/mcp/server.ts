@@ -35,6 +35,7 @@ import { registerPowerOfAttorneyPrintTools } from "../tools/print-power-of-attor
 import { registerQuickReconciliationTool } from "../tools/quick-reconciliation.js";
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
+import { registerGatewayTools } from "../tools/gateway.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
 
 /** Версия берётся из package.json (в собранном пакете он на два уровня выше dist/mcp/). */
@@ -213,6 +214,8 @@ export function createServer(ctx: ServerContext): McpServer {
   registerQuickInvoiceTool(server, ctx);
   registerQuickSaleTool(server, ctx);
   registerServicesReceiptTool(server, ctx);
+  // Шлюз — последним и в обход обёртки (без префлайта базы): целевой вызов идёт через tools/call целиком.
+  registerGatewayTools(server, original, readVersion());
 
   return server;
 }

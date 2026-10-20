@@ -221,3 +221,23 @@ describe("read.catalog.list_catalog", () => {
     });
   });
 });
+
+describe("read.catalog.list_catalog — планы видов расчёта (виды начислений и удержаний)", () => {
+  it("читает ChartOfCalculationTypes_*: полное имя, без префикса и синтаксис 1С", async () => {
+    const store = baseStore();
+    store["ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций"] = [
+      { Ref_Key: id(301), Code: "000001", Description: "Оклад по дням", DeletionMark: false },
+      { Ref_Key: id(302), Code: "000002", Description: "Оплата отпуска", DeletionMark: false },
+    ];
+    const { call } = fake1C({ store });
+    for (const name of [
+      "ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций",
+      "ОсновныеНачисленияОрганизаций",
+      "ПланВидовРасчета.ОсновныеНачисленияОрганизаций",
+    ]) {
+      const res = await call("read.catalog.list_catalog", { entitySet: name, query: "отпуск" });
+      expect(res.isError, name).toBeFalsy();
+      expect(rowsOf(res).map((r) => r["name"])).toEqual(["Оплата отпуска"]);
+    }
+  });
+});

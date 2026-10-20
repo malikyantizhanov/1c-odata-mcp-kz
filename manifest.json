@@ -12454,7 +12454,7 @@
                   "type": "string"
                 },
                 "unitRef": {
-                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения)",
+                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
                   "type": "string"
                 },
                 "quantity": {
@@ -12632,7 +12632,7 @@
                   "type": "string"
                 },
                 "unitRef": {
-                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения)",
+                  "description": "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
                   "type": "string"
                 },
                 "quantity": {
@@ -12759,7 +12759,7 @@
           },
           "unitRef": {
             "type": "string",
-            "description": "Ref_Key единицы комплекта (Catalog_ЕдиницыИзмерения)"
+            "description": "Ref_Key единицы комплекта (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры"
           },
           "coefficient": {
             "type": "number",
@@ -12814,7 +12814,7 @@
                   "description": "Количество комплектующей на весь комплект документа"
                 },
                 "unitRef": {
-                  "description": "Ref_Key единицы (Catalog_ЕдиницыИзмерения)",
+                  "description": "Ref_Key единицы (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
                   "type": "string"
                 },
                 "coefficient": {
@@ -12966,7 +12966,7 @@
           },
           "unitRef": {
             "type": "string",
-            "description": "Ref_Key единицы комплекта (Catalog_ЕдиницыИзмерения)"
+            "description": "Ref_Key единицы комплекта (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры"
           },
           "coefficient": {
             "type": "number",
@@ -13018,7 +13018,7 @@
                   "description": "Количество комплектующей на весь комплект документа"
                 },
                 "unitRef": {
-                  "description": "Ref_Key единицы (Catalog_ЕдиницыИзмерения)",
+                  "description": "Ref_Key единицы (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
                   "type": "string"
                 },
                 "coefficient": {

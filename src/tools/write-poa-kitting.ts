@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { ServerContext } from "../context.js";
+import type { Connection, ServerContext } from "../context.js";
 import { InputError } from "../errors.js";
 import { buildQuery } from "../odata/query.js";
 import { createResultSchema, patchResultSchema } from "../schemas/output.js";
@@ -46,7 +46,9 @@ const poaLine = z
     unitRef: z
       .string()
       .optional()
-      .describe("Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения)"),
+      .describe(
+        "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
+      ),
     quantity: z.number().positive().describe("Количество"),
   })
   .refine((l) => !!l.nomenclatureRef !== !!l.name, {
@@ -119,7 +121,12 @@ function poaNotes(
 const kitComponent = z.object({
   nomenclatureRef: z.string().describe("Ref_Key комплектующей (Catalog_Номенклатура)"),
   quantity: z.number().positive().describe("Количество комплектующей на весь комплект документа"),
-  unitRef: z.string().optional().describe("Ref_Key единицы (Catalog_ЕдиницыИзмерения)"),
+  unitRef: z
+    .string()
+    .optional()
+    .describe(
+      "Ref_Key единицы (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
+    ),
   coefficient: z.number().positive().optional().describe("Коэффициент единицы (по умолчанию 1)"),
   costShare: z
     .number()
@@ -140,7 +147,11 @@ const kitHeaderArgs = {
   warehouseRef: z.string().describe("Ref_Key склада (Catalog_Склады)"),
   nomenclatureRef: z.string().describe("Ref_Key комплекта (Catalog_Номенклатура)"),
   quantity: z.number().positive().describe("Количество комплектов"),
-  unitRef: z.string().describe("Ref_Key единицы комплекта (Catalog_ЕдиницыИзмерения)"),
+  unitRef: z
+    .string()
+    .describe(
+      "Ref_Key единицы комплекта (Catalog_КлассификаторЕдиницИзмерения); по умолчанию — базовая единица из карточки номенклатуры",
+    ),
   coefficient: z.number().positive().describe("Коэффициент единицы комплекта (по умолчанию 1)"),
   account: z.string().describe("Счёт учёта комплекта БУ: код ('1330') или Ref_Key"),
   taxAccount: z.string().describe("Счёт учёта комплекта НУ: код или Ref_Key"),
@@ -212,6 +223,75 @@ function kitNotes(
   return notes;
 }
 
+const NOMENCLATURE = "Catalog_Номенклатура";
+const BASE_UNIT = "БазоваяЕдиницаИзмерения_Key";
+const EMPTY_REF = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Единица по умолчанию — базовая единица из карточки номенклатуры (как подставляет форма 1С). Через OData 1С её
+ * не подставит; без единицы печатная форма и пересчёт в базовые единицы остаются пустыми.
+ */
+async function baseUnits(conn: Connection, refs: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const em = (await conn.getMetadata()).entities.get(NOMENCLATURE);
+  if (!em?.properties.some((p) => p.name === BASE_UNIT)) return out;
+  for (const ref of [...new Set(refs)]) {
+    try {
+      const guid = ref.replace(/[{}']/g, "");
+      const row = await conn.client.getEntity(
+        `${NOMENCLATURE}(guid'${guid}')${buildQuery({ select: [BASE_UNIT] })}`,
+      );
+      const unit = row[BASE_UNIT];
+      if (typeof unit === "string" && unit && unit !== EMPTY_REF) out.set(ref, unit);
+    } catch {
+      // Нет карточки или прав — единица остаётся пустой, предупреждение ниже.
+    }
+  }
+  return out;
+}
+
+/** Дописывает единицу строкам без неё по номенклатуре строки; возвращает предупреждения. */
+async function fillUnits(
+  conn: Connection,
+  rows: Row[],
+  unitField: string,
+  nomOf: (r: Row) => string | undefined,
+  where: string,
+): Promise<string[]> {
+  const need = rows.filter((r) => !r[unitField] && nomOf(r));
+  if (!need.length) return [];
+  const units = await baseUnits(
+    conn,
+    need.map((r) => nomOf(r)!),
+  );
+  const filled: number[] = [];
+  const missing: number[] = [];
+  for (const r of need) {
+    const unit = units.get(nomOf(r)!);
+    const n = rows.indexOf(r) + 1;
+    if (unit) {
+      r[unitField] = unit;
+      filled.push(n);
+    } else missing.push(n);
+  }
+  return [
+    ...(filled.length
+      ? [`${where}: единица взята из карточки номенклатуры (базовая единица) — строки ${filled.join(", ")}.`]
+      : []),
+    ...(missing.length
+      ? [
+          `${where}: единица не задана и в карточке номенклатуры не найдена — строки ${missing.join(", ")}; передайте unitRef.`,
+        ]
+      : []),
+  ];
+}
+
+const poaNom = (r: Row) =>
+  r["НаименованиеТовара_Type"] === "StandardODATA.Catalog_Номенклатура"
+    ? String(r["НаименованиеТовара"])
+    : undefined;
+const kitNom = (r: Row) => (typeof r["Номенклатура_Key"] === "string" ? r["Номенклатура_Key"] : undefined);
+
 // ---------- Регистрация ----------
 
 export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): void {
@@ -251,6 +331,7 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
         const conn = ctx.db(a.database);
         const rows = poaRows(a.lines);
         const notes = poaNotes(a.date, a.validUntil, rows);
+        notes.push(...(await fillUnits(conn, rows, "ЕдиницаПоКлассификатору_Key", poaNom, "Товары")));
         const prepared = await prepareDocument(conn, {
           organization: a.organization,
           entitySet: POWER_OF_ATTORNEY,
@@ -297,6 +378,8 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
         const notes = poaNotes(undefined, a.validUntil, rows).filter(
           (n) => !n.startsWith("Доверенность не проводится"),
         );
+        if (rows)
+          notes.push(...(await fillUnits(conn, rows, "ЕдиницаПоКлассификатору_Key", poaNom, "Товары")));
         const prepared = await prepareDocumentPatch(conn, {
           entitySet: POWER_OF_ATTORNEY,
           ref: a.ref,
@@ -364,12 +447,16 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
           notes.unshift(
             "Счёт учёта комплекта (account) не задан и нет образца — проводка может не сформироваться.",
           );
+        const header = kitFields({ ...a, coefficient: a.coefficient ?? 1 });
+        notes.push(...(await fillUnits(conn, [header], "ЕдиницаИзмерения_Key", kitNom, "Комплект")));
+        const components = kitRows(a.components);
+        notes.push(...(await fillUnits(conn, components, "ЕдиницаИзмерения_Key", kitNom, "Комплектующие")));
         const prepared = await prepareDocument(conn, {
           organization: a.organization,
           entitySet: KITTING,
           date: a.date,
-          fields: { ...kitFields({ ...a, coefficient: a.coefficient ?? 1 }), ...(a.fields ?? {}) },
-          tables: { Комплектующие: kitRows(a.components) },
+          fields: { ...header, ...(a.fields ?? {}) },
+          tables: { Комплектующие: components },
           sampleRef: a.sampleRef,
         });
         return createOrPreview(conn, KITTING, prepared.payload, a.confirm ?? false, [
@@ -414,11 +501,17 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
       guard("write.warehouse.update_kitting", async () => {
         const conn = ctx.db(a.database);
         const notes = a.components ? kitNotes(a.operation, a.nomenclatureRef, a.components) : [];
+        const header = kitFields(a);
+        if (a.nomenclatureRef)
+          notes.push(...(await fillUnits(conn, [header], "ЕдиницаИзмерения_Key", kitNom, "Комплект")));
+        const components = a.components ? kitRows(a.components) : undefined;
+        if (components)
+          notes.push(...(await fillUnits(conn, components, "ЕдиницаИзмерения_Key", kitNom, "Комплектующие")));
         const prepared = await prepareDocumentPatch(conn, {
           entitySet: KITTING,
           ref: a.ref,
-          fields: { ...kitFields(a), ...(a.fields ?? {}) },
-          tables: a.components ? { Комплектующие: kitRows(a.components) } : {},
+          fields: { ...header, ...(a.fields ?? {}) },
+          tables: components ? { Комплектующие: components } : {},
         });
         return patchOrPreview(conn, KITTING, prepared.guid, prepared.patch, a.confirm ?? false, [
           ...notes,

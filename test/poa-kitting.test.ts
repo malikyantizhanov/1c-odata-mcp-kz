@@ -80,6 +80,11 @@ function setup(opts: { readOnly?: boolean; writable?: boolean } = {}) {
     { Ref_Key: id(412), Number: "2", Date: "2026-10-01T00:00:00", Posted: true, DeletionMark: false },
   ];
   store["ChartOfAccounts_Типовой"] = [{ Ref_Key: ACC_1330, Code: "1330", ExtDimensionTypes: [] }];
+  store["Catalog_Номенклатура"] = [
+    ...(store["Catalog_Номенклатура"] ?? []),
+    ...[NOM, KIT_NOM, PART1].map((Ref_Key) => ({ Ref_Key, БазоваяЕдиницаИзмерения_Key: UNIT })),
+    { Ref_Key: PART2, БазоваяЕдиницаИзмерения_Key: "00000000-0000-0000-0000-000000000000" },
+  ];
   return fake1C({ store, entities, ...opts });
 }
 
@@ -96,7 +101,7 @@ const poa = {
   byDocument: "Счёт на оплату № 15 от 01.10.2026",
   lines: [
     { name: "Бумага А4", quantity: 10 },
-    { nomenclatureRef: NOM, unitRef: UNIT, quantity: 2 },
+    { nomenclatureRef: NOM, quantity: 2 },
   ],
 };
 const kit = {
@@ -140,6 +145,9 @@ describe("write.document.create_power_of_attorney", () => {
       Количество: 2,
     });
     expect(notes(r)).toContain("не проводится");
+    expect(notes(r)).toContain(
+      "Товары: единица взята из карточки номенклатуры (базовая единица) — строки 2.",
+    );
   });
 
   it("срок действия раньше даты — отказ", async () => {
@@ -220,6 +228,16 @@ describe("write.warehouse.create_kitting", () => {
       Количество: 10,
       СчетУчетаБУ_Key: ACC_1330,
     });
+    // Единица по умолчанию — базовая единица номенклатуры (Catalog_КлассификаторЕдиницИзмерения); пустая — предупреждение.
+    expect(p.ЕдиницаИзмерения_Key).toBe(UNIT);
+    expect(p.Комплектующие[0]!.ЕдиницаИзмерения_Key).toBe(UNIT);
+    expect(p.Комплектующие[1]).not.toHaveProperty("ЕдиницаИзмерения_Key");
+    expect(notes(r)).toContain(
+      "Комплектующие: единица взята из карточки номенклатуры (базовая единица) — строки 1.",
+    );
+    expect(notes(r)).toContain(
+      "Комплектующие: единица не задана и в карточке номенклатуры не найдена — строки 2",
+    );
   });
 
   it("разукомплектация без долей стоимости — предупреждение; комплект в своих строках — отказ", async () => {

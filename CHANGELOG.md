@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.5] — 2026-10-20
+
 ### Добавлено — импорт, НДС, доверенность, комплектация и весь раздел «Зарплата и кадры» во флоу (Казахстан)
 
 - Реестр `KZ_FLOW` (общая запись `write.document.create_document` / `update_document` / `post_document`, справка `read.system.kz_document_guide`): `Document_ГТДИмпорт`, `Document_ЗаявлениеОВвозеТоваровИУплатеКосвенныхНалогов`, `Document_ПоступлениеДопРасходов` (новый блок «импорт»), `Document_РегистрацияНДСЗаНерезидента`, `Document_РасчетНалоговПриПоступленииАктивовУслуг`, `Document_Доверенность`, `Document_КомплектацияНоменклатуры`.
@@ -958,7 +960,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.4...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.4...v0.7.5
 [0.7.4]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.1...v0.7.2

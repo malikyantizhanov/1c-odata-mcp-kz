@@ -188,11 +188,16 @@ describe("write.document.create_document в казахстанской базе"
       tables: { ФизическиеЛица: [{ ФизическоеЛицо_Key: PERSON }] },
     };
     const withEp = await call("write.document.create_document", args, { singlePayment: true });
-    expect(withEp.sc["notes"]).toEqual([
-      expect.stringContaining("расчёт единого платежа (№ 00000000009 от 2026-04-30)"),
-    ]);
+    // Суммы в документе не заданы — дополнительно предупреждение «суммы считает 1С в форме».
+    expect(withEp.sc["notes"]).toHaveLength(2);
+    expect(withEp.sc["notes"]).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("расчёт единого платежа (№ 00000000009 от 2026-04-30)"),
+        expect.stringContaining("суммы пустые или нулевые"),
+      ]),
+    );
     const without = await call("write.document.create_document", args);
-    expect(without.sc["notes"]).toBeUndefined();
+    expect(without.sc["notes"]).toEqual([expect.stringContaining("суммы пустые или нулевые")]);
   });
 
   it("образец другого вида — только документ (sampleEntitySet = Document_…)", async () => {

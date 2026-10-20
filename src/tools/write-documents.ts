@@ -11,6 +11,7 @@ import { databaseField, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
 import { fillSubcontoTypes } from "./subconto.js";
+import { payrollSumNotes } from "./payroll-sums.js";
 import {
   enumNotes,
   fillFromSample,
@@ -450,6 +451,7 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
           sampleRef,
           sampleEntitySet,
         });
+        notes.push(...payrollSumNotes(entitySet, payload));
         return createOrPreview(conn, entitySet, payload, confirm, notes);
       }),
   );
@@ -484,6 +486,7 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
       guard("write.document.update_document", async () => {
         const conn = ctx.db(database);
         const { guid, patch, notes } = await prepareDocumentPatch(conn, { entitySet, ref, fields, tables });
+        notes.push(...payrollSumNotes(entitySet, patch, true));
         if (!confirm) {
           notes.push(
             "operationId для update_document не нужен: изменение идемпотентно — повтор с confirm=true запишет те же поля.",

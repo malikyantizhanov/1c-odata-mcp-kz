@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
 import { InputError } from "../errors.js";
 import { buildQuery } from "../odata/query.js";
+import { fetchAll } from "../odata/pagination.js";
 import { createResultSchema, patchResultSchema } from "../schemas/output.js";
 import { databaseField, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, patchOrPreview } from "./write.js";
@@ -49,6 +50,12 @@ const poaLine = z
       .describe(
         "Ref_Key единицы по классификатору (Catalog_КлассификаторЕдиницИзмерения); для nomenclatureRef по умолчанию — базовая единица номенклатуры",
       ),
+    unit: z
+      .string()
+      .optional()
+      .describe(
+        "Единица для ТМЦ строкой: обозначение или код по классификатору ('шт', 'кг', '796'); по умолчанию — 'шт' (796)",
+      ),
     quantity: z.number().positive().describe("Количество"),
   })
   .refine((l) => !!l.nomenclatureRef !== !!l.name, {
@@ -94,6 +101,78 @@ function poaRows(lines: Array<z.infer<typeof poaLine>>): Row[] {
     ...(l.unitRef ? { ЕдиницаПоКлассификатору_Key: l.unitRef } : {}),
     Количество: l.quantity,
   }));
+}
+
+const UNIT_CLASSIFIER = "Catalog_КлассификаторЕдиницИзмерения";
+/** Единица по умолчанию для ТМЦ строкой — «шт» (код 796 по классификатору), как чаще всего в доверенности. */
+export const DEFAULT_UNIT = "796";
+
+/**
+ * ТМЦ строкой (нет карточки номенклатуры): единица по классификатору по обозначению или коду строки (unit),
+ * по умолчанию «шт» (796). Ищется в Catalog_КлассификаторЕдиницИзмерения базы (код хранится с пробелами).
+ */
+async function fillNamedUnits(
+  conn: Connection,
+  rows: Row[],
+  lines: Array<z.infer<typeof poaLine>>,
+): Promise<string[]> {
+  const need = rows
+    .map((r, i) => ({ r, i, unit: (lines[i]?.unit ?? DEFAULT_UNIT).trim() }))
+    .filter(({ r }) => r["НаименованиеТовара_Type"] === "Edm.String" && !r["ЕдиницаПоКлассификатору_Key"]);
+  if (!need.length) return [];
+  const em = (await conn.getMetadata()).entities.get(UNIT_CLASSIFIER);
+  const names = new Set(em?.properties.map((p) => p.name) ?? []);
+  let units: Array<Record<string, unknown>> = [];
+  if (em) {
+    try {
+      units = (
+        await fetchAll(
+          conn.client,
+          UNIT_CLASSIFIER,
+          {
+            select: ["Ref_Key", "Code", "Description", "DeletionMark"].concat(
+              names.has("НаименованиеПолное") ? ["НаименованиеПолное"] : [],
+            ),
+          },
+          conn.behavior.pageSize,
+          2000,
+        )
+      ).rows;
+    } catch {
+      units = [];
+    }
+  }
+  const low = (v: unknown) =>
+    String(v ?? "")
+      .trim()
+      .toLowerCase();
+  const find = (u: string) => {
+    const live = units.filter((x) => x["DeletionMark"] !== true);
+    return (
+      live.find((x) => low(x["Code"]) === low(u)) ??
+      live.find((x) => low(x["Description"]) === low(u)) ??
+      live.find((x) => low(x["НаименованиеПолное"]) === low(u))
+    );
+  };
+  const filled: string[] = [];
+  const missing: string[] = [];
+  for (const { r, i, unit } of need) {
+    const hit = find(unit);
+    if (hit) {
+      r["ЕдиницаПоКлассификатору_Key"] = String(hit["Ref_Key"]);
+      filled.push(`${i + 1} — ${String(hit["Description"] ?? unit).trim()}`);
+    } else missing.push(`${i + 1} («${unit}»)`);
+  }
+  return [
+    ...(filled.length
+      ? [`Товары: ТМЦ строкой — единица по классификатору: строки ${filled.join(", ")}.`]
+      : []),
+    ...(missing.length
+      ? [
+          `Товары: единица не найдена в классификаторе — строки ${missing.join(", ")}; передайте unit (обозначение/код) или unitRef.`,
+        ]
+      : []),
+  ];
 }
 
 function poaNotes(
@@ -215,8 +294,6 @@ function kitNotes(
     else if (shares < components.length)
       notes.push("Доли стоимости (costShare) заданы не у всех строк — у остальных доля 0.");
   }
-  if (components?.some((c) => !c.account))
-    notes.push("Счёт учёта БУ задан не у всех комплектующих — без счёта проводка не сформируется.");
   notes.push(
     "Проведение — write.document.post_document; схему проводок (Дт/Кт счетов запасов) сверьте с первым проведённым документом.",
   );
@@ -286,6 +363,183 @@ async function fillUnits(
   ];
 }
 
+const NOM_ACCOUNTS = "InformationRegister_СчетаУчетаНоменклатуры";
+const TAX_KINDS = "Catalog_ВидыУчетаНУ";
+/** Предопределённый вид учёта «НУ» — так стоят складские документы, проведённые в форме (Aru Market). */
+export const TAX_KIND_NU = "НУ";
+const realRef = (v: unknown): string | undefined =>
+  typeof v === "string" && v && v !== EMPTY_REF ? v : undefined;
+
+/** Цепочка «номенклатура → её группы» (Parent_Key), как ищет счета форма 1С. */
+async function nomChain(conn: Connection, ref: string): Promise<string[]> {
+  const chain = [ref];
+  let cur = ref;
+  for (let i = 0; i < 10; i++) {
+    try {
+      const row = await conn.client.getEntity(
+        `${NOMENCLATURE}(guid'${cur.replace(/[{}']/g, "")}')${buildQuery({ select: ["Parent_Key"] })}`,
+      );
+      const parent = realRef(row["Parent_Key"]);
+      if (!parent || chain.includes(parent)) break;
+      chain.push(parent);
+      cur = parent;
+    } catch {
+      break;
+    }
+  }
+  return chain;
+}
+
+/**
+ * Счета учёта БУ/НУ номенклатуры из регистра «Счета учёта номенклатуры» (казахстанские поля СчетУчетаБУ_Key /
+ * СчетУчетаНУ_Key), как форма 1С: самая точная запись — сама номенклатура, затем её группа, затем пустая
+ * номенклатура («для всех»); запись для организации точнее пустой организации. Регистра нет — пустая карта.
+ */
+export async function kzNomAccounts(
+  conn: Connection,
+  orgKey: string | undefined,
+  refs: string[],
+): Promise<Map<string, { bu?: string; nu?: string }>> {
+  const out = new Map<string, { bu?: string; nu?: string }>();
+  const em = (await conn.getMetadata()).entities.get(NOM_ACCOUNTS);
+  const has = new Set(em?.properties.map((p) => p.name) ?? []);
+  if (!em || !has.has("Номенклатура_Key") || !has.has("СчетУчетаНУ_Key")) return out;
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = (
+      await fetchAll(
+        conn.client,
+        NOM_ACCOUNTS,
+        {
+          select: ["Организация_Key", "Номенклатура_Key", "СчетУчетаБУ_Key", "СчетУчетаНУ_Key"].filter((f) =>
+            has.has(f),
+          ),
+        },
+        conn.behavior.pageSize,
+        5000,
+      )
+    ).rows;
+  } catch {
+    return out;
+  }
+  for (const ref of [...new Set(refs)]) {
+    const chain = await nomChain(conn, ref);
+    let best: Record<string, unknown> | undefined;
+    let bestScore = -1;
+    for (const r of rows) {
+      const nm = realRef(r["Номенклатура_Key"]);
+      const og = realRef(r["Организация_Key"]);
+      if (og && og !== orgKey) continue;
+      const pos = nm ? chain.indexOf(nm) : chain.length;
+      if (pos < 0) continue;
+      const score = (chain.length - pos) * 2 + (og ? 1 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    if (!best) continue;
+    const bu = realRef(best["СчетУчетаБУ_Key"]);
+    const nu = realRef(best["СчетУчетаНУ_Key"]);
+    if (bu || nu) out.set(ref, { ...(bu ? { bu } : {}), ...(nu ? { nu } : {}) });
+  }
+  return out;
+}
+
+/** Ref_Key предопределённого вида учёта НУ «НУ» или undefined. */
+async function taxKindNU(conn: Connection): Promise<string | undefined> {
+  if (!(await conn.getMetadata()).entities.has(TAX_KINDS)) return undefined;
+  try {
+    const { rows } = await fetchAll(
+      conn.client,
+      TAX_KINDS,
+      { select: ["Ref_Key", "PredefinedDataName", "DeletionMark"] },
+      conn.behavior.pageSize,
+      200,
+    );
+    const hit = rows.find((r) => r["PredefinedDataName"] === TAX_KIND_NU && r["DeletionMark"] !== true);
+    return realRef(hit?.["Ref_Key"]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Настройки учёта комплектации, которые форма 1С ставит сама, а через OData 1С оставляет пустыми или ставит
+ * «не отражается в НУ» (проверено: комплектация из OData получила ВидУчетаНУ «ПР: не отражается в налоговом
+ * учете», без СчетУчетаНУ, и не провелась): счета БУ/НУ комплекта и строк — из регистра «Счета учёта
+ * номенклатуры»; ВидУчетаНУ — «НУ» (setTaxKind, только при создании). Заданное явно и взятое из образца не меняет.
+ */
+export async function applyKittingDefaults(
+  conn: Connection,
+  header: Record<string, unknown>,
+  rows: Array<Record<string, unknown>> | undefined,
+  orgKey: string | undefined,
+  setTaxKind: boolean,
+): Promise<string[]> {
+  const notes: string[] = [];
+  const em = (await conn.getMetadata()).entities.get(KITTING);
+  const headerProps = new Set(em?.properties.map((p) => p.name) ?? []);
+  const nom = (r: Record<string, unknown>) => realRef(r["Номенклатура_Key"]);
+  const targets = [...(nom(header) ? [header] : []), ...(rows ?? []).filter((r) => nom(r))];
+  const need = targets.filter((r) => !realRef(r["СчетУчетаБУ_Key"]) || !realRef(r["СчетУчетаНУ_Key"]));
+  if (need.length) {
+    const acc = await kzNomAccounts(
+      conn,
+      orgKey,
+      need.map((r) => nom(r)!),
+    );
+    const filled: string[] = [];
+    for (const r of need) {
+      const a = acc.get(nom(r)!);
+      if (!a) continue;
+      const set: string[] = [];
+      if (!realRef(r["СчетУчетаБУ_Key"]) && a.bu) {
+        r["СчетУчетаБУ_Key"] = a.bu;
+        set.push("БУ");
+      }
+      if (!realRef(r["СчетУчетаНУ_Key"]) && a.nu) {
+        r["СчетУчетаНУ_Key"] = a.nu;
+        set.push("НУ");
+      }
+      if (set.length)
+        filled.push(
+          `${r === header ? "комплект" : `строка ${(rows ?? []).indexOf(r) + 1}`} (${set.join(", ")})`,
+        );
+    }
+    if (filled.length)
+      notes.push(
+        `Счета учёта подставлены из регистра «Счета учёта номенклатуры», как в форме 1С: ${filled.join("; ")}.`,
+      );
+  }
+  if (setTaxKind && headerProps.has("ВидУчетаНУ_Key") && !realRef(header["ВидУчетаНУ_Key"])) {
+    const nu = await taxKindNU(conn);
+    if (nu) {
+      header["ВидУчетаНУ_Key"] = nu;
+      notes.push(
+        "ВидУчетаНУ = «НУ», как в складских документах, проведённых в форме; без него 1С ставит «не отражается в НУ».",
+      );
+    }
+  }
+  const noBu = (rows ?? [])
+    .filter((r) => !realRef(r["СчетУчетаБУ_Key"]))
+    .map((r) => (rows ?? []).indexOf(r) + 1);
+  if (noBu.length)
+    notes.push(
+      `Счёт учёта БУ не задан и в регистре не найден — строки ${noBu.join(", ")}; без счёта проводка не сформируется.`,
+    );
+  if (nom(header) && !realRef(header["СчетУчетаНУ_Key"]))
+    notes.push("Счёт учёта НУ комплекта не задан и в регистре не найден — передайте taxAccount.");
+  return notes;
+}
+
+/** Предупреждение «не задан ни один счёт учёта» из общей подготовки неактуально, если счета подставлены из регистра. */
+function dropStaleAccountNote(notes: string[], rows: unknown): string[] {
+  const list = Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+  const allSet = list.every((r) => realRef(r["СчетУчетаБУ_Key"]) || realRef(r["СчетУчетаНУ_Key"]));
+  return allSet ? notes.filter((n) => !n.includes("не задан ни один счёт учёта")) : notes;
+}
+
 const poaNom = (r: Row) =>
   r["НаименованиеТовара_Type"] === "StandardODATA.Catalog_Номенклатура"
     ? String(r["НаименованиеТовара"])
@@ -302,7 +556,8 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
       description:
         "Создаёт документ «Доверенность» (Document_Доверенность): кому выдана (personRef — физлицо), срок действия " +
         "(validUntil), у кого получать (counterpartyRef, contractRef, receiveFrom), по какому документу (byDocument) и " +
-        "список ТМЦ (lines: nomenclatureRef или name строкой, единица по классификатору, количество). Доверенность не " +
+        "список ТМЦ (lines: nomenclatureRef или name строкой, единица по классификатору, количество; для ТМЦ строкой " +
+        "единица — unit, по умолчанию «шт»). Доверенность не " +
         "проводится. Предпросмотр (confirm=false) показывает тело запроса и предупреждения; создание — confirm=true после " +
         "согласия пользователя. Печать — read.document.print_power_of_attorney. Изменить — " +
         "write.document.update_power_of_attorney. Пример: " +
@@ -332,6 +587,7 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
         const rows = poaRows(a.lines);
         const notes = poaNotes(a.date, a.validUntil, rows);
         notes.push(...(await fillUnits(conn, rows, "ЕдиницаПоКлассификатору_Key", poaNom, "Товары")));
+        notes.push(...(await fillNamedUnits(conn, rows, a.lines)));
         const prepared = await prepareDocument(conn, {
           organization: a.organization,
           entitySet: POWER_OF_ATTORNEY,
@@ -378,8 +634,10 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
         const notes = poaNotes(undefined, a.validUntil, rows).filter(
           (n) => !n.startsWith("Доверенность не проводится"),
         );
-        if (rows)
+        if (rows && a.lines) {
           notes.push(...(await fillUnits(conn, rows, "ЕдиницаПоКлассификатору_Key", poaNom, "Товары")));
+          notes.push(...(await fillNamedUnits(conn, rows, a.lines)));
+        }
         const prepared = await prepareDocumentPatch(conn, {
           entitySet: POWER_OF_ATTORNEY,
           ref: a.ref,
@@ -413,6 +671,7 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
         "стоимости — costShare). Склад, количество комплектов, единица и счета учёта (код '1330' или Ref_Key) — в " +
         "шапке, комплектующие — в табличной части «Комплектующие». Остатки и себестоимость 1С проверит при проведении " +
         "(write.document.post_document). sampleRef — проведённая комплектация, из которой взять счета и настройки учёта. " +
+        "Не заданные счета БУ/НУ берутся из регистра «Счета учёта номенклатуры», ВидУчетаНУ — «НУ», как в форме 1С. " +
         "Предпросмотр (confirm=false) по умолчанию; создание — confirm=true после согласия пользователя. Пример: " +
         '{"operation":"Комплектация","warehouseRef":"<GUID>","nomenclatureRef":"<GUID комплекта>","quantity":5,' +
         '"account":"1330","components":[{"nomenclatureRef":"<GUID>","quantity":10,"account":"1330"}]}.',
@@ -443,10 +702,6 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
       guard("write.warehouse.create_kitting", async () => {
         const conn = ctx.db(a.database);
         const notes = kitNotes(a.operation, a.nomenclatureRef, a.components);
-        if (!a.account && !a.sampleRef)
-          notes.unshift(
-            "Счёт учёта комплекта (account) не задан и нет образца — проводка может не сформироваться.",
-          );
         const header = kitFields({ ...a, coefficient: a.coefficient ?? 1 });
         notes.push(...(await fillUnits(conn, [header], "ЕдиницаИзмерения_Key", kitNom, "Комплект")));
         const components = kitRows(a.components);
@@ -459,9 +714,19 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
           tables: { Комплектующие: components },
           sampleRef: a.sampleRef,
         });
+        const payload = prepared.payload as Record<string, unknown>;
+        notes.push(
+          ...(await applyKittingDefaults(
+            conn,
+            payload,
+            payload["Комплектующие"] as Array<Record<string, unknown>> | undefined,
+            realRef(payload["Организация_Key"]),
+            true,
+          )),
+        );
         return createOrPreview(conn, KITTING, prepared.payload, a.confirm ?? false, [
           ...notes,
-          ...prepared.notes,
+          ...dropStaleAccountNote(prepared.notes, payload["Комплектующие"]),
         ]);
       }),
   );
@@ -513,9 +778,24 @@ export function registerPoaKittingTools(server: McpServer, ctx: ServerContext): 
           fields: { ...header, ...(a.fields ?? {}) },
           tables: components ? { Комплектующие: components } : {},
         });
+        const patch = prepared.patch as Record<string, unknown>;
+        if (patch["Номенклатура_Key"] || Array.isArray(patch["Комплектующие"])) {
+          const cur = await conn.client.getEntity(
+            `${KITTING}(guid'${prepared.guid}')${buildQuery({ select: ["Организация_Key"] })}`,
+          );
+          notes.push(
+            ...(await applyKittingDefaults(
+              conn,
+              patch["Номенклатура_Key"] ? patch : {},
+              patch["Комплектующие"] as Array<Record<string, unknown>> | undefined,
+              realRef(cur["Организация_Key"]),
+              false,
+            )),
+          );
+        }
         return patchOrPreview(conn, KITTING, prepared.guid, prepared.patch, a.confirm ?? false, [
           ...notes,
-          ...prepared.notes,
+          ...dropStaleAccountNote(prepared.notes, patch["Комплектующие"]),
         ]);
       }),
   );

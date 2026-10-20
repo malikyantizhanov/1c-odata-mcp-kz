@@ -11,6 +11,7 @@ import { InputError } from "../errors.js";
 import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { fetchAll } from "../odata/pagination.js";
 import { cmp, odataString, or } from "../odata/query.js";
+import { PAYROLL_FORM_HINT } from "./payroll-sums.js";
 
 export type KzBlock =
   | "продажи"
@@ -516,7 +517,8 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     ],
     noPostings: true,
     hints: [
-      "Отпускные и больничные — строки этого же документа с ВидРасчета «Отпуск»/«Оплата по больничному листу» (отдельных документов в БК нет). Сумму считает вызывающий по среднему заработку (ТК ст. 88, 133) — MCP её не считает.",
+      PAYROLL_FORM_HINT,
+      "Отпускные и больничные — строки этого же документа с ВидРасчета «Отпуск»/«Оплата по больничному листу» (отдельных документов в БК нет). Сумму по среднему заработку (ТК ст. 88, 133) считает 1С в форме — MCP её не считает.",
     ],
   },
   {
@@ -526,7 +528,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Проводок нет — регистры налогов; проводки в ОтражениеЗарплатыВРеглУчете.",
     legal: [NK("ст. 363, 403 (вычет 30 МРП по заявлению), 440–441"), KZ_SOURCES.social, KZ_SOURCES.osms],
     noPostings: true,
-    hints: ["При проведённом расчёте ЕП за месяц не делается."],
+    hints: [PAYROLL_FORM_HINT, "При проведённом расчёте ЕП за месяц не делается."],
   },
   {
     entitySet: "Document_РасчетСНиСО",
@@ -538,6 +540,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
       KZ_SOURCES.social,
     ],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_РасчетЕдиногоПлатежа",
@@ -547,6 +550,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
       "Проводок нет; в отражении Дт 3350 Кт 3231 (часть работника) и Дт <затраты> Кт 3231 (часть работодателя).",
     legal: [NK("ст. 820–823 (ЕП)")],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_ОтражениеЗарплатыВРеглУчете",
@@ -555,6 +559,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: PAYROLL_REFLECT,
     legal: [NK("ст. 270 (вычет расходов по доходам работников)"), KZ_SOURCES.plan],
     expect: { credit: ["3350"], debit: ["3350"] },
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_ЗарплатаКВыплатеОрганизаций",
@@ -563,6 +568,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Проводок нет — основание для ПП/РКО; выплата Дт 3350 Кт 1030/1010.",
     legal: [L(`ТК РК ст. 113 (сроки выплаты зарплаты) — ${KZ_SOURCES.tk}`)],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_ОПВПеречислениеВФонды",
@@ -571,6 +577,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры расчётов с фондами; деньги — ПП исходящее (Дт 3220/3250 Кт 1030).",
     legal: [KZ_SOURCES.social, `КНП 010/089 — ${KZ_SOURCES.knp}`],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_СОПеречислениеВФонды",
@@ -579,6 +586,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры; деньги — ПП исходящее (Дт 3211 Кт 1030), КНП 012.",
     legal: [KZ_SOURCES.social],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   {
     entitySet: "Document_ЕППеречислениеВФонды",
@@ -587,6 +595,7 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры; деньги — ПП исходящее Дт 3231 Кт 1030, КНП 185.",
     legal: [NK("ст. 823")],
     noPostings: true,
+    hints: [PAYROLL_FORM_HINT],
   },
   // ---------- Кадры ----------
   {

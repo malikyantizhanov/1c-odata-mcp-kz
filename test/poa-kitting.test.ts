@@ -22,6 +22,15 @@ const KIT_NOM = id(312);
 const PART1 = id(313);
 const PART2 = id(314);
 const ACC_1330 = id(321);
+const ACC_1310 = id(322);
+const ACC_1330N = id(323);
+const ACC_1310N = id(324);
+const GROUP = id(315);
+const SHT = id(331);
+const KG = id(332);
+const TAX_NU = id(341);
+const TAX_NONE = id(342);
+const EMPTY = "00000000-0000-0000-0000-000000000000";
 const OP = "11111111-2222-4333-8444-555555555555";
 
 const props = (names: string[], type = "Edm.String") => names.map((name) => ({ name, type }));
@@ -48,7 +57,7 @@ const entities = {
     properties: [
       ...props(["Ref_Key", "Number", "Date", "Posted", "DeletionMark", "Организация_Key", "ВидОперации"]),
       ...props(["Склад_Key", "Номенклатура_Key", "Количество", "ЕдиницаИзмерения_Key", "Коэффициент"]),
-      ...props(["СчетУчетаБУ_Key", "СчетУчетаНУ_Key", "Комментарий"]),
+      ...props(["СчетУчетаБУ_Key", "СчетУчетаНУ_Key", "ВидУчетаНУ_Key", "Комментарий"]),
       { name: "Комплектующие", type: `Collection(StandardODATA.${KIT}_Комплектующие_RowType)` },
     ],
     navigations: [nav("СчетУчетаБУ")],
@@ -76,14 +85,42 @@ function setup(opts: { readOnly?: boolean; writable?: boolean } = {}) {
     { Ref_Key: id(402), Number: "2", Date: "2026-10-01T00:00:00", Posted: false, DeletionMark: true },
   ];
   store[KIT] = [
-    { Ref_Key: id(411), Number: "1", Date: "2026-10-01T00:00:00", Posted: false, DeletionMark: false },
+    {
+      Ref_Key: id(411),
+      Number: "1",
+      Date: "2026-10-01T00:00:00",
+      Posted: false,
+      DeletionMark: false,
+      Организация_Key: ORG,
+    },
     { Ref_Key: id(412), Number: "2", Date: "2026-10-01T00:00:00", Posted: true, DeletionMark: false },
   ];
   store["ChartOfAccounts_Типовой"] = [{ Ref_Key: ACC_1330, Code: "1330", ExtDimensionTypes: [] }];
   store["Catalog_Номенклатура"] = [
     ...(store["Catalog_Номенклатура"] ?? []),
-    ...[NOM, KIT_NOM, PART1].map((Ref_Key) => ({ Ref_Key, БазоваяЕдиницаИзмерения_Key: UNIT })),
-    { Ref_Key: PART2, БазоваяЕдиницаИзмерения_Key: "00000000-0000-0000-0000-000000000000" },
+    ...[NOM, KIT_NOM].map((Ref_Key) => ({ Ref_Key, БазоваяЕдиницаИзмерения_Key: UNIT, Parent_Key: EMPTY })),
+    { Ref_Key: PART1, БазоваяЕдиницаИзмерения_Key: UNIT, Parent_Key: GROUP },
+    { Ref_Key: PART2, БазоваяЕдиницаИзмерения_Key: EMPTY, Parent_Key: EMPTY },
+    { Ref_Key: GROUP, БазоваяЕдиницаИзмерения_Key: EMPTY, Parent_Key: EMPTY },
+  ];
+  // Классификатор единиц (код в 1С хранится с пробелами), регистр счетов учёта номенклатуры (КЗ-поля), виды учёта НУ.
+  store["Catalog_КлассификаторЕдиницИзмерения"] = [
+    { Ref_Key: KG, Code: "166      ", Description: "кг", DeletionMark: false },
+    { Ref_Key: SHT, Code: "796      ", Description: "шт", DeletionMark: false },
+  ];
+  store["InformationRegister_СчетаУчетаНоменклатуры"] = [
+    {
+      Организация_Key: EMPTY,
+      Номенклатура_Key: EMPTY,
+      СчетУчетаБУ_Key: ACC_1310,
+      СчетУчетаНУ_Key: ACC_1310N,
+    },
+    { Организация_Key: ORG, Номенклатура_Key: GROUP, СчетУчетаБУ_Key: ACC_1330, СчетУчетаНУ_Key: ACC_1330N },
+    { Организация_Key: id(999), Номенклатура_Key: PART2, СчетУчетаБУ_Key: id(998), СчетУчетаНУ_Key: id(997) },
+  ];
+  store["Catalog_ВидыУчетаНУ"] = [
+    { Ref_Key: TAX_NONE, PredefinedDataName: "НеОтражаетсяВНУ", DeletionMark: false },
+    { Ref_Key: TAX_NU, PredefinedDataName: "НУ", DeletionMark: false },
   ];
   return fake1C({ store, entities, ...opts });
 }
@@ -137,7 +174,9 @@ describe("write.document.create_power_of_attorney", () => {
     expect(p.Товары[0]).toMatchObject({
       НаименованиеТовара: "Бумага А4",
       НаименованиеТовара_Type: "Edm.String",
+      ЕдиницаПоКлассификатору_Key: SHT,
     });
+    expect(notes(r)).toContain("ТМЦ строкой — единица по классификатору: строки 1 — шт.");
     expect(p.Товары[1]).toMatchObject({
       НаименованиеТовара: NOM,
       НаименованиеТовара_Type: "StandardODATA.Catalog_Номенклатура",
@@ -148,6 +187,26 @@ describe("write.document.create_power_of_attorney", () => {
     expect(notes(r)).toContain(
       "Товары: единица взята из карточки номенклатуры (базовая единица) — строки 2.",
     );
+  });
+
+  it("ТМЦ строкой: unit по обозначению или коду; неизвестная единица — предупреждение; unitRef не трогается", async () => {
+    const { call } = setup();
+    const r = (await call("write.document.create_power_of_attorney", {
+      ...poa,
+      lines: [
+        { name: "Сахар", unit: "кг", quantity: 5 },
+        { name: "Ручки", unit: "796", quantity: 3 },
+        { name: "Ящик", unit: "ящ", quantity: 1 },
+        { name: "Клей", unitRef: UNIT, quantity: 1 },
+      ],
+    })) as Res;
+    expect(r.isError, text(r)).toBeFalsy();
+    const rows = (r.structuredContent.payload as { Товары: Row[] }).Товары;
+    expect(rows[0]!.ЕдиницаПоКлассификатору_Key).toBe(KG);
+    expect(rows[1]!.ЕдиницаПоКлассификатору_Key).toBe(SHT);
+    expect(rows[2]).not.toHaveProperty("ЕдиницаПоКлассификатору_Key");
+    expect(rows[3]!.ЕдиницаПоКлассификатору_Key).toBe(UNIT);
+    expect(notes(r)).toContain("единица не найдена в классификаторе — строки 3 («ящ»)");
   });
 
   it("срок действия раньше даты — отказ", async () => {
@@ -185,6 +244,7 @@ describe("write.document.update_power_of_attorney", () => {
     expect(patches).toHaveLength(0);
     expect(JSON.stringify(r.structuredContent)).toContain("2026-11-15T00:00:00");
     expect(JSON.stringify(r.structuredContent)).toContain("Тонер");
+    expect(JSON.stringify(r.structuredContent)).toContain(SHT);
   });
 
   it("помеченная на удаление — отказ; срок раньше даты — отказ; пустое изменение — отказ", async () => {
@@ -240,6 +300,54 @@ describe("write.warehouse.create_kitting", () => {
     );
   });
 
+  it("счета БУ/НУ и ВидУчетаНУ по умолчанию — как форма 1С: регистр (номенклатура → группа → все), «НУ»", async () => {
+    const { call, posts } = setup();
+    const { account: _a, components: _c, ...bare } = kit;
+    const r = (await call("write.warehouse.create_kitting", {
+      ...bare,
+      components: [
+        { nomenclatureRef: PART1, quantity: 10 },
+        { nomenclatureRef: PART2, quantity: 5 },
+      ],
+    })) as Res;
+    expect(r.isError, text(r)).toBeFalsy();
+    expect(posts).toHaveLength(0);
+    const p = r.structuredContent.payload as Row & { Комплектующие: Row[] };
+    // Комплект без группы — общая запись регистра; PART1 — запись его группы для организации;
+    // PART2 — запись другой организации не подходит → общая.
+    expect(p).toMatchObject({
+      СчетУчетаБУ_Key: ACC_1310,
+      СчетУчетаНУ_Key: ACC_1310N,
+      ВидУчетаНУ_Key: TAX_NU,
+    });
+    expect(p.Комплектующие[0]).toMatchObject({ СчетУчетаБУ_Key: ACC_1330, СчетУчетаНУ_Key: ACC_1330N });
+    expect(p.Комплектующие[1]).toMatchObject({ СчетУчетаБУ_Key: ACC_1310, СчетУчетаНУ_Key: ACC_1310N });
+    expect(notes(r)).toContain("Счета учёта подставлены из регистра «Счета учёта номенклатуры»");
+    expect(notes(r)).toContain("ВидУчетаНУ = «НУ»");
+    expect(notes(r)).not.toContain("Счёт учёта БУ не задан");
+    expect(notes(r)).not.toContain("не задан ни один счёт учёта");
+  });
+
+  it("явно заданный счёт БУ не меняется, НУ дополняется", async () => {
+    const { call } = setup();
+    const r = (await call("write.warehouse.create_kitting", kit)) as Res;
+    const p = r.structuredContent.payload as Row & { Комплектующие: Row[] };
+    expect(p).toMatchObject({ СчетУчетаБУ_Key: ACC_1330, СчетУчетаНУ_Key: ACC_1310N });
+    expect(p.Комплектующие[0]).toMatchObject({ СчетУчетаБУ_Key: ACC_1330, СчетУчетаНУ_Key: ACC_1330N });
+  });
+
+  it("регистра нет в базе — без подстановки, предупреждение о счёте", async () => {
+    const f = setup();
+    delete f.store["InformationRegister_СчетаУчетаНоменклатуры"];
+    const { account: _a, components: _c, ...bare } = kit;
+    const r = (await f.call("write.warehouse.create_kitting", {
+      ...bare,
+      components: [{ nomenclatureRef: PART1, quantity: 1 }],
+    })) as Res;
+    expect(r.isError, text(r)).toBeFalsy();
+    expect(notes(r)).toContain("Счёт учёта БУ не задан и в регистре не найден — строки 1");
+  });
+
   it("разукомплектация без долей стоимости — предупреждение; комплект в своих строках — отказ", async () => {
     const { call } = setup();
     const r = (await call("write.warehouse.create_kitting", {
@@ -287,6 +395,8 @@ describe("write.warehouse.update_kitting", () => {
     })) as Res;
     expect(ok.isError, text(ok)).toBeFalsy();
     expect(JSON.stringify(ok.structuredContent)).toContain("ДоляСтоимости");
+    expect(JSON.stringify(ok.structuredContent)).toContain(ACC_1330N);
+    expect(JSON.stringify(ok.structuredContent)).not.toContain("ВидУчетаНУ_Key");
     expect(patches).toHaveLength(0);
   });
 });

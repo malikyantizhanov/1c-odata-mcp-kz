@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.8",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 103 инструмента: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 107 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -378,7 +378,7 @@
     {
       "name": "read.system.kz_document_guide",
       "title": "Справочник флоу бухгалтера (Казахстан): документы, проводки, нормы НК",
-      "description": "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData, сценарий ЭСФ (esf: номер, реквизиты сторон, правка черновика) и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги, импорт). Ничего не читает из 1С.",
+      "description": "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData, сценарий ЭСФ (esf: номер, реквизиты сторон, правка черновика), сценарий зарплаты за месяц (payroll: 1С считает, MCP проверяет месяц, ведомость и перечисления в фонды) и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги, импорт). Ничего не читает из 1С.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3958,6 +3958,472 @@
       },
       "annotations": {
         "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.payroll.check_month",
+      "title": "Проверка зарплатного месяца",
+      "description": "Казахстан. Проверяет зарплату за месяц по данным 1С (только чтение): документы месяца и их проведение (начисление, удержания, СН/СО, ЕП, отражение, ведомость, перечисления ОПВ/СО/ЕП), дубли периода, проведённые с пустыми суммами, работающих сотрудников без начисления, ЕП вместе с классическими удержаниями, базу ЕП (доход из начисления = облагаемая база в расчёте ЕП), строки документов ↔ движения регистров (проводки отражения), что осталось выплатить работникам и перечислить в фонды. Суммы не считает — их считает 1С в форме. Пример: {\"period\":\"2026-09\"}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "period": {
+            "type": "string",
+            "description": "Месяц: YYYY-MM (напр. 2026-09) или любая дата месяца"
+          },
+          "movements": {
+            "default": true,
+            "description": "Сверять строки проведённых документов с движениями регистров (дольше)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "period"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warning",
+              "error"
+            ]
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "level",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "database",
+          "period",
+          "status",
+          "issues"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.payroll.get_fund_debts",
+      "title": "Остатки к перечислению в фонды и бюджет",
+      "description": "Казахстан. Сколько осталось перечислить по ОПВ, ВОСМС, СО, ООСМС, ОПВР, ОППВ, ЕП и ИПН — остатки регистров 1С «… расчёты с фондами» и «ИПН расчёты с бюджетом» (их пишет проведение расчётов, гасит — платёжное поручение). Положительная сумма — долг организации, отрицательная — переплата. Фильтры: period (месяц налогового периода), fund, asOf (на конец даты). По месяцам и физлицам.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "period": {
+            "description": "Месяц налогового периода YYYY-MM; без него — все месяцы",
+            "type": "string"
+          },
+          "fund": {
+            "description": "opv, vosms, so, oosms, opvr, oppv, ep, ipn; без него — все",
+            "type": "string",
+            "enum": [
+              "opv",
+              "vosms",
+              "so",
+              "oosms",
+              "opvr",
+              "oppv",
+              "ep",
+              "ipn"
+            ]
+          },
+          "asOf": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Остаток на конец даты (без параметра — текущий) (YYYY-MM-DD)"
+          },
+          "byPerson": {
+            "default": true,
+            "description": "Показать физлиц",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "totalOwed": {
+            "type": "number"
+          },
+          "funds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fund": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "fund",
+                "title",
+                "total"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "totalOwed",
+          "funds"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.payroll.create_payroll_statement",
+      "title": "Ведомость «Зарплата к выплате» из остатка 1С",
+      "description": "Казахстан. Создаёт НЕПРОВЕДЁННУЮ ведомость «Зарплата к выплате организаций» за месяц: строки (физлицо, сумма к выплате) и итог MCP заполняет из остатка к выплате в 1С — регистр «Взаиморасчёты с работниками организаций» за месяц (начислено − удержано − уже выплачено; это посчитала 1С проведением начисления и удержаний/ЕП). Сам MCP суммы не считает. Через OData 1С ведомость не заполняет («Авторасчет» не работает). Ведомость по тем же работникам за месяц уже есть — отказ (allowDuplicate=true — создать всё равно). responsibleRef — ответственный (иначе 1С поставит пользователя OData). По умолчанию предпросмотр; создание — confirm=true с operationId после согласия. Провести — write.document.post_document; выплата — РКО/ПП. Пример: {\"period\":\"2026-09\",\"paymentMethod\":\"cash\"}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "period": {
+            "type": "string",
+            "description": "Месяц начисления зарплаты: YYYY-MM"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата ведомости (по умолчанию — сейчас) (YYYY-MM-DD)"
+          },
+          "paymentMethod": {
+            "default": "cash",
+            "description": "cash — через кассу (ЧерезКассу), bank — через банк (ЧерезБанк)",
+            "type": "string",
+            "enum": [
+              "cash",
+              "bank"
+            ]
+          },
+          "personRefs": {
+            "description": "Только эти физлица (Ref_Key); без него — все с остатком",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "responsibleRef": {
+            "description": "Ref_Key пользователя-ответственного (Catalog_Пользователи)",
+            "type": "string"
+          },
+          "comment": {
+            "description": "Комментарий",
+            "type": "string",
+            "maxLength": 500
+          },
+          "allowDuplicate": {
+            "description": "true — создать, даже если ведомость за месяц по ним уже есть",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "period"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.payroll.create_fund_transfer",
+      "title": "Перечисление в фонды (ОПВ / СО / ЕП) из остатка или расчёта 1С",
+      "description": "Казахстан. Создаёт НЕПРОВЕДЁННЫЙ документ перечисления в фонды за месяц: fund=opv — «ОПВ перечисление в фонды» (kind: opv, opvr, oppv), fund=so — «СО перечисление в фонды» (kind: so, vosms, oosms), fund=ep — «ЕП перечисление в фонды». Строки (физлицо, сумма) MCP заполняет из 1С: по умолчанию — остаток к перечислению за месяц (регистр «… расчёты с фондами», ВидПлатежа «Налог»), с basisRef — строки проведённого расчёта (удержания, СН/СО или ЕП). Сам MCP суммы не считает. ВАЖНО: долг перед фондом гасит платёжное поручение исходящее — уже существующая команда write.document.create_document (Document_ПлатежноеПоручениеИсходящее, ВидОперации «ПеречислениеПенсионныхВзносов» / «ПеречислениеСоциальныхОтчислений» / «ПеречислениеЕдиногоПлатежа»); сам документ перечисления остаток в опубликованных регистрах не уменьшает (проверено для ЕП). Перечисление за месяц по тем же физлицам уже есть — отказ (allowDuplicate=true). По умолчанию предпросмотр; создание — confirm=true с operationId. Пример: {\"fund\":\"ep\",\"period\":\"2026-09\"}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "fund": {
+            "type": "string",
+            "enum": [
+              "opv",
+              "so",
+              "ep"
+            ],
+            "description": "opv — пенсионные взносы, so — СО и ОСМС, ep — единый платёж"
+          },
+          "kind": {
+            "description": "Вид взноса: для opv — opv/opvr/oppv (по умолчанию opv), для so — so/vosms/oosms (по умолчанию so)",
+            "type": "string",
+            "enum": [
+              "opv",
+              "opvr",
+              "oppv",
+              "so",
+              "vosms",
+              "oosms",
+              "ep"
+            ]
+          },
+          "period": {
+            "description": "Месяц налогового периода YYYY-MM (с basisRef — по умолчанию его период)",
+            "type": "string"
+          },
+          "basisRef": {
+            "description": "Ref_Key проведённого расчёта (удержания — opv/vosms, СН/СО — so/opvr/oppv/oosms, ЕП — ep): строки из него",
+            "type": "string"
+          },
+          "counterpartyRef": {
+            "description": "Получатель (контрагент-фонд); без него — из последнего проведённого перечисления того же вида",
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата документа (по умолчанию — сейчас) (YYYY-MM-DD)"
+          },
+          "personRefs": {
+            "description": "Только эти физлица (Ref_Key)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "responsibleRef": {
+            "description": "Ref_Key пользователя-ответственного (Catalog_Пользователи)",
+            "type": "string"
+          },
+          "comment": {
+            "description": "Комментарий",
+            "type": "string",
+            "maxLength": 500
+          },
+          "allowDuplicate": {
+            "description": "true — создать, даже если перечисление за месяц по ним уже есть",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "fund"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
         "openWorldHint": true
       }
     },

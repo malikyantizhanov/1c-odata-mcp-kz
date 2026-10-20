@@ -21,6 +21,8 @@ import { registerWriteTools } from "../tools/write.js";
 import { registerDocumentWriteTools } from "../tools/write-documents.js";
 import { registerAuditTools } from "../tools/audit.js";
 import { registerPayrollTools } from "../tools/payroll.js";
+import { registerPayrollMonthTools } from "../tools/payroll-month.js";
+import { registerPayrollWriteTools } from "../tools/payroll-write.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerEsfAvrTools } from "../tools/esf-avr.js";
 import { registerEsfWriteTools } from "../tools/esf-write.js";
@@ -200,6 +202,8 @@ export function createServer(ctx: ServerContext): McpServer {
   registerOrganizationTools(server, ctx);
   registerAuditTools(server, ctx);
   registerPayrollTools(server, ctx);
+  registerPayrollMonthTools(server, ctx);
+  registerPayrollWriteTools(server, ctx);
   registerKzRecordTools(server, ctx);
   registerEsfAvrTools(server, ctx);
   registerEsfWriteTools(server, ctx);

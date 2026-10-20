@@ -42,6 +42,8 @@ export const KZ_WRITE_TOOLS = [
   "write.document.update_power_of_attorney",
   "write.warehouse.create_kitting",
   "write.warehouse.update_kitting",
+  "write.payroll.create_payroll_statement",
+  "write.payroll.create_fund_transfer",
   "write.document.create_document",
   "write.document.update_document",
   "write.document.update_document_lines",

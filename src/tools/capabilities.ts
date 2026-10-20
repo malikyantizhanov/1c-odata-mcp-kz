@@ -5,6 +5,7 @@ import { InputError } from "../errors.js";
 import { guard, ok, databaseField } from "./_shared.js";
 import { KZ_DOCUMENT_TOOLS, KZ_DOCUMENTS, KZ_WRITE_TOOLS } from "./write-kz.js";
 import { KZ_FLOW, KZ_RATES_2026, KZ_SOURCES, kzGuide } from "./kz-flow.js";
+import { KZ_PAYROLL_GUIDE } from "./payroll-guide.js";
 import { KZ_ESF_GUIDE } from "./esf-guide.js";
 
 // Balances, turnovers and document postings read the Kazakhstan Типовой register; tax payments still assume
@@ -146,7 +147,7 @@ export function registerCapabilities(server: McpServer, ctx: ServerContext) {
     {
       title: "Справочник флоу бухгалтера (Казахстан): документы, проводки, нормы НК",
       description:
-        "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData, сценарий ЭСФ (esf: номер, реквизиты сторон, правка черновика) и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги, импорт). Ничего не читает из 1С.",
+        "Для казахстанской базы: какие документы пишет MCP (create_document/update_document/post_document), типовая схема проводок по Типовому плану счетов, нормы Налогового кодекса РК 2026 со ссылками, особенности заполнения через OData, сценарий ЭСФ (esf: номер, реквизиты сторон, правка черновика), сценарий зарплаты за месяц (payroll: 1С считает, MCP проверяет месяц, ведомость и перечисления в фонды) и ставки 2026 (МРП, МЗП, НДС, ИПН, ОПВ, ОПВР, СО, ОСМС, СН, ЕП, КПН, 910), КНП и КБК. Фильтр — entitySet или block (продажи, закупки, деньги, зарплата, кадры, склад, ОС и НМА, подотчёт, расчёты, закрытие месяца, налоги, импорт). Ничего не читает из 1С.",
       inputSchema: {
         entitySet: z
           .string()
@@ -160,11 +161,13 @@ export function registerCapabilities(server: McpServer, ctx: ServerContext) {
       guard("read.system.kz_document_guide", async () => {
         const esfOnly = !!entitySet && /^(Document_)?ЭСФ$/.test(entitySet);
         const withEsf = esfOnly || (!entitySet && (!block || block === KZ_ESF_GUIDE.block));
+        const withPayroll = !esfOnly && !entitySet && (!block || block === KZ_PAYROLL_GUIDE.block);
         return ok({
           documents: esfOnly
             ? []
             : kzGuide({ ...(entitySet ? { entitySet } : {}), ...(block ? { block } : {}) }),
           ...(withEsf ? { esf: KZ_ESF_GUIDE } : {}),
+          ...(withPayroll ? { payroll: KZ_PAYROLL_GUIDE } : {}),
           ...(withRates !== false ? { rates2026: KZ_RATES_2026, sources: KZ_SOURCES } : {}),
           blocks: [...new Set(KZ_FLOW.map((d) => d.block))],
           note: "Схемы — типовые для 1С:Бухгалтерии для Казахстана (Типовой план счетов). Фактические проводки смотрите в ответе post_document и read.accounting.get_document_postings: post_document сам сверяет их с ожидаемыми и пишет warnings.",

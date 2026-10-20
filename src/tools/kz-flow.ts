@@ -568,7 +568,10 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Проводок нет — основание для ПП/РКО; выплата Дт 3350 Кт 1030/1010.",
     legal: [L(`ТК РК ст. 113 (сроки выплаты зарплаты) — ${KZ_SOURCES.tk}`)],
     noPostings: true,
-    hints: [PAYROLL_FORM_HINT],
+    hints: [
+      PAYROLL_FORM_HINT,
+      "Ведомость со строками и суммами из остатка к выплате в 1С — write.payroll.create_payroll_statement (через OData «Авторасчет» не работает).",
+    ],
   },
   {
     entitySet: "Document_ОПВПеречислениеВФонды",
@@ -577,7 +580,10 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры расчётов с фондами; деньги — ПП исходящее (Дт 3220/3250 Кт 1030).",
     legal: [KZ_SOURCES.social, `КНП 010/089 — ${KZ_SOURCES.knp}`],
     noPostings: true,
-    hints: [PAYROLL_FORM_HINT],
+    hints: [
+      PAYROLL_FORM_HINT,
+      "Строки и суммы из остатка 1С или проведённого расчёта — write.payroll.create_fund_transfer fund=opv (kind opv/opvr/oppv); долг гасит ПП исходящее.",
+    ],
   },
   {
     entitySet: "Document_СОПеречислениеВФонды",
@@ -586,7 +592,10 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры; деньги — ПП исходящее (Дт 3211 Кт 1030), КНП 012.",
     legal: [KZ_SOURCES.social],
     noPostings: true,
-    hints: [PAYROLL_FORM_HINT],
+    hints: [
+      PAYROLL_FORM_HINT,
+      "Строки и суммы из остатка 1С или проведённого расчёта — write.payroll.create_fund_transfer fund=so (kind so/vosms/oosms); долг гасит ПП исходящее.",
+    ],
   },
   {
     entitySet: "Document_ЕППеречислениеВФонды",
@@ -595,7 +604,10 @@ export const KZ_FLOW: readonly KzFlowDoc[] = [
     postings: "Регистры; деньги — ПП исходящее Дт 3231 Кт 1030, КНП 185.",
     legal: [NK("ст. 823")],
     noPostings: true,
-    hints: [PAYROLL_FORM_HINT],
+    hints: [
+      PAYROLL_FORM_HINT,
+      "Строки и суммы из остатка 1С или проведённого расчёта ЕП — write.payroll.create_fund_transfer fund=ep; долг гасит ПП исходящее (перечисление ЕП само движений в регистрах расчётов не делает — проверено).",
+    ],
   },
   // ---------- Кадры ----------
   {

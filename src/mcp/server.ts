@@ -25,6 +25,7 @@ import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerEsfAvrTools } from "../tools/esf-avr.js";
 import { registerEsfWriteTools } from "../tools/esf-write.js";
 import { registerEsfCreateTools } from "../tools/esf-create.js";
+import { registerEsfUpdateTools } from "../tools/esf-update.js";
 import { registerChartTools } from "../tools/chart.js";
 import { registerInformationRegisterTools } from "../tools/registers-info.js";
 import { registerOperationEntriesTools } from "../tools/operation-entries.js";
@@ -68,6 +69,8 @@ const INSTRUCTIONS =
 const LINE_OPERATION_TOOLS = new Set([
   "write.document.add_document_line",
   "write.document.remove_document_line",
+  // Правка черновика ЭСФ: перечитывает документ и пишет табличные части целиком — тоже через operationId.
+  "write.esf.update_draft",
 ]);
 
 /** Подсказки клиенту о характере инструмента — по имени (одна точка вместо правок 55 конфигов). */
@@ -201,6 +204,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerEsfAvrTools(server, ctx);
   registerEsfWriteTools(server, ctx);
   registerEsfCreateTools(server, ctx);
+  registerEsfUpdateTools(server, ctx);
   registerChartTools(server, ctx);
   registerInformationRegisterTools(server, ctx);
   registerOperationEntriesTools(server, ctx);

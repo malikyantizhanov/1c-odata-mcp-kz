@@ -10,6 +10,22 @@ import { createResultSchema } from "../schemas/output.js";
 import type { ODataEntity } from "../types/odata.js";
 import { databaseField, dateField, guard } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate } from "./write.js";
+import {
+  bankDetails,
+  buyerParty,
+  checkEsfNumber,
+  clean,
+  consignment,
+  headerDefaults,
+  invoiceExtras,
+  partyWarnings,
+  planEsfNumber,
+  esfNumberField,
+  recipientRow,
+  supplierParty,
+  supplierRow,
+  type FillCtx,
+} from "./esf-fill.js";
 
 /**
  * Черновики исходящих ЭСФ и ЭАВР по документу-основанию. Через OData нельзя ни подписать, ни отправить
@@ -123,58 +139,6 @@ async function fitToMetadata(
   return out;
 }
 
-const clean = (o: Record<string, unknown>) =>
-  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== "" && v !== null));
-
-interface Party {
-  ref: string;
-  type: string;
-  bin: string;
-  name: string;
-  vatSeries: string;
-  vatNumber: string;
-  vatDate?: string | undefined;
-  kbe: string;
-}
-
-async function orgParty(conn: Connection, ref: string): Promise<Party> {
-  const o = await get(conn, "Catalog_Организации", ref, "Организация");
-  return {
-    ref: guidOf(ref),
-    type: "StandardODATA.Catalog_Организации",
-    bin: str(o["ИдентификационныйНомер"]),
-    name: str(o["НаименованиеПолное"]) || str(o["Description"]),
-    vatSeries: str(o["СерияСвидетельстваПоНДС"]),
-    vatNumber: str(o["НомерСвидетельстваПоНДС"]),
-    vatDate: realDate(o["ДатаПостановкиНаУчетПоНДС"]),
-    kbe: str(o["КБЕ"]),
-  };
-}
-
-async function counterpartyParty(conn: Connection, ref: string): Promise<Party> {
-  const c = await get(conn, "Catalog_Контрагенты", ref, "Контрагент");
-  return {
-    ref: guidOf(ref),
-    type: "StandardODATA.Catalog_Контрагенты",
-    bin: str(c["ИдентификационныйКодЛичности"]),
-    name: str(c["НаименованиеПолное"]) || str(c["Description"]),
-    vatSeries: str(c["СерияСвидетельстваПоНДС"]),
-    vatNumber: str(c["НомерСвидетельстваПоНДС"]),
-    kbe: str(c["КБЕ"]),
-  };
-}
-
-async function bankDetails(conn: Connection, accountRef: unknown) {
-  const acc = await getOptional(conn, "Catalog_БанковскиеСчета", accountRef);
-  if (!acc) return {};
-  const bank = await getOptional(conn, "Catalog_Банки", acc["Банк_Key"]);
-  return clean({
-    ИИК: str(acc["НомерСчета"]),
-    БИК: str(bank?.["БИК"]) || str(bank?.["Code"]),
-    НаименованиеБанка: str(bank?.["Description"]),
-  });
-}
-
 interface Line {
   nomenclature?: string | undefined;
   name: string;
@@ -283,23 +247,32 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
       title: "Черновик исходящего ЭСФ по счёту-фактуре / реализации",
       description:
         "Создаёт НЕпроведённый черновик исходящего ЭСФ (Document_ЭСФ, Вид «Обычный») по счёту-фактуре выданному " +
-        "(basisRef) или по реализации (берётся её счёт-фактура выданный). Заполняет: организацию и контрагента, " +
-        "СчетФактура, дату оборота, договор поставки, документ, подтверждающий поставку (реализация), валюту и курс, " +
-        "поставщика (БИН, наименование, свидетельство НДС, ИИК/БИК/банк, КБе) и получателя (БИН/ИИН, наименование), " +
-        "строки Товары (наименование, единица, количество, цена, суммы без НДС/с НДС, ставка и сумма НДС; услугам " +
-        "признак происхождения 6). Поля обмена с ИС ЭСФ (рег. номер, статус, ЭЦП) не заполняет, не проводит. Отказ, " +
-        "если по счёту-фактуре уже есть ЭСФ, СФ помечена на удаление, не «Обычный» или выставлена на бумаге. " +
-        "Адреса, признаки происхождения товаров и прочие сведения проверьте в 1С; подписание и отправка в ИС ЭСФ — " +
-        "только в 1С. Предпросмотр по умолчанию; создание — confirm=true с operationId после согласия бухгалтера.",
+        "(basisRef) или по реализации (берётся её счёт-фактура выданный). Заполняет как форма 1С: номер документа " +
+        "(«Номер учётной системы») — следующий по нумератору ЭСФ (префикс и длина как у ЭСФ этого года, проверка дубля; " +
+        "свой номер — number), организацию и контрагента, СчетФактура, дату оборота, договор поставки и условия " +
+        "(оплата, способ отправления, условия поставки, доверенность, пункт назначения), документ, подтверждающий " +
+        "поставку, валюту и курс; поставщика (БИН, наименование, адрес из контактной информации организации — " +
+        "юридический → фактический, у ИП — адрес физлица; свидетельство НДС, ИИК/БИК/банк, КБе, код страны) и " +
+        "получателя (БИН/ИИН, наименование, адрес контрагента, свидетельство НДС, код страны, нерезидент, " +
+        "госучреждение с ИИК/БИК); для товаров — грузоотправителя и грузополучателя с адресами; строки Товары " +
+        "(наименование, единица, количество, цена, суммы без НДС/с НДС, ставка и сумма НДС; услугам признак " +
+        "происхождения 6). Регистрационный номер ИС ЭСФ, статус, ЭЦП не заполняет, не проводит. Отказ, если по " +
+        "счёту-фактуре уже есть ЭСФ, номер занят, СФ помечена на удаление, не «Обычный» или выставлена на бумаге. " +
+        "Чего нет в карточках — в предупреждениях; поправить черновик до отправки — write.esf.update_draft. " +
+        "Подписание и отправка в ИС ЭСФ — только в 1С. Предпросмотр по умолчанию; создание — confirm=true с " +
+        "operationId после согласия бухгалтера.",
       inputSchema: {
         database: databaseField,
         basisRef: GUID.describe("Ref_Key счёта-фактуры выданного или реализации товаров и услуг"),
         date: dateField("Дата ЭСФ (по умолчанию — сегодня)").optional(),
+        number: esfNumberField
+          .optional()
+          .describe("Номер ЭСФ вручную (по умолчанию — следующий по нумератору ЭСФ, как в форме 1С)"),
         confirm: confirmField,
       },
       outputSchema: createResultSchema,
     },
-    ({ database, basisRef, date, confirm }) =>
+    ({ database, basisRef, date, number, confirm }) =>
       guard("write.esf.create_draft", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, [ESF], "Документ «ЭСФ»");
@@ -390,16 +363,25 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
               ])
             : undefined;
         const includesVat = inv["СуммаВключаетНДС"] === true || basis?.["СуммаВключаетНДС"] === true;
-        const supplier = await orgParty(conn, org!);
-        const buyer = await counterpartyParty(conn, cp!);
+        const fill: FillCtx = { warnings, checks };
+        const supplier = await supplierParty(conn, org!, fill);
+        const buyer = await buyerParty(conn, cp!, fill);
         if (!supplier.bin) warnings.push("У организации не заполнен БИН — ЭСФ не пройдёт проверку ИС ЭСФ.");
-        if (!buyer.bin || /^0+$/.test(buyer.bin))
+        if ((!buyer.bin || /^0+$/.test(buyer.bin)) && !buyer.nonResident)
           warnings.push(
-            `У контрагента «${buyer.name}» не заполнен БИН/ИИН${buyer.bin ? ` (${buyer.bin})` : ""} — ИС ЭСФ такой ЭСФ не примет; для нерезидента отметьте «Нерезидент» в 1С.`,
+            `У контрагента «${buyer.name}» не заполнен БИН/ИИН${buyer.bin ? ` (${buyer.bin})` : ""} — ИС ЭСФ такой ЭСФ не примет; для нерезидента укажите страну резидентства в карточке.`,
           );
-        const bank = await bankDetails(conn, inv["СчетОрганизации_Key"]);
+        partyWarnings(supplier, buyer, fill);
+        const bank = await bankDetails(
+          conn,
+          isRef(inv["СчетОрганизации_Key"]) ? inv["СчетОрганизации_Key"] : supplier.mainBankAccount,
+        );
         if (!Object.keys(bank).length)
-          warnings.push("Банковский счёт организации в счёте-фактуре не указан — ИИК/БИК заполните в 1С.");
+          warnings.push(
+            "Банковский счёт организации не найден (ни в счёте-фактуре, ни основной) — ИИК/БИК заполните в 1С.",
+          );
+        else if (!isRef(inv["СчетОрганизации_Key"]))
+          checks.push("ИИК/БИК — основной банковский счёт организации");
         const contractRef = isRef(inv["ДоговорКонтрагента_Key"])
           ? String(inv["ДоговорКонтрагента_Key"])
           : isRef(basis?.["ДоговорКонтрагента_Key"])
@@ -430,8 +412,24 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
             "Версия бланка ЭСФ не определена (в базе ещё нет ЭСФ) — проверьте её в 1С при открытии черновика.",
           );
 
+        const esfDate = date ? `${date}T${odataDate(today()).slice(11)}` : odataDate(today());
+        let esfNumber = number;
+        if (esfNumber) checks.push(`номер ${esfNumber} — задан вручную`);
+        else {
+          const planned = await planEsfNumber(conn, set, esfDate, org!);
+          esfNumber = planned.number;
+          checks.push(`номер ${esfNumber}: ${planned.how}`);
+        }
+        const dupNumber = await checkEsfNumber(conn, set, esfNumber, esfDate, org!);
+        if (dupNumber.refuse) throw new InputError(`ЭСФ не создан: ${dupNumber.refuse}`);
+        warnings.push(...dupNumber.warnings);
+        checks.push(`номер ${esfNumber} не занят другим исходящим ЭСФ организации в этом году`);
+        const consign = await consignment(conn, inv, supplier, buyer, fill);
+        const extras = await invoiceExtras(conn, inv, buyer);
+
         const payload = clean({
-          Date: date ? `${date}T${odataDate(today()).slice(11)}` : odataDate(today()),
+          Number: esfNumber,
+          Date: esfDate,
           Организация_Key: guidOf(org!),
           Контрагент_Key: guidOf(cp!),
           Направление: "Исходящий",
@@ -449,34 +447,15 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
             : undefined,
           Валюта_Key: isRef(inv["ВалютаДокумента_Key"]) ? String(inv["ВалютаДокумента_Key"]) : undefined,
           ВалютаКод: str(currency?.["Description"]) || undefined,
-          КурсВалюты: Number(inv["КурсВзаиморасчетов"] ?? 1) || 1,
-          СпособРасчета: str(inv["УсловияОплаты"]) || undefined,
+          ...headerDefaults(
+            str(currency?.["Description"]) || undefined,
+            Number(inv["КурсВзаиморасчетов"] ?? 1),
+          ),
           СуммаДокумента: total,
-          Поставщики: [
-            clean({
-              LineNumber: 1,
-              Поставщик: supplier.ref,
-              Поставщик_Type: supplier.type,
-              ПоставщикИдентификатор: supplier.bin,
-              ПоставщикНаименование: supplier.name,
-              СерияСвидетельстваПоНДС: supplier.vatSeries,
-              НомерСвидетельстваПоНДС: supplier.vatNumber,
-              ДатаПостановкиНаРегистрационныйУчетПоНДС: supplier.vatDate,
-              КБе: supplier.kbe,
-              ...bank,
-            }),
-          ],
-          Получатели: [
-            clean({
-              LineNumber: 1,
-              Получатель: buyer.ref,
-              Получатель_Type: buyer.type,
-              ПолучательИдентификатор: buyer.bin,
-              ПолучательНаименование: buyer.name,
-              СерияСвидетельстваПоНДС: buyer.vatSeries,
-              НомерСвидетельстваПоНДС: buyer.vatNumber,
-            }),
-          ],
+          ...extras,
+          ...consign,
+          Поставщики: [supplierRow(supplier, bank)],
+          Получатели: [recipientRow(buyer)],
           Товары: lines.map((l, i) =>
             clean({
               LineNumber: i + 1,
@@ -501,8 +480,8 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
           ),
         });
         warnings.push(
-          "Адреса поставщика и получателя не заполняются — заполните/проверьте в 1С. Черновик не проведён и не отправлен: " +
-            "проверка, подписание ЭЦП и отправка в ИС ЭСФ — только в 1С.",
+          "Черновик не проведён и не отправлен: проверка, подписание ЭЦП и отправка в ИС ЭСФ — только в 1С. " +
+            "Поправить номер, адреса, реквизиты или строки до отправки — write.esf.update_draft.",
         );
         const fitted = await fitToMetadata(conn, set, payload, warnings);
         return createOrPreview(conn, set, fitted, confirm, [
@@ -588,8 +567,10 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
         if (refuse.length)
           throw new InputError(`ЭАВР не создан — проверки не пройдены:\n- ${refuse.join("\n- ")}`);
 
-        const supplier = await orgParty(conn, org!);
-        const buyer = await counterpartyParty(conn, cp!);
+        // Адреса в ЭАВР этот инструмент не пишет: контекст заполнения — отдельный, его предупреждения не нужны.
+        const avrFill: FillCtx = { warnings: [], checks: [] };
+        const supplier = await supplierParty(conn, org!, avrFill);
+        const buyer = await buyerParty(conn, cp!, avrFill);
         if (!supplier.bin) warnings.push("У организации не заполнен БИН — ЭАВР не пройдёт проверку ИС.");
         if (!buyer.bin || /^0+$/.test(buyer.bin))
           warnings.push(

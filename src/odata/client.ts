@@ -217,7 +217,7 @@ export class ODataClient {
     payload: object,
     entitySet: string,
     key: Record<string, unknown>,
-    check: OperationCheck,
+    check?: OperationCheck,
   ): Promise<T> {
     this.assertWritable("PATCH");
     const send = () => this.request<T>(path, "PATCH", payload);

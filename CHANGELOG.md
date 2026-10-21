@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.11] — 2026-10-21
+
 ### Добавлено — черновик извещения об отнесении в зачёт НДС (Казахстан)
 
 - `write.vat.create_offset_notice_draft` — НЕпроведённый черновик извещения об отнесении в зачёт НДС за квартал (`quarter` «2026/2») по организации, при желании только по поставщику (`counterpartyRef`) и/или списку ЭСФ (`esfRefs`). Заполнение сверено с проведённым извещением, сформированным в 1С (только чтение рабочей базы):
@@ -1036,7 +1038,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.10...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...HEAD
+[0.7.11]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.8...v0.7.9
 [0.7.8]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.7...v0.7.8

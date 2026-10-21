@@ -12,6 +12,8 @@ export const KZ_ESF_GUIDE = {
     update: "write.esf.update_draft — правка черновика до отправки: номер, адреса и реквизиты, шапка, строки",
     link: "write.esf.link_invoice — привязать счёт-фактуру/договор к существующему ЭСФ",
     read: "read.esf.list_esf, read.esf.find_esf_invoice",
+    vatOffset:
+      "read.vat.list_offset_notices, read.vat.get_offset_notice, read.vat.find_unoffset_esf — извещения о зачёте НДС и входящие ЭСФ, ещё не попавшие в извещение (только чтение)",
   },
   scenario: [
     "1. Реализация проведена → счёт-фактура выданный (СпособВыставления «Электронно», ВидСчетаФактуры «Обычный»).",

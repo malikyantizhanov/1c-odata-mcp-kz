@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.9",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 107 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 110 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -5123,6 +5123,310 @@
           "database",
           "summary",
           "items"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.vat.list_offset_notices",
+      "title": "Извещения об отнесении в зачёт НДС",
+      "description": "Список извещений об отнесении в зачёт НДС (Казахстан, документ обмена с ИС ЭСФ «Извещение об отнесении в зачёт НДС»): номер, дата, номер извещения, регистрационный номер ИС ЭСФ, статус и состояние, тип события, проведён ли, пометка удаления, итоги (оборот, НДС в зачёт, оборот без НДС / не в зачёт, НДС не в зачёт), число строк и ошибок, кварталы отнесения. Отрицательные суммы — уменьшение ранее отнесённого. Фильтры: период по дате документа, organization, posted; помеченные на удаление — только с includeDeleted. Сначала новые. Только чтение; подписание и отправка — в 1С.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (YYYY-MM-DD)"
+          },
+          "posted": {
+            "description": "true — только проведённые, false — только непроведённые",
+            "type": "boolean"
+          },
+          "includeDeleted": {
+            "default": false,
+            "description": "Показать и помеченные на удаление",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "count": {
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "notices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "posted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ref",
+                "number",
+                "posted"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "count",
+          "truncated",
+          "notices"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.vat.get_offset_notice",
+      "title": "Извещение об отнесении в зачёт НДС — разбор",
+      "description": "Одно извещение об отнесении в зачёт НДС по ref или номеру (Number документа или НомерИзвещения; year — если номер повторяется): шапка (статус, состояние, рег. номер ИС ЭСФ, плательщик, итоги), строки по ЭСФ (рег. номер, тип ЭСФ, квартал и дата отнесения, суммы, найденный ЭСФ — номер, дата, дата оборота, статус, контрагент), детализация по первичным документам (тип, номер, дата, проведён), ошибки ИС ЭСФ, сверка итогов шапки со строками и движения по регистрам обязательств (у проведённого). Только чтение.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Ref_Key извещения",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "number": {
+            "description": "Номер документа или номер извещения",
+            "type": "string",
+            "maxLength": 50
+          },
+          "year": {
+            "description": "Год документа (если номер повторяется)",
+            "type": "integer",
+            "minimum": 2000,
+            "maximum": 2100
+          },
+          "movements": {
+            "default": true,
+            "description": "Показать движения проведённого извещения",
+            "type": "boolean"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "ref": {
+                "type": "string"
+              },
+              "number": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "ref",
+              "number"
+            ],
+            "additionalProperties": {}
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "registrationNumber": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "notice",
+          "lines"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.vat.find_unoffset_esf",
+      "title": "Входящие ЭСФ, не отнесённые в зачёт (нет в извещениях)",
+      "description": "Сверка входящих ЭСФ поставщиков за квартал (quarter «2026/1») или период from–to по дате оборота с извещениями об отнесении в зачёт НДС: какие ЭСФ ещё не попали ни в одно извещение. Сопоставление по ЭСФ_Key и регистрационному номеру. Не учитываются: помеченные на удаление ЭСФ и извещения; отозванные, аннулированные, отклонённые ЭСФ; ЭСФ, заменённые исправленным. Если опубликован регистр обязательств по извещениям, остаток по нему показывает, что 1С ждёт ЭСФ в извещении, и даёт сумму НДС. Группы: unoffset — не отнесены; inUnpostedNotice — только в непроведённом извещении; noObligation — нет в извещениях, но и остатка обязательств нет (обычно ЭСФ без НДС); offset — отнесены; excluded — не нужны. Только чтение: извещение формируется, подписывается и отправляется в 1С.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "quarter": {
+            "description": "Квартал «ГГГГ/К», напр. «2026/1»",
+            "type": "string",
+            "maxLength": 20
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода по дате оборота ЭСФ (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода по дате оборота ЭСФ (YYYY-MM-DD)"
+          },
+          "counterpartyRef": {
+            "description": "Ref_Key поставщика",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "includeOffset": {
+            "default": false,
+            "description": "Показать и отнесённые ЭСФ списком",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 200,
+            "description": "Максимум строк в каждой группе",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": {}
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "checked": {
+                "type": "number"
+              },
+              "unoffset": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "checked",
+              "unoffset"
+            ],
+            "additionalProperties": {}
+          },
+          "unoffset": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "period",
+          "summary",
+          "unoffset"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}

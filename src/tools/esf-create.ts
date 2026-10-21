@@ -102,7 +102,7 @@ async function getOptional(
 }
 
 /** Только поля, которые есть в $metadata объекта (и его табличной части); остальное — в предупреждение. */
-async function fitToMetadata(
+export async function fitToMetadata(
   conn: Connection,
   set: string,
   payload: Record<string, unknown>,

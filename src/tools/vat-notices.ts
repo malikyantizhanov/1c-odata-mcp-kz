@@ -28,7 +28,7 @@ import { databaseField, dateField, guard, ok, organizationField } from "./_share
  */
 
 export const NOTICE = "Document_ИзвещениеОбОтнесенииВЗачетНДС";
-const ESF = "Document_ЭСФ";
+export const ESF = "Document_ЭСФ";
 export const REG_BY_ESF = "AccumulationRegister_ОбязательстваПоИзвещениямИСЭСФ";
 export const REG_BY_RECEIPT = "AccumulationRegister_ОбязательстваПоЗачетуИСЭСФ";
 const EMPTY_GUID = "00000000-0000-0000-0000-000000000000";
@@ -62,7 +62,7 @@ const NOT_IN_CONFIG =
   "опубликовать: «Все функции → Обработки → Настройка стандартного интерфейса OData → Состав» — документ и три " +
   "его табличные части (СтрокиИзвещения, ДетализацияДанныхИзвещения, Ошибки).";
 
-async function requireNotice(conn: Connection): Promise<string> {
+export async function requireNotice(conn: Connection): Promise<string> {
   if (!(await conn.available()).has(NOTICE)) throw new InputError(NOT_IN_CONFIG);
   return NOTICE;
 }
@@ -95,8 +95,8 @@ const HEADER_SELECT = [
   "ОборотБезНДСИлиСНДСНеВЗачет",
   "СуммаНДСНеВЗачет",
 ];
-const LINES = "СтрокиИзвещения";
-const DETAILS = "ДетализацияДанныхИзвещения";
+export const LINES = "СтрокиИзвещения";
+export const DETAILS = "ДетализацияДанныхИзвещения";
 const ERRORS = "Ошибки";
 
 const rowsOf = (r: ODataEntity, tp: string): ODataEntity[] =>
@@ -180,7 +180,7 @@ export function periodOf(
   return { from, to };
 }
 
-async function loadByRefs(
+export async function loadByRefs(
   conn: Connection,
   set: string,
   refs: Iterable<string>,
@@ -208,7 +208,10 @@ async function loadByRefs(
   return out;
 }
 
-async function counterpartyNames(conn: Connection, keys: Iterable<string>): Promise<Map<string, string>> {
+export async function counterpartyNames(
+  conn: Connection,
+  keys: Iterable<string>,
+): Promise<Map<string, string>> {
   const set = resolveEntity(CATALOGS.counterparties, await conn.available());
   return set ? resolveNames(conn, set, keys) : new Map();
 }
@@ -407,6 +410,161 @@ async function noticeMovements(conn: Connection, ref: string) {
     }
   }
   return out;
+}
+
+/** Входящий ЭСФ с вердиктом сверки и остатком обязательств (в копейках). */
+export interface ReconciledEsf {
+  esf: EsfForCheck;
+  row: ODataEntity;
+  verdict: EsfVerdict;
+  reason: string;
+  uses: NoticeUse[];
+  balance?: { turnover: number; vat: number } | undefined;
+}
+
+/**
+ * Сверка входящих ЭСФ периода с извещениями и остатком регистра обязательств по извещениям — общая для
+ * read.vat.find_unoffset_esf и write.vat.create_offset_notice_draft (одна логика подбора).
+ */
+export async function reconcileIncomingEsf(
+  conn: Connection,
+  opts: {
+    org?: string | undefined;
+    period: { from: string; to: string };
+    counterpartyRef?: string | undefined;
+  },
+): Promise<{
+  items: ReconciledEsf[];
+  notices: ODataEntity[];
+  registerKnown: boolean;
+  registerError?: string | undefined;
+  truncated: boolean;
+}> {
+  const { org, period, counterpartyRef } = opts;
+  const set = await requireNotice(conn);
+  const available = await conn.available();
+  if (!available.has(ESF)) throw new InputError("Документ «ЭСФ» (Document_ЭСФ) не опубликован в OData.");
+  const orgFilter = org ? cmp("Организация_Key", "eq", odataGuid(org)) : undefined;
+  const { rows: esfRows, truncated } = await fetchAll(
+    conn.client,
+    ESF,
+    {
+      filter: and(
+        cmp("DeletionMark", "eq", "false"),
+        cmp("Направление", "eq", odataString("Входящий")),
+        orgFilter,
+        cmp("ДатаОборота", "ge", `datetime'${period.from}T00:00:00'`),
+        cmp("ДатаОборота", "le", `datetime'${period.to}T23:59:59'`),
+        counterpartyRef ? cmp("Контрагент_Key", "eq", odataGuid(guidOf(counterpartyRef))) : undefined,
+      ),
+      select: ESF_SELECT,
+      orderby: "ДатаОборота",
+    },
+    conn.behavior.pageSize,
+    conn.behavior.analyticsMaxRows,
+  );
+  const inPeriod = esfRows.filter(
+    (r) => !deleted(r["DeletionMark"]) && String(r["Направление"] ?? "Входящий") === "Входящий",
+  );
+  // Исправленные входящие ЭСФ (за любой период): исходный ЭСФ, на который они ссылаются, в зачёт не идёт.
+  const { rows: corrected } = await fetchAll(
+    conn.client,
+    ESF,
+    {
+      filter: and(
+        cmp("DeletionMark", "eq", "false"),
+        cmp("Направление", "eq", odataString("Входящий")),
+        cmp("Вид", "eq", odataString("Исправленный")),
+        orgFilter,
+      ),
+      select: [
+        "Ref_Key",
+        "Number",
+        "Вид",
+        "РегистрационныйНомер",
+        "Статус",
+        "СвязанныйЭСФ_Key",
+        "СвязанныйЭСФРегистрационныйНомер",
+      ],
+    },
+    conn.behavior.pageSize,
+    conn.behavior.maxRows,
+  );
+  const supersededKey = new Map<string, string>();
+  const supersededReg = new Map<string, string>();
+  for (const c of corrected) {
+    if (c["Вид"] !== undefined && c["Вид"] !== "Исправленный") continue;
+    if (str(c["Статус"]) && ESF_EXCLUDED_STATUS.test(String(c["Статус"]))) continue;
+    const label = str(c["РегистрационныйНомер"]) ?? String(c["Number"] ?? "");
+    if (isRef(c["СвязанныйЭСФ_Key"])) supersededKey.set(guidOf(String(c["СвязанныйЭСФ_Key"])), label);
+    const reg = str(c["СвязанныйЭСФРегистрационныйНомер"]);
+    if (reg) supersededReg.set(reg, label);
+  }
+  const { rows: notices } = await fetchAll(
+    conn.client,
+    set,
+    {
+      filter: and(cmp("DeletionMark", "eq", "false"), orgFilter),
+      select: ["Ref_Key", "Number", "Date", "Posted", "DeletionMark", "НомерИзвещения", LINES],
+    },
+    conn.behavior.pageSize,
+    conn.behavior.maxRows,
+  );
+  const { byKey, byReg } = indexNotices(notices);
+  const registerKnown = available.has(REG_BY_ESF);
+  const balances = new Map<string, { turnover: number; vat: number }>();
+  let registerError: string | undefined;
+  if (registerKnown) {
+    try {
+      const { rows } = await fetchAll(
+        conn.client,
+        `${REG_BY_ESF}/Balance`,
+        { filter: orgFilter },
+        conn.behavior.pageSize,
+        conn.behavior.analyticsMaxRows,
+      );
+      for (const b of rows) {
+        if (!isRef(b["ЭСФ_Key"])) continue;
+        const k = guidOf(String(b["ЭСФ_Key"]));
+        const prev = balances.get(k) ?? { turnover: 0, vat: 0 };
+        balances.set(k, {
+          turnover: prev.turnover + cents(b["СуммаОборотаПоПриобретениюBalance"]),
+          vat: prev.vat + cents(b["СуммаНДСBalance"]),
+        });
+      }
+    } catch (e) {
+      registerError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  const items: ReconciledEsf[] = [];
+  for (const r of inPeriod) {
+    const key = guidOf(String(r["Ref_Key"]));
+    const reg = str(r["РегистрационныйНомер"]);
+    const uses = [...(byKey.get(key) ?? []), ...(reg ? (byReg.get(reg) ?? []) : [])].filter(
+      (u, i, all) => all.findIndex((x) => x.noticeRef === u.noticeRef) === i,
+    );
+    const esf: EsfForCheck = {
+      ref: String(r["Ref_Key"]),
+      number: String(r["Number"] ?? ""),
+      date: day(r["Date"]) ?? "",
+      turnoverDate: day(r["ДатаОборота"]),
+      registrationNumber: reg,
+      status: str(r["Статус"]),
+      kind: str(r["Вид"]),
+      posted: posted(r["Posted"]),
+      counterpartyRef: isRef(r["Контрагент_Key"]) ? String(r["Контрагент_Key"]) : undefined,
+      amount: money(cents(r["СуммаДокумента"])),
+    };
+    const bal = registerKnown && !registerError ? balances.get(key) : undefined;
+    const { verdict, reason } = classifyEsf(esf, {
+      uses,
+      supersededBy: supersededKey.get(key) ?? (reg ? supersededReg.get(reg) : undefined),
+      balance: bal,
+      registerKnown: registerKnown && !registerError,
+    });
+    items.push({ esf, row: r, verdict, reason, uses, balance: bal });
+  }
+  return { items, notices, registerKnown, registerError, truncated };
 }
 
 export function registerVatNoticeTools(server: McpServer, ctx: ServerContext): void {
@@ -706,106 +864,13 @@ export function registerVatNoticeTools(server: McpServer, ctx: ServerContext): v
       guard("read.vat.find_unoffset_esf", async () => {
         const conn = ctx.db(database);
         const period = periodOf(quarter, from, to);
-        const set = await requireNotice(conn);
-        const available = await conn.available();
-        if (!available.has(ESF))
-          throw new InputError("Документ «ЭСФ» (Document_ЭСФ) не опубликован в OData.");
+        await requireNotice(conn);
         const org = organization ? (await resolveOrgOrDefault(conn, organization)).ref : undefined;
-        const orgFilter = org ? cmp("Организация_Key", "eq", odataGuid(org)) : undefined;
-        const { rows: esfRows, truncated } = await fetchAll(
-          conn.client,
-          ESF,
-          {
-            filter: and(
-              cmp("DeletionMark", "eq", "false"),
-              cmp("Направление", "eq", odataString("Входящий")),
-              orgFilter,
-              cmp("ДатаОборота", "ge", `datetime'${period.from}T00:00:00'`),
-              cmp("ДатаОборота", "le", `datetime'${period.to}T23:59:59'`),
-              counterpartyRef ? cmp("Контрагент_Key", "eq", odataGuid(guidOf(counterpartyRef))) : undefined,
-            ),
-            select: ESF_SELECT,
-            orderby: "ДатаОборота",
-          },
-          conn.behavior.pageSize,
-          conn.behavior.analyticsMaxRows,
-        );
-        const inPeriod = esfRows.filter(
-          (r) => !deleted(r["DeletionMark"]) && String(r["Направление"] ?? "Входящий") === "Входящий",
-        );
-        // Исправленные входящие ЭСФ (за любой период): исходный ЭСФ, на который они ссылаются, в зачёт не идёт.
-        const { rows: corrected } = await fetchAll(
-          conn.client,
-          ESF,
-          {
-            filter: and(
-              cmp("DeletionMark", "eq", "false"),
-              cmp("Направление", "eq", odataString("Входящий")),
-              cmp("Вид", "eq", odataString("Исправленный")),
-              orgFilter,
-            ),
-            select: [
-              "Ref_Key",
-              "Number",
-              "Вид",
-              "РегистрационныйНомер",
-              "Статус",
-              "СвязанныйЭСФ_Key",
-              "СвязанныйЭСФРегистрационныйНомер",
-            ],
-          },
-          conn.behavior.pageSize,
-          conn.behavior.maxRows,
-        );
-        const supersededKey = new Map<string, string>();
-        const supersededReg = new Map<string, string>();
-        for (const c of corrected) {
-          if (c["Вид"] !== undefined && c["Вид"] !== "Исправленный") continue;
-          if (str(c["Статус"]) && ESF_EXCLUDED_STATUS.test(String(c["Статус"]))) continue;
-          const label = str(c["РегистрационныйНомер"]) ?? String(c["Number"] ?? "");
-          if (isRef(c["СвязанныйЭСФ_Key"])) supersededKey.set(guidOf(String(c["СвязанныйЭСФ_Key"])), label);
-          const reg = str(c["СвязанныйЭСФРегистрационныйНомер"]);
-          if (reg) supersededReg.set(reg, label);
-        }
-        const { rows: notices } = await fetchAll(
-          conn.client,
-          set,
-          {
-            filter: and(cmp("DeletionMark", "eq", "false"), orgFilter),
-            select: ["Ref_Key", "Number", "Date", "Posted", "DeletionMark", "НомерИзвещения", LINES],
-          },
-          conn.behavior.pageSize,
-          conn.behavior.maxRows,
-        );
-        const { byKey, byReg } = indexNotices(notices);
-        const registerKnown = available.has(REG_BY_ESF);
-        const balances = new Map<string, { turnover: number; vat: number }>();
-        let registerError: string | undefined;
-        if (registerKnown) {
-          try {
-            const { rows } = await fetchAll(
-              conn.client,
-              `${REG_BY_ESF}/Balance`,
-              { filter: orgFilter },
-              conn.behavior.pageSize,
-              conn.behavior.analyticsMaxRows,
-            );
-            for (const b of rows) {
-              if (!isRef(b["ЭСФ_Key"])) continue;
-              const k = guidOf(String(b["ЭСФ_Key"]));
-              const prev = balances.get(k) ?? { turnover: 0, vat: 0 };
-              balances.set(k, {
-                turnover: prev.turnover + cents(b["СуммаОборотаПоПриобретениюBalance"]),
-                vat: prev.vat + cents(b["СуммаНДСBalance"]),
-              });
-            }
-          } catch (e) {
-            registerError = e instanceof Error ? e.message : String(e);
-          }
-        }
+        const rec = await reconcileIncomingEsf(conn, { org, period, counterpartyRef });
+        const { notices, registerKnown, registerError, truncated } = rec;
         const cpNames = await counterpartyNames(
           conn,
-          inPeriod.map((r) => String(r["Контрагент_Key"] ?? "")),
+          rec.items.map((i) => i.esf.counterpartyRef ?? ""),
         );
         const groups: Record<EsfVerdict, Array<Record<string, unknown>>> = {
           unoffset: [],
@@ -816,31 +881,7 @@ export function registerVatNoticeTools(server: McpServer, ctx: ServerContext): v
         };
         let unoffsetVat = 0;
         let unoffsetTurnover = 0;
-        for (const r of inPeriod) {
-          const key = guidOf(String(r["Ref_Key"]));
-          const reg = str(r["РегистрационныйНомер"]);
-          const uses = [...(byKey.get(key) ?? []), ...(reg ? (byReg.get(reg) ?? []) : [])].filter(
-            (u, i, all) => all.findIndex((x) => x.noticeRef === u.noticeRef) === i,
-          );
-          const esf: EsfForCheck = {
-            ref: String(r["Ref_Key"]),
-            number: String(r["Number"] ?? ""),
-            date: day(r["Date"]) ?? "",
-            turnoverDate: day(r["ДатаОборота"]),
-            registrationNumber: reg,
-            status: str(r["Статус"]),
-            kind: str(r["Вид"]),
-            posted: posted(r["Posted"]),
-            counterpartyRef: isRef(r["Контрагент_Key"]) ? String(r["Контрагент_Key"]) : undefined,
-            amount: money(cents(r["СуммаДокумента"])),
-          };
-          const bal = registerKnown && !registerError ? balances.get(key) : undefined;
-          const { verdict, reason } = classifyEsf(esf, {
-            uses,
-            supersededBy: supersededKey.get(key) ?? (reg ? supersededReg.get(reg) : undefined),
-            balance: bal,
-            registerKnown: registerKnown && !registerError,
-          });
+        for (const { esf, verdict, reason, uses, balance: bal } of rec.items) {
           if (verdict === "unoffset" && bal) {
             unoffsetVat += bal.vat;
             unoffsetTurnover += bal.turnover;
@@ -882,7 +923,7 @@ export function registerVatNoticeTools(server: McpServer, ctx: ServerContext): v
             obligationRegister: registerKnown && !registerError,
           },
           summary: {
-            checked: inPeriod.length,
+            checked: rec.items.length,
             unoffset: groups.unoffset.length,
             unoffsetTurnover: money(unoffsetTurnover),
             unoffsetVat: money(unoffsetVat),

@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "1c-odata-mcp",
   "display_name": "1С:Предприятие через OData",
-  "version": "0.7.10",
+  "version": "0.7.9",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 110 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 111 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -5831,6 +5831,139 @@
         },
         "required": [
           "basisRef"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.vat.create_offset_notice_draft",
+      "title": "Черновик извещения об отнесении в зачёт НДС по входящим ЭСФ квартала",
+      "description": "Создаёт НЕпроведённый черновик извещения об отнесении в зачёт НДС (Казахстан, обмен с ИС ЭСФ) за квартал (quarter «2026/2») по организации: строки — входящие ЭСФ, которые 1С ждёт в извещении (та же сверка, что read.vat.find_unoffset_esf, группа unoffset: нет ни в одном извещении и есть остаток регистра обязательств), при желании только по поставщику (counterpartyRef) и/или списку ЭСФ (esfRefs). Суммы строки — остаток обязательств по ЭСФ; детализация — документы поступления по ЭСФ с остатком регистра «Обязательства по зачёту ИС ЭСФ» за квартал; дата отнесения — последний день квартала. Номер — следующий за год (или number). Поля обмена с ИС (идентификатор, рег. номер, номер извещения, статус, состояние, ЭЦП, тип подписи) не заполняются; документ не проводится. Подпись, отправка в ИС ЭСФ и проведение — в 1С. Предпросмотр по умолчанию: шапка, строки, детализация, итоги, пропущенные ЭСФ с причиной; создание — confirm=true с operationId после согласия бухгалтера.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "quarter": {
+            "type": "string",
+            "maxLength": 20,
+            "description": "Квартал отнесения в зачёт «ГГГГ/К», напр. «2026/2»"
+          },
+          "counterpartyRef": {
+            "description": "Ref_Key поставщика — только его ЭСФ",
+            "type": "string",
+            "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+          },
+          "esfRefs": {
+            "description": "Ref_Key входящих ЭСФ — только они (каждый должен быть «не отнесён» в этом квартале)",
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\{?[0-9a-fA-F-]{36}\\}?$"
+            }
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата извещения (по умолчанию — сегодня) (YYYY-MM-DD)"
+          },
+          "number": {
+            "description": "Номер документа; по умолчанию — следующий за год",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "pattern": "^\\S*\\d$"
+          },
+          "comment": {
+            "description": "Комментарий в документе",
+            "type": "string",
+            "maxLength": 500
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "quarter"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },

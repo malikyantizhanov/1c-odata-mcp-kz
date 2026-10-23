@@ -10,13 +10,16 @@ import { and, buildQuery, cmp, contains, or, odataGuid, odataString } from "../o
 import { databaseField, guard, ok } from "./_shared.js";
 
 /**
- * Классы объектов, которые читает read.catalog.list_catalog: справочники, планы видов характеристик (субконто) и
- * планы видов расчёта (виды начислений и удержаний зарплаты — ВидРасчета_Key в документах зарплаты).
+ * Классы объектов, которые читает read.catalog.list_catalog: справочники, планы видов характеристик (субконто),
+ * планы видов расчёта (виды начислений и удержаний зарплаты — ВидРасчета_Key в документах зарплаты) и планы
+ * счетов (счета учёта — СчетЗатратНДСНУ_Key заявления о ввозе ведёт на налоговый план, который get_chart_of_accounts
+ * не читает; у плана может не быть IsFolder — catalogFields его тогда пропускает).
  */
 export const CATALOG_CLASSES = [
   "Catalog_",
   "ChartOfCharacteristicTypes_",
   "ChartOfCalculationTypes_",
+  "ChartOfAccounts_",
 ] as const;
 
 /** Сообщение о 401/403 при чтении справочника: чинится правами пользователя OData, а не запросом. */
@@ -44,13 +47,14 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
   server.registerTool(
     "read.catalog.list_catalog",
     {
-      title: "Элементы любого справочника, плана видов характеристик или плана видов расчёта",
+      title: "Элементы любого справочника, плана видов характеристик, плана видов расчёта или плана счетов",
       description:
         "Читает строки любого справочника (Catalog_*) или плана видов характеристик (ChartOfCharacteristicTypes_*, " +
-        "виды субконто) или плана видов расчёта (ChartOfCalculationTypes_*: виды начислений и удержаний зарплаты — " +
+        "виды субконто), плана видов расчёта (ChartOfCalculationTypes_*: виды начислений и удержаний зарплаты — " +
         "ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций, ChartOfCalculationTypes_УдержанияОрганизаций; " +
-        "Ref_Key идёт в ВидРасчета_Key документов зарплаты): Ref_Key, наименование, код, признак группы и пометки " +
-        "удаления. entitySet — техническое имя " +
+        "Ref_Key идёт в ВидРасчета_Key документов зарплаты) или плана счетов (ChartOfAccounts_*, напр. налоговый — " +
+        "счета учёта; у плана может не быть признака группы IsFolder): Ref_Key, наименование, код, признак группы " +
+        "и пометки удаления. entitySet — техническое имя " +
         "('Catalog_СтатьиЗатрат'), без префикса или в синтаксисе 1С ('Справочник.СтатьиЗатрат'). query — поиск по " +
         "части наименования (без учёта регистра); если query состоит из цифр — ещё и по коду (точно, а также без " +
         "ведущих нулей и с нулями до длины кодов справочника: «104» найдёт «000000104»); code — только по коду; " +
@@ -137,8 +141,8 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         const conn = ctx.db(database);
         if (!CATALOG_CLASSES.some((p) => entitySet.startsWith(p)))
           throw new InputError(
-            `«${entitySet}» — не справочник, не план видов характеристик и не план видов расчёта. Здесь читаются ` +
-              "Catalog_*, ChartOfCharacteristicTypes_* и ChartOfCalculationTypes_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
+            `«${entitySet}» — не справочник, не план видов характеристик, не план видов расчёта и не план счетов. Здесь читаются ` +
+              "Catalog_*, ChartOfCharacteristicTypes_*, ChartOfCalculationTypes_* и ChartOfAccounts_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
           );
         ensurePublished(await conn.available(), entitySet);
         const fields = await catalogFields(conn, entitySet);

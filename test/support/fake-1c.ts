@@ -39,6 +39,270 @@ export const SERVICE_NAME = "Разработка программного об�
 export type Row = Record<string, unknown>;
 export type Store = Record<string, Row[]>;
 
+/** Идентификаторы российской базы (пакет B10): диапазон id(51x–55x), с KZ-базой не пересекаются. */
+export const RU_ORG = id(510);
+export const RU_BUYER = id(511);
+export const RU_SUPPLIER = id(512);
+export const RU_BUY_CONTRACT = id(513);
+export const RU_SUP_CONTRACT = id(514);
+export const RU_GOODS = id(515);
+export const RU_SERVICE = id(516);
+export const RU_BANK_ACC = id(517);
+export const RU_RUB = id(518);
+export const RU_UNIT = id(519);
+export const RU_WH_MAIN = id(520);
+export const RU_WH_SHOP = id(521);
+export const RU_CASH = id(522);
+export const RU_NOMGROUP = id(523);
+export const RU_CASHFLOW = id(524);
+export const RU_SALE_BASE = id(525);
+export const RU_PURCHASE_BASE = id(526);
+export const RU_EDITABLE = id(527);
+export const RU_INVENTORY_DOC = id(528);
+export const RU_INN_ORG = "7712345678";
+export const RU_INN_BUYER = "7723456789";
+export const RU_INN_SUPPLIER = "7734567890";
+export const RU_KPP_BUYER = "772301001";
+export const RU_KPP_SUPPLIER = "773401001";
+
+/**
+ * Минимальная база «1С:Бухгалтерия предприятия» (РФ) для инструментов пакета B10.
+ * План счетов — «Хозрасчетный» (счета 41/60/62/90/91/94); у контрагентов — ИНН/КПП
+ * (поля ИдентификационныйКодЛичности нет — isKazakhstan даёт false). Остальные наборы —
+ * только те, что читают/пишут 18 инструментов и правки строк (write.ts).
+ */
+export function ruStore(): Store {
+  const chart = (n: number, code: string): Row => ({
+    Ref_Key: id(540 + n),
+    Code: code,
+    Description: `Счёт ${code}`,
+    DeletionMark: false,
+  });
+  return {
+    // План счетов РФ: дефолты goodsAccounts/goodsOnlyAccounts/buildSettlementRow.
+    ChartOfAccounts_Хозрасчетный: [
+      "41.01",
+      "41",
+      "60.01",
+      "60",
+      "60.02",
+      "19.03",
+      "19",
+      "62.01",
+      "62",
+      "62.02",
+      "90.01.1",
+      "90.02.1",
+      "90.03",
+      "91.01",
+      "94",
+    ].map((code, i) => chart(i, code)),
+    Catalog_Организации: [
+      {
+        Ref_Key: RU_ORG,
+        Description: 'ООО "Ромашка"',
+        НаименованиеПолное: 'Общество с ограниченной ответственностью "Ромашка"',
+        ИНН: RU_INN_ORG,
+        КПП: "771201001",
+        ОсновнойБанковскийСчет_Key: RU_BANK_ACC,
+        DeletionMark: false,
+      },
+    ],
+    Catalog_Контрагенты: [
+      {
+        Ref_Key: RU_BUYER,
+        Description: 'ООО "Покупатель"',
+        НаименованиеПолное: 'Общество с ограниченной ответственностью "Покупатель"',
+        ИНН: RU_INN_BUYER,
+        КПП: RU_KPP_BUYER,
+        DeletionMark: false,
+      },
+      {
+        Ref_Key: RU_SUPPLIER,
+        Description: 'ООО "Поставщик"',
+        НаименованиеПолное: 'Общество с ограниченной ответственностью "Поставщик"',
+        ИНН: RU_INN_SUPPLIER,
+        КПП: RU_KPP_SUPPLIER,
+        DeletionMark: false,
+      },
+    ],
+    Catalog_ДоговорыКонтрагентов: [
+      {
+        Ref_Key: RU_BUY_CONTRACT,
+        Description: "Договор с покупателем № 12",
+        НомерДоговора: "12",
+        ДатаДоговора: "2026-09-01T00:00:00",
+        Owner_Key: RU_BUYER,
+        Организация_Key: RU_ORG,
+        ВидДоговора: "СПокупателем",
+        DeletionMark: false,
+      },
+      {
+        Ref_Key: RU_SUP_CONTRACT,
+        Description: "Договор с поставщиком № 34",
+        НомерДоговора: "34",
+        ДатаДоговора: "2026-09-05T00:00:00",
+        Owner_Key: RU_SUPPLIER,
+        Организация_Key: RU_ORG,
+        ВидДоговора: "СПоставщиком",
+        DeletionMark: false,
+      },
+    ],
+    Catalog_Номенклатура: [
+      {
+        Ref_Key: RU_GOODS,
+        Code: "00000000021",
+        Description: "Товар тестовый",
+        НаименованиеПолное: "Товар тестовый",
+        Услуга: false,
+        IsFolder: false,
+        DeletionMark: false,
+      },
+      {
+        Ref_Key: RU_SERVICE,
+        Code: "00000000022",
+        Description: "Услуга тестовая",
+        НаименованиеПолное: "Услуга тестовая",
+        Услуга: true,
+        IsFolder: false,
+        DeletionMark: false,
+      },
+    ],
+    Catalog_Склады: [
+      { Ref_Key: RU_WH_MAIN, Description: "Основной склад", DeletionMark: false },
+      { Ref_Key: RU_WH_SHOP, Description: "Розничный склад", DeletionMark: false },
+    ],
+    Catalog_Кассы: [{ Ref_Key: RU_CASH, Description: "Основная касса", DeletionMark: false }],
+    Catalog_БанковскиеСчета: [
+      {
+        Ref_Key: RU_BANK_ACC,
+        Description: "Расчётный в Сбербанке",
+        НомерСчета: "40702810900000000001",
+        Банк_Key: BANK,
+        Owner: RU_ORG,
+        Owner_Type: "StandardODATA.Catalog_Организации",
+        DeletionMark: false,
+      },
+    ],
+    Catalog_Валюты: [{ Ref_Key: RU_RUB, Code: "643", Description: "руб.", DeletionMark: false }],
+    Catalog_НоменклатурныеГруппы: [
+      { Ref_Key: RU_NOMGROUP, Description: "Основная номенклатурная группа", DeletionMark: false },
+    ],
+    Catalog_СтатьиДвиженияДенежныхСредств: [
+      { Ref_Key: RU_CASHFLOW, Description: "Оплата от покупателей", DeletionMark: false },
+    ],
+    // Реализация-основание для счёта-фактуры выданного (НДС в строке — для invoiceBasis).
+    Document_РеализацияТоваровУслуг: [
+      {
+        Ref_Key: RU_SALE_BASE,
+        Number: "00000000042",
+        Date: "2026-10-08T10:00:00",
+        Posted: false,
+        DeletionMark: false,
+        Организация_Key: RU_ORG,
+        Контрагент_Key: RU_BUYER,
+        ДоговорКонтрагента_Key: RU_BUY_CONTRACT,
+        СуммаДокумента: 1200,
+        Товары: [
+          {
+            LineNumber: 1,
+            Номенклатура_Key: RU_GOODS,
+            Количество: 1,
+            Цена: 1000,
+            Сумма: 1000,
+            СуммаНДС: 200,
+            СтавкаНДС: "НДС20",
+          },
+        ],
+      },
+      // Документ для add/remove_document_line (две строки — удаление одной оставляет одну).
+      {
+        Ref_Key: RU_EDITABLE,
+        Number: "00000000043",
+        Date: "2026-10-09T10:00:00",
+        Posted: false,
+        DeletionMark: false,
+        Организация_Key: RU_ORG,
+        Контрагент_Key: RU_BUYER,
+        ДоговорКонтрагента_Key: RU_BUY_CONTRACT,
+        СуммаДокумента: 3000,
+        Товары: [
+          {
+            LineNumber: 1,
+            Номенклатура_Key: RU_GOODS,
+            Количество: 2,
+            Цена: 1000,
+            Сумма: 2000,
+            СуммаНДС: 400,
+            СтавкаНДС: "НДС20",
+          },
+          {
+            LineNumber: 2,
+            Номенклатура_Key: RU_GOODS,
+            Количество: 1,
+            Цена: 1000,
+            Сумма: 1000,
+            СуммаНДС: 200,
+            СтавкаНДС: "НДС20",
+          },
+        ],
+      },
+    ],
+    // Поступление-основание для счёта-фактуры полученного.
+    Document_ПоступлениеТоваровУслуг: [
+      {
+        Ref_Key: RU_PURCHASE_BASE,
+        Number: "00000000044",
+        Date: "2026-10-07T10:00:00",
+        Posted: false,
+        DeletionMark: false,
+        Организация_Key: RU_ORG,
+        Контрагент_Key: RU_SUPPLIER,
+        ДоговорКонтрагента_Key: RU_SUP_CONTRACT,
+        СуммаДокумента: 1200,
+        Товары: [
+          {
+            LineNumber: 1,
+            Номенклатура_Key: RU_GOODS,
+            Количество: 1,
+            Цена: 1000,
+            Сумма: 1000,
+            СуммаНДС: 200,
+            СтавкаНДС: "НДС20",
+          },
+        ],
+      },
+    ],
+    // Инвентаризация-основание для оприходования.
+    Document_ИнвентаризацияТоваровНаСкладе: [
+      {
+        Ref_Key: RU_INVENTORY_DOC,
+        Number: "00000000045",
+        Date: "2026-10-06T10:00:00",
+        Posted: false,
+        DeletionMark: false,
+        Организация_Key: RU_ORG,
+        Склад_Key: RU_WH_MAIN,
+        Товары: [],
+      },
+    ],
+    Document_СчетНаОплатуПоставщика: [],
+    Document_ПоступлениеНаРасчетныйСчет: [],
+    Document_СписаниеСРасчетногоСчета: [],
+    Document_ПлатежноеПоручение: [],
+    Document_ПриходныйКассовыйОрдер: [],
+    Document_РасходныйКассовыйОрдер: [],
+    Document_СчетФактураВыданный: [],
+    Document_СчетФактураПолученный: [],
+    Document_АктОбОказанииПроизводственныхУслуг: [],
+    Document_ВозвратТоваровОтПокупателя: [],
+    Document_ВозвратТоваровПоставщику: [],
+    Document_ПеремещениеТоваров: [],
+    Document_ОприходованиеТоваров: [],
+    Document_СписаниеТоваров: [],
+  };
+}
+
 export function baseStore(): Store {
   return {
     Catalog_Организации: [
@@ -298,7 +562,11 @@ export function fake1C(
     ...Object.keys(store)
       .map((s) => [s, props(s)] as [string, FakeEntityMeta])
       .filter(([s]) => !fromFile.has(s)),
-    ...(!fromFile.has("ChartOfAccounts_Типовой")
+    // Дефолт для баз РК без своего плана счетов в store (baseStore и его наследники):
+    // российская база (ruStore) несёт ChartOfAccounts_Хозрасчетный — Типовой ей не публикуем,
+    // иначе isKazakhstan всегда давал бы true и по подмене нельзя было бы отличить базы.
+    ...(!fromFile.has("ChartOfAccounts_Типовой") &&
+    !Object.keys(store).some((s) => s.startsWith("ChartOfAccounts_"))
       ? [["ChartOfAccounts_Типовой", { properties: [] }] as [string, FakeEntityMeta]]
       : []),
     ...Object.entries(opts.entities ?? {}),

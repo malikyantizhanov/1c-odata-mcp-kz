@@ -56,6 +56,15 @@ export const KZ_WRITE_TOOLS = [
   "write.vat.create_offset_notice_draft",
   "write.accounting.set_operation_entries",
   "write.catalog.create_security",
+  // B8: справочники и копия документа — только свои реквизиты, без российских счетов и НДС
+  // (проверено на фейковой базе РК; add/remove_document_line пересобирают строки со ставкой «БезНДС»
+  // и российскими счетами — остались вне списка).
+  "write.counterparty.update_counterparty",
+  "write.catalog.update_nomenclature",
+  "write.counterparty.create_contact_person",
+  "write.document.copy_document",
+  "write.entity.create_folder",
+  "write.entity.move_to_folder",
 ] as const;
 
 /**

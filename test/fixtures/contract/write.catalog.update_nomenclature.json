@@ -1,0 +1,23 @@
+{
+  "tool": "write.catalog.update_nomenclature",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000004",
+    "name": "Услуга фикстура"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Catalog_Номенклатура(00000000-0000-4000-8000-000000000004)",
+    "fields": {
+      "Description": "Услуга фикстура"
+    },
+    "note": "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "entitySet": "Catalog_Номенклатура",
+    "ref": "00000000-0000-4000-8000-000000000004",
+    "description": "Услуга фикстура"
+  }
+}

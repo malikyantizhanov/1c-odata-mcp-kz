@@ -1,0 +1,50 @@
+{
+  "tool": "write.warehouse.create_writeoff",
+  "args": {
+    "warehouse": "Основной склад",
+    "date": "2026-10-10",
+    "lines": [
+      {
+        "nomenclatureRef": "00000000-0000-4000-8000-000000000515",
+        "quantity": 1,
+        "price": 1000
+      }
+    ]
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Document_СписаниеТоваров",
+    "payload": {
+      "Date": "2026-10-10T00:00:00",
+      "Posted": false,
+      "Организация_Key": "00000000-0000-4000-8000-000000000510",
+      "Склад_Key": "00000000-0000-4000-8000-000000000520",
+      "СуммаДокумента": 1000,
+      "Товары": [
+        {
+          "LineNumber": 1,
+          "Номенклатура_Key": "00000000-0000-4000-8000-000000000515",
+          "Количество": 1,
+          "Цена": 1000,
+          "Сумма": 1000,
+          "СчетУчета_Key": "00000000-0000-4000-8000-000000000540"
+        }
+      ]
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "41725b73-874f-49b6-8f23-3a99e09ddd15"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Document_СписаниеТоваров",
+    "ref": "1e6865f0-ceca-11f1-98e9-778b90c4febf",
+    "number": "00000000001",
+    "date": "2026-10-10",
+    "total": 1000,
+    "posted": false,
+    "operationId": "41725b73-874f-49b6-8f23-3a99e09ddd15"
+  }
+}

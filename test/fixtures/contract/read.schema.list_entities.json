@@ -112,10 +112,10 @@
           "entitySet": "ChartOfCharacteristicTypes_ВидыСубконтоТиповые"
         }
       ],
-      "undefined": [
-        {}
-      ],
       "Планы счетов": [
+        {
+          "entitySet": "ChartOfAccounts_Типовой"
+        },
         {
           "entitySet": "ChartOfAccounts_Налоговый"
         }

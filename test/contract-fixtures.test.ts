@@ -12,6 +12,20 @@ import {
   CONTRACT,
   KZT,
   ORG,
+  RU_BUYER,
+  RU_BUY_CONTRACT,
+  RU_CASH,
+  RU_EDITABLE,
+  RU_GOODS,
+  RU_INN_SUPPLIER,
+  RU_INVENTORY_DOC,
+  RU_KPP_SUPPLIER,
+  RU_NOMGROUP,
+  RU_PURCHASE_BASE,
+  RU_SALE_BASE,
+  RU_SERVICE,
+  RU_SUPPLIER,
+  RU_SUP_CONTRACT,
   SERVICE,
   SERVICE_NAME,
   UNIT,
@@ -20,6 +34,7 @@ import {
   baseStore,
   fake1C,
   id,
+  ruStore,
   type Row,
   type Store,
 } from "./support/fake-1c.js";
@@ -1728,6 +1743,269 @@ describe("контрактные фикстуры: запись", () => {
     expect(post.isError, failed(post)).toBeFalsy();
     checkOrRecord("write.document.update_document_lines", { args, dryRun: sc(pre), confirm: sc(post) });
   });
+});
+
+// ─── Пакет B10: российская база (БП РФ) — предпросмотр и запись ───
+//
+// Все 18 «российских» инструментов (profile non_kz, на базе РК коннектор отказывает)
+// плюс правки строк add/remove_document_line. База — ruStore() (план счетов «Хозрасчетный»,
+// у контрагентов ИНН/КПП). isKazakhstan на ней даёт false — проверяет первый тест.
+const RU_DATE = "2026-10-10";
+const RU_LINE = { nomenclatureRef: RU_GOODS, quantity: 2, price: 1000, vatRate: "НДС20" };
+const RU_SVC_LINE = {
+  nomenclatureRef: RU_SERVICE,
+  quantity: 1,
+  price: 5000,
+  vatRate: "НДС20",
+  content: "Услуги по договору № 12 за октябрь 2026 г.",
+};
+
+const ruWriteCases: WriteCase[] = [
+  {
+    kind: "write",
+    tool: "write.money.create_payout_order",
+    args: {
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      amount: 15000,
+      number: "77",
+      date: RU_DATE,
+      purposeText: "Оплата по договору № 34",
+      recipientText: 'ООО "Поставщик"',
+      recipientInn: RU_INN_SUPPLIER,
+      recipientKpp: RU_KPP_SUPPLIER,
+      operationKind: "ОплатаПоставщику",
+      vatRate: "БезНДС",
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.money.create_payment",
+    args: {
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      amount: 24000,
+      date: RU_DATE,
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.money.create_bank_writeoff",
+    args: {
+      operationKind: "ОплатаПоставщику",
+      amount: 15000,
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      purposeText: "Оплата по договору № 34",
+      date: RU_DATE,
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.money.create_cash_receipt",
+    args: {
+      operationKind: "ОплатаПокупателя",
+      amount: 12000,
+      cashRef: RU_CASH,
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      date: RU_DATE,
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.money.create_cash_payment",
+    args: {
+      operationKind: "ОплатаПоставщику",
+      amount: 8000,
+      cashRef: RU_CASH,
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      date: RU_DATE,
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.sales.create_shipment",
+    args: {
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      sumIncludesVat: true,
+      lines: [RU_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.sales.create_act",
+    args: {
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      date: RU_DATE,
+      sumIncludesVat: true,
+      lines: [RU_SVC_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.sales.create_services_act",
+    args: {
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      nomenclatureGroupRef: RU_NOMGROUP,
+      date: RU_DATE,
+      sumIncludesVat: true,
+      lines: [RU_SVC_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.sales.create_issued_invoice",
+    args: { baseDocumentRef: RU_SALE_BASE, date: RU_DATE },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.purchase.create_purchase",
+    args: {
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      sumIncludesVat: true,
+      lines: [RU_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.purchase.create_supplier_invoice",
+    args: {
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      incomingNumber: "СЧ-101",
+      incomingDate: RU_DATE,
+      date: RU_DATE,
+      sumIncludesVat: true,
+      lines: [RU_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.purchase.create_received_invoice",
+    args: { baseDocumentRef: RU_PURCHASE_BASE, incomingDate: RU_DATE, date: RU_DATE },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_transfer",
+    args: {
+      fromWarehouse: "Основной склад",
+      toWarehouse: "Розничный склад",
+      date: RU_DATE,
+      lines: [{ nomenclatureRef: RU_GOODS, quantity: 3, price: 1000 }],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_surplus",
+    args: {
+      warehouse: "Основной склад",
+      inventoryRef: RU_INVENTORY_DOC,
+      date: RU_DATE,
+      lines: [{ nomenclatureRef: RU_GOODS, quantity: 1, price: 1000 }],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_writeoff",
+    args: {
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      lines: [{ nomenclatureRef: RU_GOODS, quantity: 1, price: 1000 }],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_inventory",
+    args: {
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      lines: [{ nomenclatureRef: RU_GOODS, factQuantity: 5, accountingQuantity: 4, price: 1000 }],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_return_from_customer",
+    args: {
+      counterpartyRef: RU_BUYER,
+      contractRef: RU_BUY_CONTRACT,
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      lines: [RU_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.warehouse.create_return_to_supplier",
+    args: {
+      counterpartyRef: RU_SUPPLIER,
+      contractRef: RU_SUP_CONTRACT,
+      warehouse: "Основной склад",
+      date: RU_DATE,
+      lines: [RU_LINE],
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.document.add_document_line",
+    args: {
+      entitySet: "Document_РеализацияТоваровУслуг",
+      ref: RU_EDITABLE,
+      line: { nomenclatureRef: RU_SERVICE, quantity: 1, price: 5000, vatRate: "НДС20" },
+    },
+    build: () => fake1C({ store: ruStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.document.remove_document_line",
+    args: { entitySet: "Document_РеализацияТоваровУслуг", ref: RU_EDITABLE, lineNumber: 2 },
+    build: () => fake1C({ store: ruStore() }),
+  },
+];
+
+describe("контрактные фикстуры: российская база B10", () => {
+  it("ruStore — не Казахстан: нет Типового плана счетов и ИдентификационныйКодЛичности", async () => {
+    const f = fake1C({ store: ruStore() });
+    const { isKazakhstan } = await import("../src/tools/write-kz.js");
+    expect(await isKazakhstan(f.conn)).toBe(false);
+    expect(await isKazakhstan(fake1C({ store: baseStore() }).conn)).toBe(true);
+  });
+  for (const c of ruWriteCases) {
+    it(
+      c.tool,
+      async () => {
+        await runWrite(c);
+      },
+      30000,
+    );
+  }
 });
 
 describe("контрактные фикстуры: чтение", () => {

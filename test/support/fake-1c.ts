@@ -206,6 +206,8 @@ export function fake1C(
     entities?: Record<string, FakeEntityMeta>;
     /** PUT набора записей: 1С «молча» не сохраняет субконто (ExtDimension…) — для проверки отката. */
     dropSubcontoOnPut?: boolean;
+    /** false — общий HTTP-режим: при создании PDF не печатается. */
+    printOnCreate?: boolean;
   } = {},
 ) {
   const store = opts.store ?? baseStore();
@@ -219,6 +221,7 @@ export function fake1C(
     writeJournalDir: tmp(),
     printDir: tmp(),
     writeOperationMarker: false,
+    ...(opts.printOnCreate === false ? { printOnCreate: false } : {}),
   };
   const conn = new Connection(
     {

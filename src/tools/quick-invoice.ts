@@ -1158,8 +1158,9 @@ export async function quickInvoice(conn: Connection, input: QuickInput): Promise
   }
   const steps = createSteps(plan, assigned, input);
   if (!blocked) await prepare(steps[steps.length - 1]!);
+  const pdf = conn.behavior.printOnCreate === false ? "" : " + PDF";
   const willCreate = steps.map((s) =>
-    s.step === "invoice" ? "Счёт на оплату покупателю (без проведения) + PDF" : s.label,
+    s.step === "invoice" ? `Счёт на оплату покупателю (без проведения)${pdf}` : s.label,
   );
   return ok({
     dryRun: true,

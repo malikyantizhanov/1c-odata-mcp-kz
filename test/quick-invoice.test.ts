@@ -157,6 +157,15 @@ describe("quick_invoice: план (confirm=false)", () => {
 });
 
 describe("quick_invoice: создание (confirm=true)", () => {
+  it("общий HTTP-режим (printOnCreate=false): план не обещает PDF, счёт создаётся без печати", async () => {
+    const f = fake1C({ printOnCreate: false });
+    const plan = sc(await f.quick(TRADESPACE));
+    expect(plan["willCreate"]).toEqual(["Счёт на оплату покупателю (без проведения)"]);
+    const out = sc(await f.quick({ ...TRADESPACE, confirm: true, operationId: plan["operationId"] }));
+    expect(out).toMatchObject({ created: true, invoice: { posted: false } });
+    expect(out).not.toHaveProperty("pdf");
+  });
+
   it("находит всё → только счёт, без проведения, перечитан из базы, PDF на диске; повтор — без дубликата", async () => {
     const f = fake1C();
     const plan = sc(await f.quick(TRADESPACE));

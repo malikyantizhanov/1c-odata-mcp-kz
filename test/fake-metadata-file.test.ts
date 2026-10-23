@@ -35,4 +35,50 @@ describe("fake1C({ metadataFile })", () => {
     const body = res.structuredContent as { rows: Array<{ ref: string }> };
     expect(body.rows).toHaveLength(1);
   });
+
+  run("describe_entity отдаёт цели ссылок из файла", async () => {
+    const f = fake1C({ store: baseStore(), metadataFile: FILE! });
+    const res = await f.call("read.schema.describe_entity", {
+      entitySet: "Document_СчетНаОплатуПокупателю",
+    });
+    expect(res.isError).toBeFalsy();
+    const body = res.structuredContent as {
+      relations: string[];
+      navigations: Array<{ name: string; toType: string; collection: boolean }>;
+    };
+    expect(body.relations).toContain("ДоговорКонтрагента");
+    expect(body.navigations).toContainEqual({
+      name: "ДоговорКонтрагента",
+      toType: "Catalog_ДоговорыКонтрагентов",
+      collection: false,
+    });
+  });
+});
+
+describe("describe_entity: navigations на фейковой 1С", () => {
+  it("цели ссылок — из явных метаданных, relations — как раньше", async () => {
+    const f = fake1C({
+      store: baseStore(),
+      entities: {
+        Catalog_Контрагенты: {
+          properties: [{ name: "Ref_Key" }, { name: "Description" }],
+          navigations: [
+            { name: "ОсновнойДоговорКонтрагента", toType: "Catalog_ДоговорыКонтрагентов", collection: false },
+            { name: "КонтактныеЛица", toType: "Catalog_КонтактныеЛица", collection: true },
+          ],
+        },
+      },
+    });
+    const res = await f.call("read.schema.describe_entity", { entitySet: "Catalog_Контрагенты" });
+    expect(res.isError).toBeFalsy();
+    const body = res.structuredContent as {
+      relations: string[];
+      navigations: Array<{ name: string; toType: string; collection: boolean }>;
+    };
+    expect(body.relations).toEqual(["ОсновнойДоговорКонтрагента", "КонтактныеЛица"]);
+    expect(body.navigations).toEqual([
+      { name: "ОсновнойДоговорКонтрагента", toType: "Catalog_ДоговорыКонтрагентов", collection: false },
+      { name: "КонтактныеЛица", toType: "Catalog_КонтактныеЛица", collection: true },
+    ]);
+  });
 });

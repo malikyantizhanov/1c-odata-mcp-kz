@@ -137,6 +137,27 @@ describe("печать без диска и с диском", () => {
   });
 });
 
+describe("health_check без служебных путей в общем режиме", () => {
+  it("в общем режиме dir нет, прочие поля журнала на месте; в локальном — есть", async () => {
+    const shared = fake1C({ printToDisk: false });
+    const sharedRes = await shared.call("read.system.health_check", {});
+    expect(sharedRes.isError).toBeFalsy();
+    const sharedSc = sharedRes.structuredContent as Record<string, unknown>;
+    const sharedJournal = sharedSc["writeJournal"] as Record<string, unknown>;
+    expect(sharedJournal).toBeDefined();
+    expect(sharedJournal).not.toHaveProperty("dir");
+    expect(sharedJournal).toMatchObject({ writable: true, uncertainOperations: 0 });
+    expect(sharedJournal["note"]).toContain("Журнал в порядке");
+
+    const local = fake1C({});
+    const localRes = await local.call("read.system.health_check", {});
+    expect(localRes.isError).toBeFalsy();
+    const localSc = localRes.structuredContent as Record<string, unknown>;
+    const localJournal = localSc["writeJournal"] as Record<string, unknown>;
+    expect(String(localJournal["dir"])).toContain(String(local.conn.behavior.writeJournalDir));
+  });
+});
+
 describe("PDF при создании в общем режиме", () => {
   it("quick_invoice: PDF ресурсом без пути и без файлов на диске", async () => {
     const f = fake1C({ printToDisk: false });

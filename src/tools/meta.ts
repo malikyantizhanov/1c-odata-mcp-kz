@@ -104,7 +104,8 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
           ...(journal
             ? {
                 writeJournal: {
-                  dir: journal.dir,
+                  // Общий HTTP-режим (printToDisk=false): путь каталога на диске коннектора не отдаём.
+                  ...(conn.behavior.printToDisk === false ? {} : { dir: journal.dir }),
                   writable: journal.writable,
                   uncertainOperations: journal.uncertain.length,
                   ...(journal.uncertain.length ? { uncertainIds: journal.uncertain.slice(0, 20) } : {}),

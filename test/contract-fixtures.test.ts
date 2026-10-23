@@ -1415,7 +1415,13 @@ const readCases: ReadCase[] = [
     build: () => fake1C({ store: richStore() }),
   },
   { kind: "read", tool: "read.system.list_databases", args: {}, build: () => fake1C({ store: richStore() }) },
-  { kind: "read", tool: "read.system.health_check", args: {}, build: () => fake1C({ store: richStore() }) },
+  {
+    kind: "read",
+    tool: "read.system.health_check",
+    args: {},
+    // Общий режим чата (printToDisk=false): без dir — путь на диске коннектора модели не отдаём.
+    build: () => fake1C({ store: richStore(), printToDisk: false }),
+  },
   {
     kind: "read",
     tool: "read.system.list_organizations",

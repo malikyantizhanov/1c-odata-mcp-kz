@@ -57,6 +57,21 @@ export interface Behavior {
    * (ODATA_METADATA_CACHE_TTL_HOURS, по умолчанию 24; 0 — кеш выключен). Не задан — кеша нет.
    */
   metadataCache?: { dir: string; ttlMs: number } | undefined;
+  /**
+   * Общий HTTP-режим (src/http.ts): адрес базы присылает пользователь — запросы к 1С идут с проверкой адреса
+   * (не во внутреннюю сеть) и без перенаправлений. В stdio-режиме выключено.
+   */
+  safeNetwork?: boolean | undefined;
+  /**
+   * Печатать PDF сразу при создании документа быстрыми инструментами (quick_invoice, quick_sale,
+   * quick_reconciliation): PDF отдаётся ресурсом MCP в ответе записи. В общем HTTP-режиме включено.
+   */
+  printOnCreate?: boolean | undefined;
+  /**
+   * Писать PDF печатных форм на диск коннектора (каталог печати). В общем HTTP-режиме выключено: файл остался бы
+   * на диске коннектора, пользователю его оттуда не отдать — PDF идёт только ресурсом MCP, поля path в ответе нет.
+   */
+  printToDisk?: boolean | undefined;
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -82,6 +97,7 @@ const BehaviorSchema = z.object({
   ODATA_ANALYTICS_MAX_ROWS: z.coerce.number().int().positive().max(1_000_000).default(200_000),
   ODATA_WRITE_JOURNAL_DIR: z.string().min(1).optional(),
   ODATA_PRINT_DIR: z.string().min(1).optional(),
+  ODATA_PRINT_TO_DISK: z.enum(["true", "false"]).default("true"),
   ODATA_WRITE_OPERATION_MARKER: z.enum(["true", "false"]).default("false"),
   ODATA_CACHE_DIR: z.string().min(1).optional(),
   ODATA_METADATA_CACHE_TTL_HOURS: z.coerce
@@ -225,25 +241,44 @@ export function parseConfig(env: Env, opts: { home?: string | undefined } = {}):
     configFile: file?.path,
     warnings,
     logLevel: b.LOG_LEVEL,
-    behavior: {
-      timeoutMs: b.ODATA_TIMEOUT_MS,
-      retries: b.ODATA_RETRIES,
-      pageSize: b.ODATA_PAGE_SIZE,
-      maxRows: b.ODATA_MAX_ROWS,
-      analyticsMaxRows: b.ODATA_ANALYTICS_MAX_ROWS,
-      readOnly: b.READ_ONLY === "true",
-      writeOperationMarker: b.ODATA_WRITE_OPERATION_MARKER === "true",
-      writeJournalDir: resolve(
-        b.ODATA_WRITE_JOURNAL_DIR ?? join(homedir(), ".1c-odata-mcp", "write-journal"),
-      ),
-      printDir: resolve(b.ODATA_PRINT_DIR ?? DEFAULT_PRINT_DIR),
-      metadataCache:
-        b.ODATA_METADATA_CACHE_TTL_HOURS > 0
-          ? {
-              dir: resolve(b.ODATA_CACHE_DIR ?? DEFAULT_CACHE_DIR),
-              ttlMs: Math.round(b.ODATA_METADATA_CACHE_TTL_HOURS * 3_600_000),
-            }
-          : undefined,
-    },
+    behavior: behaviorOf(b),
+  };
+}
+
+function behaviorOf(b: z.infer<typeof BehaviorSchema>): Behavior {
+  return {
+    timeoutMs: b.ODATA_TIMEOUT_MS,
+    retries: b.ODATA_RETRIES,
+    pageSize: b.ODATA_PAGE_SIZE,
+    maxRows: b.ODATA_MAX_ROWS,
+    analyticsMaxRows: b.ODATA_ANALYTICS_MAX_ROWS,
+    readOnly: b.READ_ONLY === "true",
+    writeOperationMarker: b.ODATA_WRITE_OPERATION_MARKER === "true",
+    writeJournalDir: resolve(b.ODATA_WRITE_JOURNAL_DIR ?? join(homedir(), ".1c-odata-mcp", "write-journal")),
+    printDir: resolve(b.ODATA_PRINT_DIR ?? DEFAULT_PRINT_DIR),
+    printToDisk: b.ODATA_PRINT_TO_DISK === "true",
+    metadataCache:
+      b.ODATA_METADATA_CACHE_TTL_HOURS > 0
+        ? {
+            dir: resolve(b.ODATA_CACHE_DIR ?? DEFAULT_CACHE_DIR),
+            ttlMs: Math.round(b.ODATA_METADATA_CACHE_TTL_HOURS * 3_600_000),
+          }
+        : undefined,
+  };
+}
+
+/**
+ * Только поведение клиента — для общего HTTP-режима: базы там приходят с каждым запросом, а не из конфига.
+ * Некорректные переменные — ошибка с перечнем, как у parseConfig.
+ */
+export function parseBehavior(env: Env): { behavior: Behavior; logLevel: LogLevel } {
+  const parsed = BehaviorSchema.safeParse(env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `  • ${i.path.join(".")}: ${i.message}`).join("\n");
+    throw new Error(`Некорректная конфигурация коннектора:\n${issues}`);
+  }
+  return {
+    behavior: { ...behaviorOf(parsed.data), safeNetwork: true, printOnCreate: true, printToDisk: false },
+    logLevel: parsed.data.LOG_LEVEL,
   };
 }

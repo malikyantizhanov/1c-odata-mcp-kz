@@ -1,0 +1,24 @@
+{
+  "tool": "write.entity.move_to_folder",
+  "args": {
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "00000000-0000-4000-8000-000000000002",
+    "folder": "Папка фикстура"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Catalog_Контрагенты(00000000-0000-4000-8000-000000000002)",
+    "fields": {
+      "Parent_Key": "00000000-0000-4000-8000-000000000951"
+    },
+    "note": "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "00000000-0000-4000-8000-000000000002",
+    "description": "ТОО \"TRADESPACE\""
+  }
+}

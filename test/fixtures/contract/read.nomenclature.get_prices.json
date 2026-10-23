@@ -1,0 +1,20 @@
+{
+  "tool": "read.nomenclature.get_prices",
+  "args": {
+    "nomenclatureRefs": [
+      "00000000-0000-4000-8000-000000000004"
+    ]
+  },
+  "result": {
+    "database": "default",
+    "count": 1,
+    "prices": [
+      {
+        "nomenclature": "Разработка программного обеспечения",
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "price": 100,
+        "currency": "KZT"
+      }
+    ]
+  }
+}

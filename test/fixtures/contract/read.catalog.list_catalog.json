@@ -1,0 +1,28 @@
+{
+  "tool": "read.catalog.list_catalog",
+  "args": {
+    "entitySet": "Catalog_Номенклатура"
+  },
+  "result": {
+    "database": "default",
+    "entitySet": "Catalog_Номенклатура",
+    "rows": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "name": "Разработка программного обеспечения",
+        "code": "00000000013",
+        "isFolder": false,
+        "deletionMark": false
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000011",
+        "name": "Разработка сайта",
+        "code": "00000000014",
+        "isFolder": false,
+        "deletionMark": false
+      }
+    ],
+    "count": 2,
+    "truncated": false
+  }
+}

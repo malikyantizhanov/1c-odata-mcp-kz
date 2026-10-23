@@ -144,6 +144,21 @@ export class ServerContext {
     for (const c of rc.connections) this.map.set(c.name, new Connection(c, rc.behavior));
   }
 
+  /**
+   * Контекст из одного готового подключения — для общего HTTP-режима: подключение живёт в пуле между запросами
+   * (src/http/pool.ts), поэтому его кеши ($metadata, план счетов, субконто) не собираются заново на каждый вызов.
+   */
+  static forConnection(conn: Connection): ServerContext {
+    const ctx = new ServerContext({
+      connections: [],
+      defaultName: conn.cfg.name,
+      behavior: conn.behavior,
+      logLevel: "info",
+    });
+    ctx.map.set(conn.cfg.name, conn);
+    return ctx;
+  }
+
   /** Подключение по имени; без имени — база по умолчанию. Бросает понятную ошибку. */
   db(name?: string): Connection {
     const key = (name ?? this.defaultName).toLowerCase();

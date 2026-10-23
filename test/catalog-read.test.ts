@@ -39,6 +39,11 @@ function setup() {
     { Ref_Key: kind, Code: "00001", Description: "Статьи затрат", IsFolder: false, DeletionMark: false },
   ];
   store["Catalog_ВидыПрочихВыплат"] = [{ Ref_Key: id(120), Description: "Закрытый", DeletionMark: false }];
+  // Налоговый план счетов — без признака группы IsFolder, как в настоящей базе.
+  store["ChartOfAccounts_Налоговый"] = [
+    { Ref_Key: id(130), Code: "3110", Description: "Корпоративный подоходный налог", DeletionMark: false },
+    { Ref_Key: id(131), Code: "3130", Description: "НДС за нерезидента", DeletionMark: false },
+  ];
   return fake1C({ store });
 }
 
@@ -132,6 +137,21 @@ describe("read.catalog.list_catalog", () => {
     const res = await call("read.catalog.list_catalog", { entitySet: "Catalog_НетТакого" });
     expect(res.isError).toBe(true);
     expect(text(res as never)).toContain("не опубликованы в OData");
+  });
+
+  it("читает налоговый план счетов: Code и Description, без IsFolder", async () => {
+    const { call } = setup();
+    const res = await call("read.catalog.list_catalog", { entitySet: "ChartOfAccounts_Налоговый" });
+    expect(res.isError).toBeFalsy();
+    expect(rowsOf(res)).toEqual([
+      { ref: id(130), name: "Корпоративный подоходный налог", code: "3110", deletionMark: false },
+      { ref: id(131), name: "НДС за нерезидента", code: "3130", deletionMark: false },
+    ]);
+    const byQuery = await call("read.catalog.list_catalog", {
+      entitySet: "ChartOfAccounts_Налоговый",
+      query: "нерезидента",
+    });
+    expect(rowsOf(byQuery).map((r) => r["name"])).toEqual(["НДС за нерезидента"]);
   });
 
   it("401 — «нет прав OData на справочник», без технического шума", async () => {

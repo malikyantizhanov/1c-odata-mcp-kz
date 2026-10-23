@@ -1,0 +1,13 @@
+{
+  "tool": "write.operation.status",
+  "args": {
+    "operationId": "<из предпросмотра>"
+  },
+  "result": {
+    "operationId": "c0a71a35-2b89-46f0-9fa3-b61e4922d888",
+    "database": "default",
+    "entitySet": "Catalog_Номенклатура",
+    "status": "prepared",
+    "note": "Предпросмотр был, подтверждение не отправлялось."
+  }
+}

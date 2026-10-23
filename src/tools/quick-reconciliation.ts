@@ -573,26 +573,40 @@ export async function quickReconciliation(conn: Connection, input: QuickInput): 
       const created = await withWriteOperation(id, hash, () => conn.client.create<ODataEntity>(set, payload));
       actRef = str(created["Ref_Key"]);
     }
-    let pdf: Record<string, unknown>;
+    let pdf: Record<string, unknown> | undefined;
+    let pdfResource: { name: string; pdf: Buffer } | undefined;
     let notes = [...(plan?.notes ?? [])];
     let number = "";
     let closing: number | undefined;
-    try {
-      const printed = await printReconciliation(conn, actRef, target);
-      notes = [...notes, ...printed.notes.filter((n) => !/не согласована/.test(n))];
-      number = printed.data.number;
-      closing = printed.data.closing;
-      pdf = {
-        ...(printed.saved ? { path: printed.saved.path, fileName: printed.saved.fileName } : {}),
-        size: printed.pdf.length,
-        ...(printed.saveError ? { saveError: printed.saveError } : {}),
-      };
-    } catch (e) {
-      pdf = {
-        error: `PDF не построен: ${(e as Error).message}. Акт создан — повторите read.document.print_reconciliation.`,
-      };
+    if (conn.behavior.printOnCreate !== false) {
+      try {
+        const printed = await printReconciliation(conn, actRef, target);
+        notes = [...notes, ...printed.notes.filter((n) => !/не согласована/.test(n))];
+        number = printed.data.number;
+        closing = printed.data.closing;
+        pdf = {
+          ...(printed.saved ? { path: printed.saved.path, fileName: printed.saved.fileName } : {}),
+          size: printed.pdf.length,
+          ...(printed.saveError ? { saveError: printed.saveError } : {}),
+        };
+        pdfResource = { name: printed.name, pdf: printed.pdf };
+      } catch (e) {
+        pdf = {
+          error: `PDF не построен: ${(e as Error).message}. Акт создан — повторите read.document.print_reconciliation.`,
+        };
+      }
+    } else {
+      // printOnCreate=false: без PDF — номер и сальдо перечитаем из акта ниже.
+      const reread = await conn.client
+        .getEntity(`${set}(guid'${actRef}')${buildQuery({ select: ["Number", "ОстатокНаКонец"] })}`)
+        .catch(() => undefined);
+      if (reread) {
+        number = trimNumber(str(reread["Number"]));
+        const rest = Number(reread["ОстатокНаКонец"] ?? NaN);
+        if (Number.isFinite(rest)) closing = rest;
+      }
     }
-    return ok({
+    const result = ok({
       created: true,
       ...(settled
         ? { replayed: true, note: "Акт уже был создан этой операцией — повторно не создавался." }
@@ -600,10 +614,20 @@ export async function quickReconciliation(conn: Connection, input: QuickInput): 
       database: conn.cfg.name,
       operationId: input.operationId,
       act: { ref: actRef, number, ...(closing !== undefined ? { closing } : {}), posted: false },
-      pdf,
+      ...(pdf ? { pdf } : {}),
       ...(plan?.duplicates.length ? { possibleDuplicates: plan.duplicates } : {}),
       notes: [...notes, "Акт создан без проведения; проведение не меняет учёт."],
     });
+    if (pdfResource)
+      result.content.push({
+        type: "resource",
+        resource: {
+          uri: `onec-print:///${encodeURIComponent(pdfResource.name)}`,
+          mimeType: "application/pdf",
+          blob: pdfResource.pdf.toString("base64"),
+        },
+      });
+    return result;
   }
 
   const plan = await planReconciliation(conn, input);
@@ -623,13 +647,17 @@ export async function quickReconciliation(conn: Connection, input: QuickInput): 
       conn.client.prepareCreate(set, payload),
     );
   }
+  const willCreate =
+    conn.behavior.printOnCreate === false
+      ? "Акт сверки (без проведения)"
+      : "Акт сверки (без проведения) + PDF";
   return ok({
     dryRun: true,
     ready: true,
     database: conn.cfg.name,
     operationId,
     ...planView(plan),
-    willCreate: "Акт сверки (без проведения) + PDF",
+    willCreate,
     ...(plan.notes.length ? { notes: plan.notes } : {}),
     note:
       (plan.duplicates.length
@@ -654,7 +682,8 @@ export function registerQuickReconciliationTool(server: McpServer, ctx: ServerCo
         "как кнопка «Заполнить» акта в 1С (счета расчётов — с субконто «Контрагенты» и «Договоры»; внутренние обороты не " +
         "включаются; сторона контрагента — зеркально, с теми же документами). confirm=false — план: строки, сальдо, «задолженность в пользу …», " +
         "possibleDuplicates (акт с тем же контрагентом и концом периода) и operationId; ничего не пишет. confirm=true с тем " +
-        "же operationId и аргументами — создаёт акт без проведения и сразу сохраняет PDF (pdf.path), как " +
+        "же operationId и аргументами — создаёт акт без проведения и сразу печатает PDF (ресурсом MCP в ответе записи, " +
+        "при записи на диск — путь в pdf.path; в общем режиме printToDisk=false — только ресурсом), как " +
         "read.document.print_reconciliation. Без contract — по всем договорам; без from — с начала учёта; без to — сегодня. " +
         "Показывайте план пользователю и подтверждайте только с его согласия.",
       inputSchema: quickReconciliationInput,

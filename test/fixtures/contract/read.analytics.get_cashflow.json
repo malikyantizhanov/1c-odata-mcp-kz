@@ -1,0 +1,32 @@
+{
+  "tool": "read.analytics.get_cashflow",
+  "args": {
+    "from": "2026-10-01",
+    "to": "2026-10-31"
+  },
+  "result": {
+    "database": "default",
+    "period": {
+      "from": "2026-10-01",
+      "to": "2026-10-31"
+    },
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "byDocument": {
+      "Document_ПоступлениеНаРасчетныйСчет": 0,
+      "Document_ПлатежноеПоручениеВходящее": 0,
+      "Document_ПлатежныйОрдерПоступлениеДенежныхСредств": 0,
+      "Document_ПриходныйКассовыйОрдер": 0,
+      "Document_СписаниеСРасчетногоСчета": 0,
+      "Document_ПлатежноеПоручениеИсходящее": 0,
+      "Document_ПлатежныйОрдерСписаниеДенежныхСредств": 0,
+      "Document_РасходныйКассовыйОрдер": 0
+    },
+    "scan": {
+      "documentsScanned": 0,
+      "windows": 8,
+      "elapsedMs": 1
+    }
+  }
+}

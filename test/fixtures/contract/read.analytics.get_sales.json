@@ -1,0 +1,23 @@
+{
+  "tool": "read.analytics.get_sales",
+  "args": {
+    "from": "2026-10-01",
+    "to": "2026-10-31"
+  },
+  "result": {
+    "database": "default",
+    "period": {
+      "from": "2026-10-01",
+      "to": "2026-10-31"
+    },
+    "total": 116000,
+    "byDocument": {
+      "Document_РеализацияТоваровУслуг": 116000
+    },
+    "scan": {
+      "documentsScanned": 1,
+      "windows": 1,
+      "elapsedMs": 1
+    }
+  }
+}

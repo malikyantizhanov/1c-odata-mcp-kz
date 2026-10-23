@@ -6,17 +6,20 @@ import { catalogFields } from "../odata/catalog-fields.js";
 import { ODataError } from "../odata/errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { ensurePublished } from "../odata/publication.js";
-import { and, buildQuery, cmp, contains, or, odataString } from "../odata/query.js";
+import { and, buildQuery, cmp, contains, or, odataGuid, odataString } from "../odata/query.js";
 import { databaseField, guard, ok } from "./_shared.js";
 
 /**
- * Классы объектов, которые читает read.catalog.list_catalog: справочники, планы видов характеристик (субконто) и
- * планы видов расчёта (виды начислений и удержаний зарплаты — ВидРасчета_Key в документах зарплаты).
+ * Классы объектов, которые читает read.catalog.list_catalog: справочники, планы видов характеристик (субконто),
+ * планы видов расчёта (виды начислений и удержаний зарплаты — ВидРасчета_Key в документах зарплаты) и планы
+ * счетов (счета учёта — СчетЗатратНДСНУ_Key заявления о ввозе ведёт на налоговый план, который get_chart_of_accounts
+ * не читает; у плана может не быть IsFolder — catalogFields его тогда пропускает).
  */
 export const CATALOG_CLASSES = [
   "Catalog_",
   "ChartOfCharacteristicTypes_",
   "ChartOfCalculationTypes_",
+  "ChartOfAccounts_",
 ] as const;
 
 /** Сообщение о 401/403 при чтении справочника: чинится правами пользователя OData, а не запросом. */
@@ -44,16 +47,18 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
   server.registerTool(
     "read.catalog.list_catalog",
     {
-      title: "Элементы любого справочника, плана видов характеристик или плана видов расчёта",
+      title: "Элементы любого справочника, плана видов характеристик, плана видов расчёта или плана счетов",
       description:
         "Читает строки любого справочника (Catalog_*) или плана видов характеристик (ChartOfCharacteristicTypes_*, " +
-        "виды субконто) или плана видов расчёта (ChartOfCalculationTypes_*: виды начислений и удержаний зарплаты — " +
+        "виды субконто), плана видов расчёта (ChartOfCalculationTypes_*: виды начислений и удержаний зарплаты — " +
         "ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций, ChartOfCalculationTypes_УдержанияОрганизаций; " +
-        "Ref_Key идёт в ВидРасчета_Key документов зарплаты): Ref_Key, наименование, код, признак группы и пометки " +
-        "удаления. entitySet — техническое имя " +
+        "Ref_Key идёт в ВидРасчета_Key документов зарплаты) или плана счетов (ChartOfAccounts_*, напр. налоговый — " +
+        "счета учёта; у плана может не быть признака группы IsFolder): Ref_Key, наименование, код, признак группы " +
+        "и пометки удаления. entitySet — техническое имя " +
         "('Catalog_СтатьиЗатрат'), без префикса или в синтаксисе 1С ('Справочник.СтатьиЗатрат'). query — поиск по " +
         "части наименования (без учёта регистра); если query состоит из цифр — ещё и по коду (точно, а также без " +
         "ведущих нулей и с нулями до длины кодов справочника: «104» найдёт «000000104»); code — только по коду; " +
+        "owner — Ref_Key владельца (договоры — контрагент, банковские счета — организация, контактные лица — объект-владелец); " +
         "пустой query — список. По умолчанию группы и помеченные на " +
         "удаление скрыты (includeFolders / includeDeleted). Для следующих страниц передавайте nextOffset. " +
         "select — дополнительные поля (имена из read.schema.describe_entity), напр. ВидРасходовНУ_Key. " +
@@ -78,6 +83,14 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           .max(50)
           .optional()
           .describe("Код элемента: точное совпадение (с учётом нулей в начале); отбор только по коду"),
+        owner: z
+          .string()
+          .regex(/^\{?[0-9a-fA-F-]{36}\}?$/, "Ref_Key владельца — GUID")
+          .optional()
+          .describe(
+            "Ref_Key владельца: договоры контрагента — контрагент (Owner_Key), банковские счета — организация, " +
+              "контактные лица — объект-владелец. Без владельца — по всему справочнику.",
+          ),
         select: z
           .array(z.string().min(1).max(100))
           .max(20)
@@ -117,6 +130,7 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
       entitySet,
       query = "",
       code,
+      owner,
       select,
       limit = 50,
       offset = 0,
@@ -127,8 +141,8 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         const conn = ctx.db(database);
         if (!CATALOG_CLASSES.some((p) => entitySet.startsWith(p)))
           throw new InputError(
-            `«${entitySet}» — не справочник, не план видов характеристик и не план видов расчёта. Здесь читаются ` +
-              "Catalog_*, ChartOfCharacteristicTypes_* и ChartOfCalculationTypes_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
+            `«${entitySet}» — не справочник, не план видов характеристик, не план видов расчёта и не план счетов. Здесь читаются ` +
+              "Catalog_*, ChartOfCharacteristicTypes_*, ChartOfCalculationTypes_* и ChartOfAccounts_*; документы — read.document.search_documents. Список имён — read.schema.list_entities.",
           );
         ensurePublished(await conn.available(), entitySet);
         const fields = await catalogFields(conn, entitySet);
@@ -178,12 +192,29 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           : undefined;
         const codeFilter = codeParam ? byCode : undefined;
         const nameOrCode = (text: string) => or(contains(fields.name, text), byCode);
+        // Владелец: Owner_Key — отбор на сервере; полиморфные Owner / ОбъектВладелец (банковские счета,
+        // контактные лица) серверным eq не отбираются — фильтруем на стороне коннектора.
+        const ownerGuid = owner?.trim().replace(/[{}]/g, "");
+        let ownerServer: string | undefined;
+        let ownerClientField: string | undefined;
+        if (ownerGuid) {
+          if (has("Owner_Key")) ownerServer = cmp("Owner_Key", "eq", odataGuid(ownerGuid));
+          else if (has("Owner")) ownerClientField = "Owner";
+          else if (has("ОбъектВладелец")) ownerClientField = "ОбъектВладелец";
+          else
+            throw new InputError(
+              `У ${entitySet} нет владельца — отбор owner невозможен (есть владельцы у договоров, банковских счетов и контактных лиц).`,
+            );
+        }
         const filter = and(
           codeFilter,
           !codeParam && qText ? nameOrCode(qText) : undefined,
+          ownerServer,
           !includeFolders && fields.isFolder ? cmp(fields.isFolder, "eq", "false") : undefined,
           !includeDeleted && deletion ? cmp(deletion, "eq", "false") : undefined,
         );
+        // При клиентском фильтре тянем больше строк (до maxRows), затем режем до limit.
+        const fetchMax = ownerClientField ? conn.behavior.maxRows : Math.min(limit, conn.behavior.maxRows);
         let page;
         try {
           page = await fetchAll(
@@ -198,14 +229,24 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
               skip: offset,
             },
             conn.behavior.pageSize,
-            Math.min(limit, conn.behavior.maxRows),
+            fetchMax,
           );
         } catch (e) {
           if (e instanceof ODataError && e.kind === "auth")
             throw new InputError(noAccessMessage(entitySet, e.status));
           throw e;
         }
-        const rows = page.rows.map((r) => ({
+        const filtered = ownerClientField
+          ? page.rows.filter(
+              (r) =>
+                String(r[ownerClientField] ?? "")
+                  .replace(/[{}]/g, "")
+                  .toLowerCase() === ownerGuid!.toLowerCase(),
+            )
+          : page.rows;
+        const sliced = filtered.slice(0, limit);
+        const truncated = page.truncated || filtered.length > limit;
+        const rows = sliced.map((r) => ({
           ref: String(r[fields.ref]),
           name: String(r[fields.name] ?? ""),
           ...(fields.code && r[fields.code] ? { code: String(r[fields.code]) } : {}),
@@ -223,13 +264,13 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           entitySet,
           rows,
           count: rows.length,
-          truncated: page.truncated,
-          ...(page.truncated ? { nextOffset: offset + rows.length } : {}),
-          ...(!rows.length && (qText || codeParam)
+          truncated,
+          ...(truncated ? { nextOffset: offset + rows.length } : {}),
+          ...(!rows.length && (qText || codeParam || ownerGuid)
             ? {
                 note: codeParam
                   ? `Элемента с кодом «${codeParam}» нет в ${entitySet} (проверены варианты ${candidates.join(", ") || codeParam}). Попробуйте поиск по названию (query).`
-                  : `По запросу «${qText}» ничего не найдено в ${entitySet}${candidates.length ? ` (по названию и коду: ${candidates.join(", ")})` : ""}. Попробуйте часть слова или пустой query.`,
+                  : `По запросу «${qText}» ничего не найдено в ${entitySet}${candidates.length ? ` (по названию и коду: ${candidates.join(", ")})` : ""}${ownerGuid ? ` (владелец ${ownerGuid})` : ""}. Попробуйте часть слова или пустой query.`,
               }
             : {}),
         });

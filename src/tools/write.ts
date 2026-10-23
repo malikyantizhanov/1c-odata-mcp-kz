@@ -41,6 +41,7 @@ import { ODataError, htmlText } from "../odata/errors.js";
 import { getDocumentMovements } from "../odata/movements.js";
 import { getDocumentPostings } from "./registers.js";
 import { PAYROLL_SUM_SETS, payrollPostRefusal } from "./payroll-sums.js";
+import { buildPreviewView, readDocumentCard } from "./preview-view.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
@@ -1189,12 +1190,14 @@ export async function createOrPreview(
   const extra = allNotes.length ? { notes: allNotes } : {};
   if (!confirm) {
     await conn.client.prepareCreate(entitySet, payload);
+    const view = await buildPreviewView(conn, entitySet, payload).catch(() => undefined);
     return ok({
       dryRun: true,
       database: conn.cfg.name,
       writableBase: conn.cfg.writable,
       willCreate: entitySet,
       payload,
+      ...(view ? { view } : {}),
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true."
@@ -1207,6 +1210,11 @@ export async function createOrPreview(
   } catch (e) {
     throw await withEnumValues(conn, e);
   }
+  // Карточка документа после записи: одно чтение — дата, сумма и признак проведения.
+  const card =
+    entitySet.startsWith("Document_") && typeof created["Ref_Key"] === "string"
+      ? await readDocumentCard(conn, entitySet, created["Ref_Key"] as string)
+      : {};
   return ok({
     created: true,
     ...(created["_operation_replayed"] === true
@@ -1221,6 +1229,7 @@ export async function createOrPreview(
     code: created["Code"],
     number: created["Number"],
     description: created["Description"],
+    ...card,
     ...extra,
   });
 }
@@ -1237,11 +1246,17 @@ export async function patchOrPreview(
   const guid = ref.replace(/[{}']/g, "");
   const extra = notes?.length ? { notes } : {};
   if (!confirm) {
+    // «Было» для changes: одно чтение документа; не читается — предпросмотр без changes.
+    const before = await conn.client
+      .getEntity(`${entitySet}(guid'${guid}')?$format=json`)
+      .catch(() => undefined);
+    const view = await buildPreviewView(conn, entitySet, fields, { before }).catch(() => undefined);
     return ok({
       dryRun: true,
       database: conn.cfg.name,
       willPatch: `${entitySet}(${guid})`,
       fields,
+      ...(view ? { view } : {}),
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
@@ -2128,8 +2143,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         database: databaseField,
         ref: z.string().describe("Ref_Key контрагента"),
         name: z.string().optional().describe("Новое наименование (Description)"),
-        inn: z.string().optional().describe("ИНН"),
-        kpp: z.string().optional().describe("КПП"),
+        inn: z.string().optional().describe("ИНН (Россия) или БИН/ИИН — 12 цифр (Казахстан)"),
+        kpp: z.string().optional().describe("КПП (только Россия)"),
+        kbe: z.string().optional().describe("КБЕ — код бенефициара, две цифры (только Казахстан, напр. 17)"),
         fullName: z.string().optional().describe("Полное наименование"),
         phone: z.string().optional().describe("Телефон (контактная информация)"),
         email: z.string().optional().describe("Email (контактная информация)"),
@@ -2139,16 +2155,40 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
       },
       outputSchema: patchResultSchema,
     },
-    ({ database, ref, name, inn, kpp, fullName, phone, email, address, ogrn, confirm }) =>
+    ({ database, ref, name, inn, kpp, kbe, fullName, phone, email, address, ogrn, confirm }) =>
       guard("write.counterparty.update_counterparty", async () => {
         const conn = ctx.db(database);
         const set = await resolveSet(conn, CATALOGS.counterparties, "Справочник «Контрагенты»");
-        const fields: Record<string, unknown> = clean({
-          Description: name,
-          ИНН: inn,
-          КПП: kpp,
-          НаименованиеПолное: fullName,
-        });
+        const fields: Record<string, unknown> = {};
+        if (await isKazakhstan(conn)) {
+          // Как у создания (kzCounterpartyPayload): БИН/ИИН — в ИдентификационныйКодЛичности,
+          // КПП и ОГРН в базе РК не пишутся.
+          if (kpp || ogrn)
+            throw new InputError("В казахстанской базе нет КПП и ОГРН: передайте БИН/ИИН в inn.");
+          const bin = inn?.trim();
+          if (bin && !/^\d{12}$/.test(bin)) throw new InputError("БИН/ИИН — 12 цифр.");
+          if (kbe && !/^\d{2}$/.test(kbe.trim())) throw new InputError("КБЕ — две цифры (напр. 17 или 19).");
+          Object.assign(
+            fields,
+            clean({
+              Description: name,
+              НаименованиеПолное: fullName,
+              ИдентификационныйКодЛичности: bin,
+              КБЕ: kbe?.trim(),
+            }),
+          );
+        } else {
+          if (kbe) throw new InputError("КБЕ есть только в казахстанской базе.");
+          Object.assign(
+            fields,
+            clean({
+              Description: name,
+              ИНН: inn,
+              КПП: kpp,
+              НаименованиеПолное: fullName,
+            }),
+          );
+        }
         const notes: string[] = [];
         // Контакты — со слиянием: заменяем только заданные виды, прочие сохраняем.
         if (phone || email || address) {

@@ -1,0 +1,35 @@
+{
+  "tool": "read.accounting.get_account",
+  "args": {
+    "account": "1030"
+  },
+  "result": {
+    "database": "default",
+    "account": {
+      "ref": "00000000-0000-4000-8000-000000000220",
+      "code": "1030",
+      "description": "Счёт 1030",
+      "type": "",
+      "typeShort": "",
+      "offBalance": false,
+      "currency": true,
+      "quantity": false,
+      "forbiddenInEntries": false,
+      "deleted": false,
+      "subconto": [
+        {
+          "index": 1,
+          "kindRef": "00000000-0000-4000-8000-000000000210",
+          "kind": "Денежные средства",
+          "types": [
+            "Catalog_БанковскиеСчета"
+          ],
+          "turnoversOnly": false,
+          "amount": true,
+          "currency": false,
+          "quantity": false
+        }
+      ]
+    }
+  }
+}

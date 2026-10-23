@@ -1,0 +1,30 @@
+{
+  "tool": "read.register.get_information_register",
+  "args": {
+    "register": "КурсыВалют"
+  },
+  "result": {
+    "database": "default",
+    "register": "InformationRegister_КурсыВалют",
+    "mode": "records",
+    "periodic": true,
+    "subordinate": false,
+    "count": 2,
+    "rows": [
+      {
+        "Period": "2026-10-01T00:00:00",
+        "Recorder": "Г470",
+        "Валюта_Key": "00000000-0000-4000-8000-000000000226",
+        "Курс": 470,
+        "Кратность": 1
+      },
+      {
+        "Period": "2026-10-01T00:00:00",
+        "Recorder": "Г1",
+        "Валюта_Key": "00000000-0000-4000-8000-000000000007",
+        "Курс": 1,
+        "Кратность": 1
+      }
+    ]
+  }
+}

@@ -42,7 +42,16 @@ export const logger = pino(
     base: undefined,
     redact: {
       // Пароли и заголовки авторизации никогда не попадают в логи.
-      paths: ["password", "headers.authorization", "headers.Authorization", "*.password", "*.authorization"],
+      paths: [
+        "password",
+        "headers.authorization",
+        "headers.Authorization",
+        "*.password",
+        "*.authorization",
+        // общий HTTP-режим: учётка базы приходит в этом заголовке
+        "headers['x-onec-connection']",
+        "*['x-onec-connection']",
+      ],
       censor: "[redacted]",
     },
   },

@@ -609,7 +609,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
       },
       outputSchema: getDebtorsResultSchema,
     },
-    ({ database, organization, asOf, limit }) =>
+    ({ database, organization, asOf, limit = 100 }) =>
       guard("read.analytics.get_debtors", async () => {
         const t0 = Date.now();
         const conn = ctx.db(database);
@@ -856,7 +856,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         limit: z.number().int().positive().max(200).default(20).describe("Строк на регистр"),
       },
     },
-    ({ database, documentEntity, documentRef, registers, limit }) =>
+    ({ database, documentEntity, documentRef, registers, limit = 20 }) =>
       guard("read.document.get_document_movements", async () =>
         ok(
           await getDocumentMovements(ctx.db(database), documentEntity, documentRef.replace(/[{}]/g, ""), {
@@ -886,7 +886,7 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
       },
       outputSchema: getInventoryResultSchema,
     },
-    ({ database, organization, asOf, limit }) =>
+    ({ database, organization, asOf, limit = 200 }) =>
       guard("read.analytics.get_inventory", async () => {
         const t0 = Date.now();
         const conn = ctx.db(database);

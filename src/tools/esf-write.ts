@@ -9,6 +9,7 @@ import { buildQuery, cmp, odataGuid } from "../odata/query.js";
 import { databaseField, fail, guard, ok } from "./_shared.js";
 import { counterpartyByBin } from "./esf-avr.js";
 import { confirmField, patchOrPreview } from "./write.js";
+import { buildPreviewView, humanize } from "./preview-view.js";
 
 /**
  * Запись связей ЭАВР → документ-основание и ЭСФ → счёт-фактура (Казахстан). Пишутся ТОЛЬКО перечисленные поля:
@@ -280,9 +281,22 @@ async function applyOrPreview(
 ) {
   if (info.changes.length === 0) return fail("Менять нечего: перечисленные поля уже имеют нужные значения.");
   if (!confirm) {
+    const base = await buildPreviewView(conn, set, fields).catch(() => undefined);
+    const view = base
+      ? {
+          ...base,
+          changes: info.changes.map((c) => ({
+            name: c.field,
+            label: humanize(c.field),
+            from: { value: c.was, ...(c.wasText ? { text: c.wasText } : {}) },
+            to: { value: c.will, ...(c.willText ? { text: c.willText } : {}) },
+          })),
+        }
+      : undefined;
     return ok({
       dryRun: true,
       ...info,
+      ...(view ? { view } : {}),
       willPatch: `${set}(${guidOf(ref)})`,
       note: conn.cfg.writable
         ? "Предпросмотр. Будут записаны только перечисленные поля; для записи повторите вызов с confirm=true после согласия бухгалтера."
@@ -331,10 +345,23 @@ async function repostAndPatch(
     `2) записать поля: ${Object.keys(fields).join(", ")}`,
     `3) провести заново: ${set}(${g})/Post`,
   ];
-  if (!confirm)
+  if (!confirm) {
+    const base = await buildPreviewView(conn, set, fields).catch(() => undefined);
+    const view = base
+      ? {
+          ...base,
+          changes: info.changes.map((c) => ({
+            name: c.field,
+            label: humanize(c.field),
+            from: { value: c.was, ...(c.wasText ? { text: c.wasText } : {}) },
+            to: { value: c.will, ...(c.willText ? { text: c.willText } : {}) },
+          })),
+        }
+      : undefined;
     return ok({
       dryRun: true,
       ...info,
+      ...(view ? { view } : {}),
       repost: true,
       steps,
       willPatch: `${set}(${g})`,
@@ -342,6 +369,7 @@ async function repostAndPatch(
         ? "Предпросмотр. ЭСФ проведён: будет выполнено три шага (см. steps). Для записи повторите с confirm=true после согласия бухгалтера."
         : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
     });
+  }
   if (conn.behavior.readOnly)
     return fail("Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).");
   if (!conn.cfg.writable)

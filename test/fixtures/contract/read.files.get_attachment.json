@@ -1,0 +1,14 @@
+{
+  "tool": "read.files.get_attachment",
+  "args": {
+    "filesCatalog": "Catalog_СчетНаОплатуПокупателюПрисоединенныеФайлы",
+    "ref": "00000000-0000-4000-8000-000000000102"
+  },
+  "result": {
+    "database": "default",
+    "name": "Счёт 1.pdf",
+    "mimeType": "application/pdf",
+    "size": 27,
+    "decoded": "raw"
+  }
+}

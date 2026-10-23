@@ -1,0 +1,32 @@
+{
+  "tool": "write.counterparty.create_bank_account",
+  "args": {
+    "ownerRef": "00000000-0000-4000-8000-000000000002",
+    "accountNumber": "KZ000000000000000001",
+    "bik": "KCJBKZKX"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_БанковскиеСчета",
+    "payload": {
+      "Description": "KZ000000000000000001",
+      "Owner": "00000000-0000-4000-8000-000000000002",
+      "Owner_Type": "StandardODATA.Catalog_Контрагенты",
+      "НомерСчета": "KZ000000000000000001",
+      "Банк_Key": "00000000-0000-4000-8000-000000000006",
+      "ВалютаДенежныхСредств_Key": "00000000-0000-4000-8000-000000000007"
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "3a3d6540-5f91-4d86-8e8d-77c4ac110269"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_БанковскиеСчета",
+    "ref": "b2690b20-cebf-11f1-b3f1-912589d29dc5",
+    "description": "KZ000000000000000001",
+    "operationId": "3a3d6540-5f91-4d86-8e8d-77c4ac110269"
+  }
+}

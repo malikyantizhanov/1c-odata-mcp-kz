@@ -1,0 +1,16 @@
+{
+  "tool": "read.system.health_check",
+  "args": {},
+  "result": {
+    "status": "ok",
+    "database": "default",
+    "entityCount": 46,
+    "baseUrl": "https://1c.test/odata/",
+    "readOnly": false,
+    "writeJournal": {
+      "writable": true,
+      "uncertainOperations": 0,
+      "note": "Журнал в порядке."
+    }
+  }
+}

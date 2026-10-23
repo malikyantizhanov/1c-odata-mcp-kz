@@ -1,0 +1,54 @@
+{
+  "tool": "read.vat.get_offset_notice",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000500"
+  },
+  "result": {
+    "database": "default",
+    "notice": {
+      "ref": "00000000-0000-4000-8000-000000000500",
+      "number": "00000000001",
+      "date": "2026-01-05",
+      "posted": true,
+      "deletionMark": false,
+      "totals": {
+        "turnover": 0,
+        "vatOffset": 0,
+        "turnoverNotOffset": 0,
+        "vatNotOffset": 0
+      },
+      "lines": 0,
+      "errors": 0,
+      "quarters": [],
+      "payer": {},
+      "author": {}
+    },
+    "lineTotals": {
+      "turnover": 0,
+      "vatOffset": 0,
+      "turnoverNotOffset": 0,
+      "vatNotOffset": 0
+    },
+    "totalsMatch": true,
+    "lines": [],
+    "details": [],
+    "errors": [],
+    "movements": [
+      {
+        "register": "AccumulationRegister_ОбязательстваПоИзвещениямИСЭСФ",
+        "records": 0,
+        "recordTypes": [],
+        "turnover": 0,
+        "vat": 0
+      },
+      {
+        "register": "AccumulationRegister_ОбязательстваПоЗачетуИСЭСФ",
+        "records": 0,
+        "recordTypes": [],
+        "turnover": 0,
+        "vat": 0
+      }
+    ],
+    "notes": []
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "tool": "read.schema.list_entities",
+  "args": {},
+  "result": {
+    "database": "default",
+    "groups": {
+      "Справочники": [
+        {
+          "entitySet": "Catalog_Организации"
+        },
+        {
+          "entitySet": "Catalog_Контрагенты"
+        },
+        {
+          "entitySet": "Catalog_ДоговорыКонтрагентов"
+        },
+        {
+          "entitySet": "Catalog_Номенклатура"
+        },
+        {
+          "entitySet": "Catalog_БанковскиеСчета"
+        },
+        {
+          "entitySet": "Catalog_Банки"
+        },
+        {
+          "entitySet": "Catalog_Валюты"
+        },
+        {
+          "entitySet": "Catalog_КлассификаторЕдиницИзмерения"
+        },
+        {
+          "entitySet": "Catalog_СтавкиНДС"
+        },
+        {
+          "entitySet": "Catalog_СтатьиЗатрат"
+        },
+        {
+          "entitySet": "Catalog_ПодразделенияОрганизаций"
+        },
+        {
+          "entitySet": "Catalog_ЦенныеБумаги"
+        },
+        {
+          "entitySet": "Catalog_ФизическиеЛица"
+        },
+        {
+          "entitySet": "Catalog_СчетНаОплатуПокупателюПрисоединенныеФайлы"
+        }
+      ],
+      "Документы": [
+        {
+          "entitySet": "Document_СчетНаОплатуПокупателю"
+        },
+        {
+          "entitySet": "Document_ОперацияБух"
+        },
+        {
+          "entitySet": "Document_ЭСФ"
+        },
+        {
+          "entitySet": "Document_СчетФактураПолученный"
+        },
+        {
+          "entitySet": "Document_ЭлектронныйАктВыполненныхРабот"
+        },
+        {
+          "entitySet": "Document_ПоступлениеТоваровУслуг"
+        },
+        {
+          "entitySet": "Document_РеализацияТоваровУслуг"
+        },
+        {
+          "entitySet": "Document_СчетФактураВыданный"
+        },
+        {
+          "entitySet": "Document_АктСверкиВзаиморасчетов"
+        },
+        {
+          "entitySet": "Document_Доверенность"
+        },
+        {
+          "entitySet": "Document_ИзвещениеОбОтнесенииВЗачетНДС"
+        },
+        {
+          "entitySet": "Document_ПоступлениеНаРасчетныйСчет"
+        },
+        {
+          "entitySet": "Document_ПлатежноеПоручениеВходящее"
+        },
+        {
+          "entitySet": "Document_ПлатежныйОрдерПоступлениеДенежныхСредств"
+        },
+        {
+          "entitySet": "Document_СписаниеСРасчетногоСчета"
+        },
+        {
+          "entitySet": "Document_ПлатежноеПоручениеИсходящее"
+        },
+        {
+          "entitySet": "Document_ПлатежныйОрдерСписаниеДенежныхСредств"
+        },
+        {
+          "entitySet": "Document_ПриходныйКассовыйОрдер"
+        },
+        {
+          "entitySet": "Document_РасходныйКассовыйОрдер"
+        }
+      ],
+      "Планы видов характеристик": [
+        {
+          "entitySet": "ChartOfCharacteristicTypes_ВидыСубконтоТиповые"
+        }
+      ],
+      "Планы счетов": [
+        {
+          "entitySet": "ChartOfAccounts_Типовой"
+        },
+        {
+          "entitySet": "ChartOfAccounts_Налоговый"
+        }
+      ],
+      "Регистры сведений": [
+        {
+          "entitySet": "InformationRegister_КурсыВалют"
+        },
+        {
+          "entitySet": "InformationRegister_КурсыВалют"
+        },
+        {
+          "entitySet": "InformationRegister_АктуальныеЭСФ"
+        },
+        {
+          "entitySet": "InformationRegister_ИсторияЭСФ"
+        },
+        {
+          "entitySet": "InformationRegister_ОчередьОтправкиЭСФ"
+        },
+        {
+          "entitySet": "InformationRegister_АктуальныеЭСФПоПервичнымДокументам"
+        },
+        {
+          "entitySet": "InformationRegister_ЦеныНоменклатуры"
+        },
+        {
+          "entitySet": "InformationRegister_ЦеныНоменклатуры"
+        }
+      ],
+      "Регистры бухгалтерии": [
+        {
+          "entitySet": "AccountingRegister_Типовой"
+        },
+        {
+          "entitySet": "AccountingRegister_Типовой"
+        }
+      ]
+    }
+  }
+}

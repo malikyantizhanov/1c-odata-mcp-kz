@@ -1,0 +1,21 @@
+{
+  "tool": "read.organization.get_organization_card",
+  "args": {},
+  "result": {
+    "database": "default",
+    "ref": "00000000-0000-4000-8000-000000000001",
+    "name": "Aru Market ИП",
+    "fullName": "ИП Aru Market",
+    "inn": "123123123123",
+    "bankAccount": {
+      "accountNumber": "KZ86125KZT1004100100",
+      "bank": {
+        "name": "АО \"Банк ЦентрКредит\"",
+        "bik": ""
+      }
+    },
+    "notes": [
+      "Регистр «Ответственные лица организаций» не опубликован в OData — директор/бухгалтер недоступны. Добавьте его в «Состав OData», если нужны эти реквизиты."
+    ]
+  }
+}

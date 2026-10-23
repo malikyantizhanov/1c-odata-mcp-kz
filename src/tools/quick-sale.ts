@@ -938,6 +938,7 @@ async function finish(
 ): Promise<CallToolResult> {
   const doc = await conn.client.getEntity(`${saleSet}(guid'${saleRef}')?$format=json`);
   let pdf: Record<string, unknown> | undefined;
+  let pdfFiles: Array<{ name: string; pdf: Buffer }> = [];
   if (input.print !== "none") {
     try {
       const printed = await printSale(conn, saleRef, {
@@ -948,13 +949,14 @@ async function finish(
       notes.push(...printed.notes);
       const files = printedFilesOutput(printed.files);
       pdf = { files, ...(files[0]?.path ? { path: files[0].path } : {}) };
+      pdfFiles = printed.files.map((f) => ({ name: f.name, pdf: f.pdf }));
     } catch (e) {
       pdf = {
         error: `PDF не построен: ${(e as Error).message}. Реализация создана — повторите read.document.print_sale.`,
       };
     }
   }
-  return ok({
+  const result = ok({
     ...base,
     sale: {
       ref: str(doc["Ref_Key"]) || saleRef,
@@ -968,10 +970,22 @@ async function finish(
     ...(pdf ? { pdf } : {}),
     ...(notes.length ? { notes } : {}),
   });
+  for (const f of pdfFiles)
+    result.content.push({
+      type: "resource",
+      resource: {
+        uri: `onec-print:///${encodeURIComponent(f.name)}`,
+        mimeType: "application/pdf",
+        blob: f.pdf.toString("base64"),
+      },
+    });
+  return result;
 }
 
 export async function quickSale(conn: Connection, input: QuickSaleInput): Promise<CallToolResult> {
   const started = Date.now();
+  // printOnCreate=false: PDF при создании не печатается (см. Behavior.printOnCreate)
+  if (conn.behavior.printOnCreate === false) input = { ...input, print: "none" };
   if (!(await isKazakhstan(conn)))
     throw new InputError("write.sales.quick_sale работает с казахстанской базой (БИН/ИИН, тенге, НДС РК).");
   // outputDir проверяется до записи.
@@ -1145,8 +1159,9 @@ export function registerQuickSaleTool(server: McpServer, ctx: ServerContext): vo
         "не пишет. План проверяет дубли: реализации на основании того же счёта и реализации того же покупателя за тот же " +
         "день на ту же сумму (помеченные на удаление не считаются) — possibleDuplicates (номер, дата, ref, сумма, posted, " +
         "reason). Не пуст — ОБЯЗАТЕЛЬНО покажите пользователю до подтверждения. confirm=true с тем же operationId и " +
-        "аргументами — создаёт реализацию БЕЗ проведения, перечитывает её и сохраняет PDF: акт Р-1 (услуги) и/или " +
-        "накладную З-2 (товары) — pdf.files[].path. Повтор после сбоя с тем же operationId не создаёт дубликатов. " +
+        "аргументами — создаёт реализацию БЕЗ проведения, перечитывает её и печатает PDF: акт Р-1 (услуги) и/или " +
+        "накладную З-2 (товары) — ресурсом MCP в ответе записи, при записи на диск — пути в pdf.files[].path " +
+        "(в общем режиме printToDisk=false — только ресурсом). Повтор после сбоя с тем же operationId не создаёт дубликатов. " +
         "Подтверждайте только с согласия пользователя.",
       inputSchema: quickSaleInput,
       outputSchema: z

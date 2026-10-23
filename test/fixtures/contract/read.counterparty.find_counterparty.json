@@ -1,0 +1,18 @@
+{
+  "tool": "read.counterparty.find_counterparty",
+  "args": {
+    "query": "TRADESPACE"
+  },
+  "result": {
+    "rows": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000002",
+        "name": "ТОО \"TRADESPACE\"",
+        "inn": "240440007327",
+        "fullName": "ТОО \"TRADESPACE\""
+      }
+    ],
+    "count": 1,
+    "truncated": false
+  }
+}

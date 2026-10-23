@@ -8,6 +8,7 @@ import type { ServerContext } from "../context.js";
 import { createResultSchema } from "../schemas/output.js";
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
 import { ANY_ENTITY_PARAMS, DOCUMENT_ENTITY_PARAMS, normalizeToolArgs } from "../odata/entity-name.js";
+import { buildQuery } from "../odata/query.js";
 import { registerMetaTools } from "../tools/meta.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
@@ -41,7 +42,7 @@ import { registerPowerOfAttorneyPrintTools } from "../tools/print-power-of-attor
 import { registerQuickReconciliationTool } from "../tools/quick-reconciliation.js";
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
-import { registerGatewayTools } from "../tools/gateway.js";
+import { META_LIST, registerGatewayTools } from "../tools/gateway.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
 
 /** Версия берётся из package.json (в собранном пакете он на два уровня выше dist/mcp/). */
@@ -85,8 +86,16 @@ function annotationsFor(name: string) {
   return WRITE_HINTS;
 }
 
+export interface ServerOptions {
+  /**
+   * Какие инструменты регистрировать (по умолчанию — все). Незарегистрированный инструмент недоступен и через
+   * шлюз meta.call_tool: тот вызывает tools/call того же реестра.
+   */
+  toolFilter?: ((name: string) => boolean) | undefined;
+}
+
 /** Создаёт MCP-сервер и регистрирует все инструменты (чтение + гейтованная запись). */
-export function createServer(ctx: ServerContext): McpServer {
+export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpServer {
   const server = new McpServer(
     { name: "1c-odata-mcp", version: readVersion() },
     { instructions: INSTRUCTIONS },
@@ -103,6 +112,7 @@ export function createServer(ctx: ServerContext): McpServer {
     config: Record<string, unknown>,
     cb: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>,
   ) => {
+    if (opts.toolFilter && !opts.toolFilter(name)) return undefined;
     const execute = cb;
     cb = (args, extra) =>
       guard(name, async () => {
@@ -158,6 +168,27 @@ export function createServer(ctx: ServerContext): McpServer {
           const conn = ctx.db(typeof args.database === "string" ? args.database : undefined);
           const settled = await conn.client.operationSettled(operationId, requestHash);
           if (settled) {
+            // Повтор создания документа: та же карточка, что у записи, — если документ читается.
+            let card: Record<string, unknown> = {};
+            if (isCreateTool && settled.entitySet.startsWith("Document_")) {
+              const ref = String(settled.result["Ref_Key"] ?? "").replace(/[{}]/g, "");
+              if (ref) {
+                const doc = await conn.client
+                  .getEntity(
+                    `${settled.entitySet}(guid'${ref}')${buildQuery({ select: ["Number", "Date", "Posted", "СуммаДокумента"] })}`,
+                  )
+                  .catch(() => undefined);
+                if (doc) {
+                  const date = String(doc["Date"] ?? "").slice(0, 10);
+                  const total = Number(doc["СуммаДокумента"]);
+                  card = {
+                    ...(date ? { date } : {}),
+                    ...(Number.isFinite(total) ? { total } : {}),
+                    ...(typeof doc["Posted"] === "boolean" ? { posted: doc["Posted"] } : {}),
+                  };
+                }
+              }
+            }
             replay = ok({
               ...(isCreateTool ? { created: true } : { updated: true }),
               replayed: true,
@@ -166,6 +197,7 @@ export function createServer(ctx: ServerContext): McpServer {
               entitySet: settled.entitySet,
               ref: settled.result["Ref_Key"],
               ...(settled.result["Code"] ? { code: settled.result["Code"] } : {}),
+              ...card,
               operationId,
             });
           }
@@ -229,7 +261,7 @@ export function createServer(ctx: ServerContext): McpServer {
   registerServicesReceiptTool(server, ctx);
   registerPoaKittingTools(server, ctx);
   // Шлюз — последним и в обход обёртки (без префлайта базы): целевой вызов идёт через tools/call целиком.
-  registerGatewayTools(server, original, readVersion());
+  if (!opts.toolFilter || opts.toolFilter(META_LIST)) registerGatewayTools(server, original, readVersion());
 
   return server;
 }

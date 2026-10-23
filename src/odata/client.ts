@@ -5,6 +5,7 @@ import type { ODataCollection, ODataEntity } from "../types/odata.js";
 import { currentWriteOperationId, currentWriteRequestHash } from "./write-operation-context.js";
 import { WriteOperationJournal, type OperationCheck } from "./write-journal.js";
 import { uuidV1 } from "./uuid-v1.js";
+import { safeFetch } from "./safe-fetch.js";
 
 /** HTTP-методы только для чтения; остальные (POST/PATCH) считаются записью и гейтуются. */
 const READ_METHODS = new Set(["GET", "HEAD"]);
@@ -19,6 +20,11 @@ export class ODataClient {
   ) {
     const token = Buffer.from(`${conn.username}:${conn.password}`).toString("base64");
     this.authHeader = `Basic ${token}`;
+  }
+
+  /** Запрос к 1С. В общем HTTP-режиме (safeNetwork) — с проверкой адреса и без перенаправлений (safe-fetch.ts). */
+  private send(url: string, init: RequestInit): Promise<Response> {
+    return this.behavior.safeNetwork ? safeFetch(url, init) : fetch(url, init);
   }
 
   /** Журнал операций записи создаётся при первом обращении: чтению и read-only он не нужен. */
@@ -74,7 +80,7 @@ export class ODataClient {
       const started = performance.now();
       try {
         logger.debug({ url, method, attempt }, "odata request");
-        const res = await fetch(url, {
+        const res = await this.send(url, {
           method,
           headers: {
             Authorization: this.authHeader,
@@ -277,7 +283,7 @@ export class ODataClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
     try {
-      const res = await fetch(url, {
+      const res = await this.send(url, {
         method: "POST",
         headers: { Authorization: this.authHeader, Accept: "application/json" },
         signal: controller.signal,
@@ -300,7 +306,7 @@ export class ODataClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
     try {
-      const res = await fetch(url, {
+      const res = await this.send(url, {
         method: "GET",
         headers: { Authorization: this.authHeader },
         signal: controller.signal,

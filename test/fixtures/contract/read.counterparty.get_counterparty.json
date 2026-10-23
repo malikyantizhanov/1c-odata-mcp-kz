@@ -1,0 +1,12 @@
+{
+  "tool": "read.counterparty.get_counterparty",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000002"
+  },
+  "result": {
+    "ref": "00000000-0000-4000-8000-000000000002",
+    "name": "ТОО \"TRADESPACE\"",
+    "inn": "240440007327",
+    "fullName": "ТОО \"TRADESPACE\""
+  }
+}

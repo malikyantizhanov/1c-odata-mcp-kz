@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Behavior } from "../src/config/env.js";
-import { buildHttpServer, sharedToolFilter } from "../src/http.js";
+import { buildHttpServer, sharedToolFilter, writeToolsFrom } from "../src/http.js";
 import { ConnectionPool, parseConnectionHeader } from "../src/http/pool.js";
 import { guardedLookup, isBlockedAddress, safeFetch } from "../src/odata/safe-fetch.js";
 
@@ -176,9 +176,17 @@ describe("разбор заголовка и фильтр инструменто
     expect(() => parseConnectionHeader(header({ ...BOB, id: "../etc" }))).toThrow(/id/);
   });
 
-  it("в общем режиме нет шлюза, печати и вложений", () => {
+  it("в общем режиме нет шлюза, печати и вложений; запись — только из белого списка", () => {
     expect(sharedToolFilter("read.analytics.debtors")).toBe(true);
-    expect(sharedToolFilter("write.sales.quick_invoice")).toBe(true);
+    expect(sharedToolFilter("write.sales.quick_invoice")).toBe(false); // список пуст — записи нет
+    expect(sharedToolFilter("write.operation.status")).toBe(false);
+    const writes = writeToolsFrom({
+      ODATA_HTTP_WRITE_TOOLS: " write.sales.quick_invoice ,read.x, write.sales.quick_sale",
+    });
+    expect([...writes]).toEqual(["write.sales.quick_invoice", "write.sales.quick_sale"]);
+    expect(sharedToolFilter("write.sales.quick_invoice", writes)).toBe(true);
+    expect(sharedToolFilter("write.document.post_document", writes)).toBe(false);
+    expect(sharedToolFilter("write.operation.status", writes)).toBe(true); // сверка после сбоя — вместе с записью
     expect(sharedToolFilter("meta.call_tool")).toBe(false);
     expect(sharedToolFilter("read.document.print_invoice")).toBe(false);
     expect(sharedToolFilter("read.files.get_attachment")).toBe(false);

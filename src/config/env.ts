@@ -62,6 +62,11 @@ export interface Behavior {
    * (не во внутреннюю сеть) и без перенаправлений. В stdio-режиме выключено.
    */
   safeNetwork?: boolean | undefined;
+  /**
+   * Печатать PDF сразу при создании документа быстрыми инструментами (quick_invoice, quick_sale). В общем
+   * HTTP-режиме выключено: файл остался бы на диске коннектора, пользователю его оттуда не отдать.
+   */
+  printOnCreate?: boolean | undefined;
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -265,5 +270,8 @@ export function parseBehavior(env: Env): { behavior: Behavior; logLevel: LogLeve
     const issues = parsed.error.issues.map((i) => `  • ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Некорректная конфигурация коннектора:\n${issues}`);
   }
-  return { behavior: { ...behaviorOf(parsed.data), safeNetwork: true }, logLevel: parsed.data.LOG_LEVEL };
+  return {
+    behavior: { ...behaviorOf(parsed.data), safeNetwork: true, printOnCreate: false },
+    logLevel: parsed.data.LOG_LEVEL,
+  };
 }

@@ -23,6 +23,7 @@ docker run -d --name onec-connector -e MCP_HTTP_TOKEN=<случайная стр
 | `MCP_HTTP_TOKEN` | — (обязательна) | Общий ключ: запрос без `Authorization: Bearer <ключ>` — 401 |
 | `PORT` | `8080` | Порт HTTP |
 | `READ_ONLY` | `true` | Запрет записи для всех баз; запись включается только явно `READ_ONLY=false` |
+| `ODATA_HTTP_WRITE_TOOLS` | — (пусто) | Пишущие инструменты общего режима через запятую, напр. `write.sales.quick_invoice,write.sales.quick_sale`; пусто — ни одного |
 | `ODATA_RETRIES` | `1` | Повторы запросов к 1С при сбоях |
 | `ODATA_WRITE_JOURNAL_DIR`, `ODATA_CACHE_DIR` | `/data/…` | Журнал записи и кеш `$metadata` — на томе `/data` |
 | `MCP_LOG_STDERR` | `1` | Логи в stderr (`docker logs`), а не в файл, как под stdio-клиентом |
@@ -51,7 +52,10 @@ docker run -d --name onec-connector -e MCP_HTTP_TOKEN=<случайная стр
 ## Чем отличается от обычного режима
 
 - **Нет** шлюза `meta.list_tools` / `meta.call_tool` (инструменты для модели отбирает сервис), печатных форм
-  `read.document.print_*` и вложений `read.files.*` — они пишут файлы на диск коннектора.
+  `read.document.print_*` и вложений `read.files.*` — они пишут файлы на диск коннектора; быстрые инструменты
+  (`quick_invoice`, `quick_sale`) при создании PDF не печатают.
+- **Запись** — только инструменты из `ODATA_HTTP_WRITE_TOOLS` (и `write.operation.status` вместе с ними), при
+  `READ_ONLY=false` и `writable: true` у подключения.
 - **Сеть:** адрес базы присылает пользователь, поэтому запросы к 1С не уходят во внутренние и служебные сети
   (`10/8`, `172.16/12`, `192.168/16`, `127/8`, `169.254/16`, `100.64/10`, IPv6-локальные) — проверяются все адреса из
   DNS в момент соединения; перенаправления (3xx) запрещены — укажите точный адрес OData.

@@ -972,6 +972,8 @@ async function finish(
 
 export async function quickSale(conn: Connection, input: QuickSaleInput): Promise<CallToolResult> {
   const started = Date.now();
+  // общий HTTP-режим: PDF при создании не печатается (см. Behavior.printOnCreate)
+  if (conn.behavior.printOnCreate === false) input = { ...input, print: "none" };
   if (!(await isKazakhstan(conn)))
     throw new InputError("write.sales.quick_sale работает с казахстанской базой (БИН/ИИН, тенге, НДС РК).");
   // outputDir проверяется до записи.

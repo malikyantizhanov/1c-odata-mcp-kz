@@ -21,13 +21,26 @@ import { logger } from "./logger.js";
  * Streamable HTTP без сессий: на каждый POST /mcp — свой McpServer поверх подключения из пула.
  *
  * Чего нет в общем режиме: шлюза meta.* (инструменты для модели отбирает бэкенд), печатных форм и вложений
- * (файлы пишутся на диск коннектора — пользователю их отсюда не отдать).
+ * (файлы пишутся на диск коннектора — пользователю их отсюда не отдать). Пишущие инструменты — только из белого
+ * списка ODATA_HTTP_WRITE_TOOLS (пусто — ни одного); write.operation.status — вместе с ними, для сверки после сбоя.
  */
-export function sharedToolFilter(name: string): boolean {
+export function sharedToolFilter(name: string, writes: ReadonlySet<string> = new Set()): boolean {
+  if (name.startsWith("write."))
+    return writes.has(name) || (name === "write.operation.status" && writes.size > 0);
   return !(
     name.startsWith("meta.") ||
     name.startsWith("read.files.") ||
     name.startsWith("read.document.print_")
+  );
+}
+
+/** ODATA_HTTP_WRITE_TOOLS: имена пишущих инструментов через запятую. */
+export function writeToolsFrom(env: Record<string, string | undefined>): Set<string> {
+  return new Set(
+    (env.ODATA_HTTP_WRITE_TOOLS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.startsWith("write.")),
   );
 }
 
@@ -62,11 +75,14 @@ function tokenMatches(header: string | undefined, token: string): boolean {
 export interface HttpServerOptions {
   token: string;
   pool: ConnectionPool;
+  /** пишущие инструменты общего режима (по умолчанию — ни одного) */
+  writeTools?: ReadonlySet<string>;
 }
 
 /** HTTP-сервер коннектора (без listen): /healthz и POST /mcp. */
 export function buildHttpServer(opts: HttpServerOptions): Server & { inflight: () => number } {
   const ver = version();
+  const writes = opts.writeTools ?? new Set<string>();
   let inflight = 0;
   const server = createNodeServer((req: IncomingMessage, res: ServerResponse) => {
     const started = Date.now();
@@ -101,7 +117,9 @@ export function buildHttpServer(opts: HttpServerOptions): Server & { inflight: (
       const lease = await opts.pool.acquire(cfg);
       release = lease.release;
       if (closed) return release();
-      const mcp = createServer(ServerContext.forConnection(lease.conn), { toolFilter: sharedToolFilter });
+      const mcp = createServer(ServerContext.forConnection(lease.conn), {
+        toolFilter: (name) => sharedToolFilter(name, writes),
+      });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
@@ -128,10 +146,14 @@ async function main(): Promise<void> {
   if (!token || token.length < 24) throw new Error("задайте MCP_HTTP_TOKEN (не короче 24 символов)");
   const { behavior } = parseBehavior(process.env);
   const pool = new ConnectionPool(behavior);
-  const server = buildHttpServer({ token, pool });
+  const writeTools = writeToolsFrom(process.env);
+  const server = buildHttpServer({ token, pool, writeTools });
   const port = Number(process.env.PORT ?? 8080);
   server.listen(port, "0.0.0.0", () =>
-    logger.info({ port, readOnly: behavior.readOnly }, "1c-odata-mcp запущен (общий HTTP-режим)"),
+    logger.info(
+      { port, readOnly: behavior.readOnly, writeTools: [...writeTools] },
+      "1c-odata-mcp запущен (общий HTTP-режим)",
+    ),
   );
 
   // Остановка: новых запросов не берём, текущие (запись в 1С!) дорабатывают — до 60 с.

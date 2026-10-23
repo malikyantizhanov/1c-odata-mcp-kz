@@ -983,20 +983,21 @@ async function finish(
   const doc = await conn.client.getEntity(
     `${plan.invoiceSet}(guid'${invoiceRef}')${buildQuery({ select: ["Ref_Key", "Number", "Date", "Posted", "СуммаДокумента", "DeletionMark"] })}`,
   );
-  let pdf: Record<string, unknown>;
-  try {
-    const printed = await printInvoice(conn, invoiceRef, target);
-    notes.push(...printed.notes);
-    pdf = {
-      ...(printed.saved ? { path: printed.saved.path, fileName: printed.saved.fileName } : {}),
-      size: printed.pdf.length,
-      ...(printed.saveError ? { saveError: printed.saveError } : {}),
-    };
-  } catch (e) {
-    pdf = {
-      error: `PDF не построен: ${(e as Error).message}. Счёт создан — повторите read.document.print_invoice.`,
-    };
-  }
+  let pdf: Record<string, unknown> | undefined;
+  if (conn.behavior.printOnCreate !== false)
+    try {
+      const printed = await printInvoice(conn, invoiceRef, target);
+      notes.push(...printed.notes);
+      pdf = {
+        ...(printed.saved ? { path: printed.saved.path, fileName: printed.saved.fileName } : {}),
+        size: printed.pdf.length,
+        ...(printed.saveError ? { saveError: printed.saveError } : {}),
+      };
+    } catch (e) {
+      pdf = {
+        error: `PDF не построен: ${(e as Error).message}. Счёт создан — повторите read.document.print_invoice.`,
+      };
+    }
   return ok({
     ...base,
     invoice: {
@@ -1007,7 +1008,7 @@ async function finish(
       total: Number(doc["СуммаДокумента"] ?? 0),
       posted: doc["Posted"] === true,
     },
-    pdf,
+    ...(pdf ? { pdf } : {}),
     ...(notes.length ? { notes } : {}),
   });
 }

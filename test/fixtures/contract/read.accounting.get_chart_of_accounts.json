@@ -22,7 +22,9 @@
             "index": 1,
             "kindRef": "00000000-0000-4000-8000-000000000210",
             "kind": "Денежные средства",
-            "types": [],
+            "types": [
+              "Catalog_БанковскиеСчета"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -47,7 +49,9 @@
             "index": 1,
             "kindRef": "00000000-0000-4000-8000-000000000211",
             "kind": "Контрагенты",
-            "types": [],
+            "types": [
+              "Catalog_Контрагенты"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -57,7 +61,10 @@
             "index": 2,
             "kindRef": "00000000-0000-4000-8000-000000000212",
             "kind": "Прочее",
-            "types": [],
+            "types": [
+              "Catalog_ДоговорыКонтрагентов",
+              "Catalog_Организации"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -82,7 +89,9 @@
             "index": 1,
             "kindRef": "00000000-0000-4000-8000-000000000213",
             "kind": "Статьи затрат",
-            "types": [],
+            "types": [
+              "Catalog_СтатьиЗатрат"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -92,7 +101,9 @@
             "index": 2,
             "kindRef": "00000000-0000-4000-8000-000000000214",
             "kind": "Подразделения",
-            "types": [],
+            "types": [
+              "Catalog_ПодразделенияОрганизаций"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -117,7 +128,9 @@
             "index": 1,
             "kindRef": "00000000-0000-4000-8000-000000000213",
             "kind": "Статьи затрат",
-            "types": [],
+            "types": [
+              "Catalog_СтатьиЗатрат"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,
@@ -127,7 +140,9 @@
             "index": 2,
             "kindRef": "00000000-0000-4000-8000-000000000214",
             "kind": "Подразделения",
-            "types": [],
+            "types": [
+              "Catalog_ПодразделенияОрганизаций"
+            ],
             "turnoversOnly": false,
             "amount": true,
             "currency": false,

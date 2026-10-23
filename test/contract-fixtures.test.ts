@@ -239,11 +239,27 @@ function richStore(): Store {
     r["Ref_Key"] === ORG ? { ...r, ПрефиксацияОбъектов: "АА" } : r,
   );
   store["ChartOfCharacteristicTypes_ВидыСубконтоТиповые"] = [
-    { Ref_Key: K_BANK, Description: "Денежные средства", ValueType: "CatalogRef.БанковскиеСчета" },
-    { Ref_Key: K_CP, Description: "Контрагенты", ValueType: "CatalogRef.Контрагенты" },
-    { Ref_Key: K_ANY, Description: "Прочее", ValueType: "Edm.String" },
-    { Ref_Key: KIND_ART, Description: "Статьи затрат", ValueType: "CatalogRef.СтатьиЗатрат" },
-    { Ref_Key: KIND_DEP, Description: "Подразделения", ValueType: "CatalogRef.ПодразделенияОрганизаций" },
+    {
+      Ref_Key: K_BANK,
+      Description: "Денежные средства",
+      ValueType: { Types: ["CatalogRef.БанковскиеСчета"] },
+    },
+    { Ref_Key: K_CP, Description: "Контрагенты", ValueType: { Types: ["CatalogRef.Контрагенты"] } },
+    {
+      Ref_Key: K_ANY,
+      Description: "Прочее",
+      ValueType: { Types: ["CatalogRef.ДоговорыКонтрагентов", "CatalogRef.Организации"] },
+    },
+    {
+      Ref_Key: KIND_ART,
+      Description: "Статьи затрат",
+      ValueType: { Types: ["CatalogRef.СтатьиЗатрат"] },
+    },
+    {
+      Ref_Key: KIND_DEP,
+      Description: "Подразделения",
+      ValueType: { Types: ["CatalogRef.ПодразделенияОрганизаций"] },
+    },
   ];
   store["ChartOfAccounts_Типовой"] = [
     acc(A1030, "1030", [K_BANK]),
@@ -1361,7 +1377,14 @@ const writeCases: WriteCase[] = [
     args: {
       documentRef: OP,
       entries: [
-        { debit: "1030", credit: "3310", amount: 1000, counterpartyRef: BUYER, contractRef: CONTRACT },
+        {
+          debit: "1030",
+          credit: "3310",
+          amount: 1000,
+          debitSubconto: [BANK_ACC],
+          creditSubconto: [BUYER],
+          content: "Оплата поставщику",
+        },
       ],
     },
     build: () => fake1C({ store: richStore() }),

@@ -160,7 +160,7 @@ export const healthCheckResultSchema = z
     readOnly: z.boolean(),
     writeJournal: z
       .object({
-        dir: z.string(),
+        dir: z.string().optional(),
         writable: z.boolean(),
         uncertainOperations: z.number(),
         uncertainIds: z.array(z.string()).optional(),

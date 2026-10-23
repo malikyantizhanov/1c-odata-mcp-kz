@@ -8,7 +8,6 @@
     "baseUrl": "https://1c.test/odata/",
     "readOnly": false,
     "writeJournal": {
-      "dir": "/private<tmp>/1c-quick-test-rikeRa/41081311c36f15a8e0d42d64",
       "writable": true,
       "uncertainOperations": 0,
       "note": "Журнал в порядке."

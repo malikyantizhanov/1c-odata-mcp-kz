@@ -21,7 +21,9 @@
           "index": 1,
           "kindRef": "00000000-0000-4000-8000-000000000210",
           "kind": "Денежные средства",
-          "types": [],
+          "types": [
+            "Catalog_БанковскиеСчета"
+          ],
           "turnoversOnly": false,
           "amount": true,
           "currency": false,

@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.12] — 2026-10-23
+
 ### Добавлено — общий HTTP-режим: один коннектор на много пользователей
 
 - `1c-odata-mcp-http` (`npm run start:http`, `dist/http.js`) — Streamable HTTP без сессий: учётка базы приходит с каждым запросом в заголовке `X-OneC-Connection`, доступ к самому коннектору — по общему ключу `Authorization: Bearer`; подключения — в пуле. Подробно — [docs/HTTP-MODE.md](docs/HTTP-MODE.md).
@@ -1062,7 +1064,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...HEAD
+[0.7.12]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.9...v0.7.10
 [0.7.9]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.8...v0.7.9

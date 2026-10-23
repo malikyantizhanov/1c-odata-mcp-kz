@@ -190,7 +190,10 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
       description:
         "Показывает поля (с типами) и связи конкретного объекта 1С из $metadata. " +
         "Принимает техническое имя EntitySet, напр. 'Catalog_Контрагенты' или " +
-        "'Document_РеализацияТоваровУслуг'. Используйте перед поиском, чтобы узнать доступные поля.",
+        "'Document_РеализацияТоваровУслуг'. Используйте перед поиском, чтобы узнать доступные поля. " +
+        "navigations — цели ссылок: [{name, toType, collection}], напр. поле 'ДоговорКонтрагента_Key' " +
+        "соответствует навигации {name: 'ДоговорКонтрагента', toType: 'Catalog_ДоговорыКонтрагентов'}.",
+
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -211,13 +214,19 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
               `Проверьте имя через list_entities и что он включён в «Состав OData».`,
           );
         }
+        // Усечённые метаданные (тестовый двойник) — без навигаций; в настоящей базе они есть всегда.
+        const navigations = e.navigations ?? [];
         return ok({
           entitySet: e.entitySet,
           class: CLASS_LABEL[e.class],
           keys: e.keys,
           fields: e.properties.map((p) => ({ name: p.name, type: p.type, nullable: p.nullable })),
-          // Усечённые метаданные (тестовый двойник) — без навигаций; в настоящей базе они есть всегда.
-          relations: (e.navigations ?? []).map((n) => n.name),
+          relations: navigations.map((n) => n.name),
+          navigations: navigations.map((n) => ({
+            name: n.name,
+            toType: n.toType,
+            collection: n.collection,
+          })),
         });
       }),
   );

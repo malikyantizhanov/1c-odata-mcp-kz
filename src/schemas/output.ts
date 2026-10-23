@@ -208,6 +208,9 @@ export const describeEntityResultSchema = z
     keys: z.array(z.string()),
     fields: z.array(z.object({ name: z.string(), type: z.string(), nullable: z.boolean() }).passthrough()),
     relations: z.array(z.string()),
+    navigations: z.array(
+      z.object({ name: z.string(), toType: z.string(), collection: z.boolean() }).passthrough(),
+    ),
   })
   .passthrough();
 

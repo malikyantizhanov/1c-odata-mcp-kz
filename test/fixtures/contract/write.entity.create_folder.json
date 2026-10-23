@@ -1,0 +1,44 @@
+{
+  "tool": "write.entity.create_folder",
+  "args": {
+    "entitySet": "Catalog_Контрагенты",
+    "name": "Папка фикстура"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_Контрагенты",
+    "payload": {
+      "Description": "Папка фикстура",
+      "IsFolder": true
+    },
+    "view": {
+      "title": "Контрагенты",
+      "fields": [
+        {
+          "name": "Description",
+          "label": "Description",
+          "value": "Папка фикстура"
+        },
+        {
+          "name": "IsFolder",
+          "label": "Is folder",
+          "value": true
+        }
+      ],
+      "tables": []
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "436d2a85-badd-4226-a52c-9bb130300169"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "8cf2d640-cec5-11f1-9b1a-b142e116622a",
+    "code": "00000000001",
+    "description": "Папка фикстура",
+    "operationId": "436d2a85-badd-4226-a52c-9bb130300169"
+  }
+}

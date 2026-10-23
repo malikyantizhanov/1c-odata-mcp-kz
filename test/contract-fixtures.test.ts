@@ -1216,6 +1216,53 @@ const writeCases: WriteCase[] = [
   },
   {
     kind: "write",
+    tool: "write.counterparty.update_counterparty",
+    args: { ref: BUYER, name: "ТОО Фикстура" },
+    build: () => fake1C({ store: baseStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.catalog.update_nomenclature",
+    args: { ref: SERVICE, name: "Услуга фикстура" },
+    build: () => fake1C({ store: baseStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.counterparty.create_contact_person",
+    args: { ownerRef: BUYER, name: "Иванов Иван", position: "Директор" },
+    build: () => {
+      const store = baseStore();
+      store["Catalog_КонтактныеЛица"] = [];
+      return fake1C({ store });
+    },
+  },
+  {
+    kind: "write",
+    tool: "write.document.copy_document",
+    args: { entitySet: INVOICE_SET, ref: INVOICE },
+    build: () => fake1C({ store: richStore(), entities: invoiceEntities }),
+  },
+  {
+    kind: "write",
+    tool: "write.entity.create_folder",
+    args: { entitySet: "Catalog_Контрагенты", name: "Папка фикстура" },
+    build: () => fake1C({ store: baseStore() }),
+  },
+  {
+    kind: "write",
+    tool: "write.entity.move_to_folder",
+    args: { entitySet: "Catalog_Контрагенты", ref: BUYER, folder: "Папка фикстура" },
+    build: () => {
+      const store = baseStore();
+      store["Catalog_Контрагенты"] = [
+        ...(store["Catalog_Контрагенты"] ?? []),
+        { Ref_Key: id(951), Description: "Папка фикстура", IsFolder: true, DeletionMark: false },
+      ];
+      return fake1C({ store });
+    },
+  },
+  {
+    kind: "write",
     tool: "write.purchase.create_services_receipt",
     args: servicesArgs,
     build: () => fake1C({ store: richStore(), entities: servicesEntities }),

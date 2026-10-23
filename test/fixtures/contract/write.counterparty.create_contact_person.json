@@ -1,0 +1,56 @@
+{
+  "tool": "write.counterparty.create_contact_person",
+  "args": {
+    "ownerRef": "00000000-0000-4000-8000-000000000002",
+    "name": "Иванов Иван",
+    "position": "Директор"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_КонтактныеЛица",
+    "payload": {
+      "Description": "Иванов Иван",
+      "Должность": "Директор",
+      "ОбъектВладелец": "00000000-0000-4000-8000-000000000002",
+      "ОбъектВладелец_Type": "StandardODATA.Catalog_Контрагенты"
+    },
+    "view": {
+      "title": "Контактные лица",
+      "fields": [
+        {
+          "name": "Description",
+          "label": "Description",
+          "value": "Иванов Иван"
+        },
+        {
+          "name": "Должность",
+          "label": "Должность",
+          "value": "Директор"
+        },
+        {
+          "name": "ОбъектВладелец",
+          "label": "Объект владелец",
+          "value": "00000000-0000-4000-8000-000000000002"
+        },
+        {
+          "name": "ОбъектВладелец_Type",
+          "label": "Объект владелец",
+          "value": "StandardODATA.Catalog_Контрагенты"
+        }
+      ],
+      "tables": []
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "a5e133dd-9b06-44ca-8880-942bc90ee515"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_КонтактныеЛица",
+    "ref": "8cea4ac0-cec5-11f1-81b6-bf920655d3c3",
+    "description": "Иванов Иван",
+    "operationId": "a5e133dd-9b06-44ca-8880-942bc90ee515"
+  }
+}

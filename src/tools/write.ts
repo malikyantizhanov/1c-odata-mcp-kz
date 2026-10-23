@@ -2143,8 +2143,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         database: databaseField,
         ref: z.string().describe("Ref_Key контрагента"),
         name: z.string().optional().describe("Новое наименование (Description)"),
-        inn: z.string().optional().describe("ИНН"),
-        kpp: z.string().optional().describe("КПП"),
+        inn: z.string().optional().describe("ИНН (Россия) или БИН/ИИН — 12 цифр (Казахстан)"),
+        kpp: z.string().optional().describe("КПП (только Россия)"),
+        kbe: z.string().optional().describe("КБЕ — код бенефициара, две цифры (только Казахстан, напр. 17)"),
         fullName: z.string().optional().describe("Полное наименование"),
         phone: z.string().optional().describe("Телефон (контактная информация)"),
         email: z.string().optional().describe("Email (контактная информация)"),
@@ -2154,16 +2155,40 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
       },
       outputSchema: patchResultSchema,
     },
-    ({ database, ref, name, inn, kpp, fullName, phone, email, address, ogrn, confirm }) =>
+    ({ database, ref, name, inn, kpp, kbe, fullName, phone, email, address, ogrn, confirm }) =>
       guard("write.counterparty.update_counterparty", async () => {
         const conn = ctx.db(database);
         const set = await resolveSet(conn, CATALOGS.counterparties, "Справочник «Контрагенты»");
-        const fields: Record<string, unknown> = clean({
-          Description: name,
-          ИНН: inn,
-          КПП: kpp,
-          НаименованиеПолное: fullName,
-        });
+        const fields: Record<string, unknown> = {};
+        if (await isKazakhstan(conn)) {
+          // Как у создания (kzCounterpartyPayload): БИН/ИИН — в ИдентификационныйКодЛичности,
+          // КПП и ОГРН в базе РК не пишутся.
+          if (kpp || ogrn)
+            throw new InputError("В казахстанской базе нет КПП и ОГРН: передайте БИН/ИИН в inn.");
+          const bin = inn?.trim();
+          if (bin && !/^\d{12}$/.test(bin)) throw new InputError("БИН/ИИН — 12 цифр.");
+          if (kbe && !/^\d{2}$/.test(kbe.trim())) throw new InputError("КБЕ — две цифры (напр. 17 или 19).");
+          Object.assign(
+            fields,
+            clean({
+              Description: name,
+              НаименованиеПолное: fullName,
+              ИдентификационныйКодЛичности: bin,
+              КБЕ: kbe?.trim(),
+            }),
+          );
+        } else {
+          if (kbe) throw new InputError("КБЕ есть только в казахстанской базе.");
+          Object.assign(
+            fields,
+            clean({
+              Description: name,
+              ИНН: inn,
+              КПП: kpp,
+              НаименованиеПолное: fullName,
+            }),
+          );
+        }
         const notes: string[] = [];
         // Контакты — со слиянием: заменяем только заданные виды, прочие сохраняем.
         if (phone || email || address) {

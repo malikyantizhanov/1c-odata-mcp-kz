@@ -81,7 +81,9 @@ function checkOrRecord(
   if (RECORD) {
     mkdirSync(DIR, { recursive: true });
     // Временные пути (каталог печати в mkdtemp) от запуска к запуску различаются — маскируем.
-    const body = JSON.stringify({ tool, ...actual }, null, 2).split(tmpdir()).join("<tmp>");
+    const body = JSON.stringify({ tool, ...actual }, null, 2)
+      .split(tmpdir())
+      .join("<tmp>");
     writeFileSync(path, `${body}\n`);
     return;
   }

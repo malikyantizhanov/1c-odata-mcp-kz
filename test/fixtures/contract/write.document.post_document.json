@@ -1,0 +1,28 @@
+{
+  "tool": "write.document.post_document",
+  "args": {
+    "entitySet": "Document_СчетНаОплатуПокупателю",
+    "ref": "00000000-0000-4000-8000-000000000100",
+    "post": true
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willCall": "Document_СчетНаОплатуПокупателю(00000000-0000-4000-8000-000000000100)/Post",
+    "note": "Предпросмотр. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "done": true,
+    "database": "default",
+    "ref": "00000000-0000-4000-8000-000000000100",
+    "action": "Post",
+    "posted": true,
+    "postedBefore": false,
+    "postedAfter": true,
+    "http": {
+      "status": 200,
+      "body": ""
+    },
+    "postingsNote": "Проведено; проводки прочитать не удалось: \"Document_СчетНаОплатуПокупателю\" — не документ (табличная часть или иной объект). Укажите сам документ, напр. Document_РеализацияТоваровУслуг."
+  }
+}

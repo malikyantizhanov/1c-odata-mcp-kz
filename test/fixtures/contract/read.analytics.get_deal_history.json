@@ -1,0 +1,22 @@
+{
+  "tool": "read.analytics.get_deal_history",
+  "args": {
+    "contractRef": "00000000-0000-4000-8000-000000000003"
+  },
+  "result": {
+    "database": "default",
+    "filters": {
+      "contractRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "events": 0,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "items": [],
+    "scan": {
+      "documentsScanned": 0,
+      "windows": 0,
+      "elapsedMs": 0
+    }
+  }
+}

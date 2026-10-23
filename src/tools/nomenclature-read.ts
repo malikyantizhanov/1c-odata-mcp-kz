@@ -43,7 +43,7 @@ export function registerNomenclatureRead(server: McpServer, ctx: ServerContext):
         })
         .passthrough(),
     },
-    ({ database, query, limit, offset }) =>
+    ({ database, query, limit = 20, offset = 0 }) =>
       guard("read.nomenclature.list_nomenclature", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, CATALOGS.nomenclature, "Справочник «Номенклатура»");

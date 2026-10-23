@@ -1,0 +1,35 @@
+{
+  "tool": "read.accounting.get_document_postings",
+  "args": {
+    "documentEntity": "Document_СчетНаОплатуПокупателю",
+    "documentRef": "00000000-0000-4000-8000-000000000100"
+  },
+  "result": {
+    "database": "default",
+    "document": {
+      "entitySet": "Document_СчетНаОплатуПокупателю",
+      "ref": "00000000-0000-4000-8000-000000000100",
+      "number": "00000000007",
+      "date": "2026-10-07T10:00:00",
+      "posted": false,
+      "deletionMark": false,
+      "organization": "Aru Market ИП",
+      "organizationRef": "00000000-0000-4000-8000-000000000001"
+    },
+    "postingsCount": 0,
+    "debitTotal": 0,
+    "creditTotal": 0,
+    "postings": [],
+    "byCorrespondence": [],
+    "note": "У документа нет записей в регистре Хозрасчетный.",
+    "source": {
+      "entitySet": "AccountingRegister_Типовой",
+      "filter": "Recorder eq cast(guid'00000000-0000-4000-8000-000000000100', 'Document_СчетНаОплатуПокупателю')"
+    },
+    "scan": {
+      "rowsScanned": 0,
+      "windows": 1,
+      "elapsedMs": 1
+    }
+  }
+}

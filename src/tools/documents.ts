@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { ok, guard, withTruncationNote, databaseField, organizationField } from "./_shared.js";
 import { fetchAll } from "../odata/pagination.js";
-import { and, cmp, odataGuid, buildQuery } from "../odata/query.js";
+import { and, cmp, contains, odataGuid, buildQuery } from "../odata/query.js";
+import { sameDocNumber } from "./print.js";
 import { DOC_FIELDS } from "../config/mapping.js";
 import { resolveOrganization } from "../odata/orgs.js";
 import { ensurePublished } from "../odata/publication.js";
@@ -31,9 +32,11 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
     {
       title: "Поиск документов",
       description:
-        "Ищет документы заданного типа по периоду, контрагенту, организации, статусу проведения и сумме. " +
+        "Ищет документы заданного типа по периоду, номеру, контрагенту, организации, статусу проведения и сумме. " +
         "Тип документа — техническое имя из list_entities, напр. 'Document_РеализацияТоваровУслуг'. " +
-        "Сначала уточните имя через list_entities (class=document), а поля — через describe_entity.",
+        "Сначала уточните имя через list_entities (class=document), а поля — через describe_entity. " +
+        "number — точное совпадение номера с учётом префиксов и ведущих нулей («3», «00000000003» или номер с префиксом — " +
+        "как в 1С); query — подстрока номера (естественный для OData 1С substringof по полю Number).",
       inputSchema: {
         database: databaseField,
         organization: organizationField,
@@ -44,6 +47,12 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           ),
         from: z.string().optional().describe("Дата начала (YYYY-MM-DD)"),
         to: z.string().optional().describe("Дата конца (YYYY-MM-DD)"),
+        number: z
+          .string()
+          .max(50)
+          .optional()
+          .describe("Точный номер документа как в 1С: «3», «00000000003» или с префиксом"),
+        query: z.string().max(50).optional().describe("Подстрока номера документа"),
         counterpartyRef: z.string().optional().describe("Ref_Key контрагента для фильтра"),
         postedOnly: z.boolean().default(false).describe("Только проведённые документы"),
         minAmount: z.number().optional().describe("Минимальная сумма документа"),
@@ -51,7 +60,19 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
       },
       outputSchema: searchDocumentsResultSchema,
     },
-    ({ database, organization, entitySet, from, to, counterpartyRef, postedOnly, minAmount, limit }) =>
+    ({
+      database,
+      organization,
+      entitySet,
+      from,
+      to,
+      number,
+      query,
+      counterpartyRef,
+      postedOnly,
+      minAmount,
+      limit = 50,
+    }) =>
       guard("read.document.search_documents", async () => {
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
@@ -77,17 +98,32 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           }
         }
 
+        // Номер: query — подстрока (естественный для OData substringof по Number); number — точное совпадение
+        // с учётом префиксов и ведущих нулей (как sameDocNumber): сервер даёт кандидатов, точный отбор — на коннекторе.
+        const numberWanted = number?.trim();
+        const queryText = query?.trim();
+        // Точный номер: цифры без ведущих нулей («00000000003» → «3») — сервер даёт кандидатов по подстроке;
+        // подстрока query — как ввели.
+        const needle =
+          numberWanted != null && numberWanted !== ""
+            ? /^\d+$/.test(numberWanted)
+              ? String(Number(numberWanted))
+              : numberWanted
+            : queryText;
+        const numberServer = needle ? contains(DOC_FIELDS.number, needle) : undefined;
         const filter = and(
           from ? cmp(DOC_FIELDS.date, "ge", `datetime'${from}T00:00:00'`) : undefined,
           to ? cmp(DOC_FIELDS.date, "le", `datetime'${to}T23:59:59'`) : undefined,
           orgKey ? cmp(DOC_FIELDS.organization, "eq", odataGuid(orgKey)) : undefined,
           cpServer,
+          numberServer,
           postedOnly ? cmp(DOC_FIELDS.posted, "eq", "true") : undefined,
           typeof minAmount === "number" ? cmp(DOC_FIELDS.amount, "ge", String(minAmount)) : undefined,
         );
 
         // При клиентской фильтрации тянем больше строк (до maxRows), затем режем до limit.
-        const fetchMax = cpClientRef ? conn.behavior.maxRows : limit;
+        const clientFiltered = cpClientRef || numberWanted;
+        const fetchMax = clientFiltered ? conn.behavior.maxRows : limit;
         const { rows, truncated } = await fetchAll(
           conn.client,
           entitySet,
@@ -95,7 +131,7 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           conn.behavior.pageSize,
           fetchMax,
         );
-        const matched = cpClientRef
+        const byCp = cpClientRef
           ? rows.filter(
               (r) =>
                 String(r["Контрагент"] ?? "")
@@ -104,6 +140,10 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
                   .toLowerCase() === cpClientRef,
             )
           : rows;
+        const matched =
+          numberWanted != null && numberWanted !== ""
+            ? byCp.filter((r) => sameDocNumber(String(r[DOC_FIELDS.number] ?? ""), numberWanted))
+            : byCp;
         const items = matched.slice(0, limit).map((r) => toSummary(r, entitySet));
         const wasTruncated = truncated || matched.length > limit;
         const result = withTruncationNote(items, wasTruncated, limit);

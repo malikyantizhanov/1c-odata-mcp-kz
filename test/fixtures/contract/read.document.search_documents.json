@@ -1,0 +1,22 @@
+{
+  "tool": "read.document.search_documents",
+  "args": {
+    "entitySet": "Document_СчетНаОплатуПокупателю"
+  },
+  "result": {
+    "rows": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000100",
+        "type": "Document_СчетНаОплатуПокупателю",
+        "entitySet": "Document_СчетНаОплатуПокупателю",
+        "number": "00000000007",
+        "date": "2026-10-07T10:00:00",
+        "posted": false,
+        "deletionMark": false,
+        "amount": 100
+      }
+    ],
+    "count": 1,
+    "truncated": false
+  }
+}

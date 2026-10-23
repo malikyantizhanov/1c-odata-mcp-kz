@@ -984,6 +984,7 @@ async function finish(
     `${plan.invoiceSet}(guid'${invoiceRef}')${buildQuery({ select: ["Ref_Key", "Number", "Date", "Posted", "СуммаДокумента", "DeletionMark"] })}`,
   );
   let pdf: Record<string, unknown> | undefined;
+  let pdfResource: { name: string; pdf: Buffer } | undefined;
   if (conn.behavior.printOnCreate !== false)
     try {
       const printed = await printInvoice(conn, invoiceRef, target);
@@ -993,12 +994,13 @@ async function finish(
         size: printed.pdf.length,
         ...(printed.saveError ? { saveError: printed.saveError } : {}),
       };
+      pdfResource = { name: printed.name, pdf: printed.pdf };
     } catch (e) {
       pdf = {
         error: `PDF не построен: ${(e as Error).message}. Счёт создан — повторите read.document.print_invoice.`,
       };
     }
-  return ok({
+  const result = ok({
     ...base,
     invoice: {
       ref: str(doc["Ref_Key"]) || invoiceRef,
@@ -1011,6 +1013,16 @@ async function finish(
     ...(pdf ? { pdf } : {}),
     ...(notes.length ? { notes } : {}),
   });
+  if (pdfResource)
+    result.content.push({
+      type: "resource",
+      resource: {
+        uri: `onec-print:///${encodeURIComponent(pdfResource.name)}`,
+        mimeType: "application/pdf",
+        blob: pdfResource.pdf.toString("base64"),
+      },
+    });
+  return result;
 }
 
 export async function quickInvoice(conn: Connection, input: QuickInput): Promise<CallToolResult> {
@@ -1197,8 +1209,9 @@ export function registerQuickInvoiceTool(server: McpServer, ctx: ServerContext):
         "счета того же покупателя за тот же день на ту же сумму (проведённые и нет; помеченные на удаление не считаются) " +
         "— в possibleDuplicates (номер, дата, ref, сумма, posted, linesMatch). Не пуст — ОБЯЗАТЕЛЬНО покажите его " +
         "пользователю до подтверждения: «используй №N» (PDF — read.document.print_invoice) или «создай ещё». confirm=true с тем же operationId " +
-        "и теми же аргументами — создаёт недостающее и счёт БЕЗ проведения, перечитывает его из базы и сразу сохраняет PDF " +
-        "(путь — pdf.path); дубли перепроверяются и возвращаются в possibleDuplicates, но не блокируют. Повтор после сбоя с тем же operationId не создаёт дубликатов. Показывайте план пользователю " +
+        "и теми же аргументами — создаёт недостающее и счёт БЕЗ проведения, перечитывает его из базы и сразу печатает PDF: " +
+        "PDF идёт ресурсом MCP в ответе записи, при записи на диск — путь в pdf.path (в общем режиме printToDisk=false — только " +
+        "ресурсом, поля path нет); дубли перепроверяются и возвращаются в possibleDuplicates, но не блокируют. Повтор после сбоя с тем же operationId не создаёт дубликатов. Показывайте план пользователю " +
         "и подтверждайте только с его согласия.",
       inputSchema: quickInvoiceInput,
       outputSchema: z

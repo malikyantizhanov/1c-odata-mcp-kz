@@ -1,0 +1,51 @@
+{
+  "tool": "write.document.update_document",
+  "args": {
+    "entitySet": "Document_СчетНаОплатуПокупателю",
+    "ref": "00000000-0000-4000-8000-000000000100",
+    "fields": {
+      "Комментарий": "фикстура"
+    }
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Document_СчетНаОплатуПокупателю(00000000-0000-4000-8000-000000000100)",
+    "fields": {
+      "Комментарий": "фикстура"
+    },
+    "view": {
+      "title": "Счет на оплату покупателю",
+      "fields": [
+        {
+          "name": "Комментарий",
+          "label": "Комментарий",
+          "value": "фикстура"
+        }
+      ],
+      "tables": [],
+      "changes": [
+        {
+          "name": "Комментарий",
+          "label": "Комментарий",
+          "from": {
+            "value": null
+          },
+          "to": {
+            "value": "фикстура"
+          }
+        }
+      ]
+    },
+    "notes": [
+      "operationId для update_document не нужен: изменение идемпотентно — повтор с confirm=true запишет те же поля."
+    ],
+    "note": "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "entitySet": "Document_СчетНаОплатуПокупателю",
+    "ref": "00000000-0000-4000-8000-000000000100"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "tool": "read.analytics.get_debtors",
+  "args": {},
+  "result": {
+    "database": "default",
+    "accounts": [],
+    "totalReceivable": 0,
+    "count": 0,
+    "debtors": [],
+    "scan": {
+      "rowsScanned": 0,
+      "elapsedMs": 0
+    }
+  }
+}

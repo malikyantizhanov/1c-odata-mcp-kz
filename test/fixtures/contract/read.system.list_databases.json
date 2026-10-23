@@ -1,0 +1,13 @@
+{
+  "tool": "read.system.list_databases",
+  "args": {},
+  "result": {
+    "default": "default",
+    "databases": [
+      {
+        "name": "default",
+        "isDefault": true
+      }
+    ]
+  }
+}

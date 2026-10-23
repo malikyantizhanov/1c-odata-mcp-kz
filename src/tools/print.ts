@@ -298,6 +298,8 @@ export async function printTarget(
   conn: Connection,
   outputDir: string | undefined,
 ): Promise<{ dir?: string | undefined; saveError?: string | undefined }> {
+  // Общий режим (printToDisk=false): PDF отдаётся только ресурсом MCP — каталоги не создаём, ничего не пишем.
+  if (conn.behavior.printToDisk === false) return {};
   const root = conn.behavior.printDir ?? DEFAULT_PRINT_DIR;
   try {
     return { dir: await resolvePrintDir(root, outputDir) };
@@ -347,8 +349,9 @@ export function registerPrintTools(server: McpServer, ctx: ServerContext): void 
         "PDF счёта на оплату покупателю (Казахстан) по макету печатной формы 1С «Счет на оплату»: условия, образец " +
         "платёжного поручения (бенефициар, ИИК, Кбе, банк, БИК), поставщик, покупатель, договор, позиции, итоги с НДС, " +
         "сумма прописью, подпись. Счёт — по ref или по номеру (number; при повторе номера в разные годы — date или year). " +
-        "Сохраняет PDF на диск и возвращает абсолютный путь (path) — существующий файл " +
-        "не перезаписывается, новый получает суффикс « (2)»; тот же PDF приходит и ресурсом MCP. Форма собирается по данным " +
+        "Сохраняет PDF на диск и возвращает путь (path) — существующий файл " +
+        "не перезаписывается, новый получает суффикс « (2)»; тот же PDF приходит и ресурсом MCP. При printToDisk=false " +
+        "(общий HTTP-режим) на диск не пишет — PDF идёт только ресурсом MCP, поля path в ответе нет. Форма собирается по данным " +
         "документа: печать 1С через OData не вызвать, поэтому собственные настройки печати базы (свой текст условий, " +
         "факсимиле, логотип) в PDF не попадают.",
       inputSchema: {

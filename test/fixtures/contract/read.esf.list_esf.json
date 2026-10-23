@@ -1,0 +1,21 @@
+{
+  "tool": "read.esf.list_esf",
+  "args": {},
+  "result": {
+    "database": "default",
+    "count": 1,
+    "truncated": false,
+    "esf": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000230",
+        "number": "00000005029",
+        "date": "2026-10-13",
+        "direction": "Входящий",
+        "status": "Доставленный",
+        "state": "ПринятОтПоставщика",
+        "counterparty": "ТОО \"TRADESPACE\"",
+        "amount": 0
+      }
+    ]
+  }
+}

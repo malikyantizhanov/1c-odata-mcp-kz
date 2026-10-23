@@ -1,0 +1,75 @@
+{
+  "tool": "write.counterparty.quick_reconciliation",
+  "args": {
+    "counterparty": "240440007327",
+    "contract": "б/н",
+    "from": "2026-10-01",
+    "to": "2026-10-09"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "ready": true,
+    "database": "default",
+    "operationId": "ef94c05b-0149-408c-b3c5-f6fd77b0b0a2",
+    "organization": {
+      "ref": "00000000-0000-4000-8000-000000000001",
+      "name": "Aru Market ИП"
+    },
+    "counterparty": {
+      "ref": "00000000-0000-4000-8000-000000000002",
+      "name": "ТОО \"TRADESPACE\"",
+      "bin": "240440007327"
+    },
+    "contract": {
+      "ref": "00000000-0000-4000-8000-000000000003",
+      "name": "Договор б/н"
+    },
+    "period": {
+      "from": "2026-10-01",
+      "to": "2026-10-09"
+    },
+    "opening": 250,
+    "rows": [
+      {
+        "date": "2026-10-05",
+        "document": "Реализация ТМЗ и услуг 19 от 05.10.2026",
+        "debit": 1000,
+        "credit": 0
+      },
+      {
+        "date": "2026-10-07",
+        "document": "Платежное поручение входящее 7 от 07.10.2026",
+        "debit": 0,
+        "credit": 400
+      }
+    ],
+    "turnovers": {
+      "debit": 1000,
+      "credit": 400
+    },
+    "closing": 850,
+    "debt": "на 09.10.2026 задолженность  в пользу ИП Aru Market  850,00  KZT (Восемьсот пятьдесят теңге 00 тиын)",
+    "possibleDuplicates": [],
+    "willCreate": "Акт сверки (без проведения) + PDF",
+    "note": "План. Ничего не создано. Покажите цифры пользователю; чтобы создать акт и PDF — повторите с теми же аргументами, confirm=true и этим operationId."
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "operationId": "ef94c05b-0149-408c-b3c5-f6fd77b0b0a2",
+    "act": {
+      "ref": "b2904230-cebf-11f1-8eba-a17bc200525b",
+      "number": "1",
+      "closing": 850,
+      "posted": false
+    },
+    "pdf": {
+      "path": "/private<tmp>/1c-quick-test-27YhfQ/акты сверки/Акт сверки № 1 от 23.10.2026.pdf",
+      "fileName": "Акт сверки № 1 от 23.10.2026.pdf",
+      "size": 16251
+    },
+    "notes": [
+      "Акт создан без проведения; проведение не меняет учёт."
+    ]
+  }
+}

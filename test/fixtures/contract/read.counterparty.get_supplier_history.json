@@ -1,0 +1,23 @@
+{
+  "tool": "read.counterparty.get_supplier_history",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000002"
+  },
+  "result": {
+    "counterparty": "00000000-0000-4000-8000-000000000002",
+    "period": {},
+    "rows": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000233",
+        "type": "Document_ПоступлениеТоваровУслуг",
+        "entitySet": "Document_ПоступлениеТоваровУслуг",
+        "number": "00000000012",
+        "date": "2026-10-12T00:00:00",
+        "posted": true,
+        "amount": 500000
+      }
+    ],
+    "count": 1,
+    "truncated": false
+  }
+}

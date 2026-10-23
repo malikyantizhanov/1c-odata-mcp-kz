@@ -216,7 +216,8 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
           class: CLASS_LABEL[e.class],
           keys: e.keys,
           fields: e.properties.map((p) => ({ name: p.name, type: p.type, nullable: p.nullable })),
-          relations: e.navigations.map((n) => n.name),
+          // Усечённые метаданные (тестовый двойник) — без навигаций; в настоящей базе они есть всегда.
+          relations: (e.navigations ?? []).map((n) => n.name),
         });
       }),
   );

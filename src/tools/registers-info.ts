@@ -332,7 +332,7 @@ export function registerInformationRegisterTools(server: McpServer, ctx: ServerC
         })
         .passthrough(),
     },
-    ({ database, register, mode, date, from, to, filters, limit }) =>
+    ({ database, register, mode, date, from, to, filters, limit = 200 }) =>
       guard("read.register.get_information_register", async () => {
         const conn = ctx.db(database);
         return ok(await readInformationRegister(conn, register, { mode, date, from, to, filters, limit }));

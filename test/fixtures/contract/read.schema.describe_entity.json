@@ -1,0 +1,31 @@
+{
+  "tool": "read.schema.describe_entity",
+  "args": {
+    "entitySet": "Catalog_Контрагенты"
+  },
+  "result": {
+    "entitySet": "Catalog_Контрагенты",
+    "class": "Справочники",
+    "fields": [
+      {
+        "name": "Ref_Key"
+      },
+      {
+        "name": "Description"
+      },
+      {
+        "name": "НаименованиеПолное"
+      },
+      {
+        "name": "ИдентификационныйКодЛичности"
+      },
+      {
+        "name": "ОсновнойДоговорКонтрагента_Key"
+      },
+      {
+        "name": "DeletionMark"
+      }
+    ],
+    "relations": []
+  }
+}

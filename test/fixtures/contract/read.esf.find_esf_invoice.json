@@ -1,0 +1,16 @@
+{
+  "tool": "read.esf.find_esf_invoice",
+  "args": {},
+  "result": {
+    "database": "default",
+    "summary": {
+      "unique": 0,
+      "ambiguous": 0,
+      "none": 0,
+      "noCounterparty": 0,
+      "notNeeded": 0
+    },
+    "count": 0,
+    "items": []
+  }
+}

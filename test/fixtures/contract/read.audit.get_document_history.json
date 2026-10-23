@@ -1,0 +1,61 @@
+{
+  "tool": "read.audit.get_document_history",
+  "args": {
+    "documentEntity": "Document_СчетНаОплатуПокупателю",
+    "documentRef": "00000000-0000-4000-8000-000000000100"
+  },
+  "result": {
+    "database": "default",
+    "document": {
+      "entitySet": "Document_СчетНаОплатуПокупателю",
+      "ref": "00000000-0000-4000-8000-000000000100",
+      "number": "00000000007",
+      "posted": false,
+      "deletionMark": false,
+      "organization": "Aru Market ИП",
+      "organizationRef": "00000000-0000-4000-8000-000000000001"
+    },
+    "timestamps": {
+      "documentDate": "2026-10-07T10:00:00"
+    },
+    "accountingMovements": {
+      "source": "AccountingRegister_Типовой",
+      "filter": "Recorder eq cast(guid'00000000-0000-4000-8000-000000000100', 'Document_СчетНаОплатуПокупателю')",
+      "status": "none",
+      "exists": false
+    },
+    "evidence": [
+      {
+        "sourceEntity": "Document_СчетНаОплатуПокупателю",
+        "sourceRef": "00000000-0000-4000-8000-000000000100",
+        "sourceField": "Date",
+        "timestamp": "2026-10-07T10:00:00",
+        "description": "Document.Date — учётная дата документа; не время создания и не время выполнения."
+      },
+      {
+        "sourceEntity": "Document_СчетНаОплатуПокупателю",
+        "sourceRef": "00000000-0000-4000-8000-000000000100",
+        "sourceField": "Ref_Key",
+        "description": "Ref_Key — UUID версии 4, а не версии 1: метки времени в нём нет.",
+        "details": {
+          "uuidVersion": 4,
+          "uuidVariant": "RFC4122"
+        }
+      }
+    ],
+    "limitations": [
+      "Фактическое время выполнения/проведения (executedAt) через стандартный OData недоступно: журнал регистрации не публикуется.",
+      "Время последнего изменения (modifiedAt) недоступно: версии объектов через OData не получены.",
+      "Кто фактически выполнил или изменил документ — недоступно; responsible — это только реквизит «Ответственный» документа.",
+      "Period записей регистра бухгалтерии — учётное время (обычно конец периода), а не время физической записи; для хронологии не используется.",
+      "DataVersion — непрозрачное значение версии объекта; хронологически не интерпретируется.",
+      "documentDate — учётная дата документа (Document.Date); она не является временем создания или выполнения.",
+      "refCreatedAt не возвращается: Ref_Key — UUID версии 4, а не версии 1: метки времени в нём нет.",
+      "У вида документа Document_СчетНаОплатуПокупателю нет реквизита Ответственный_Key — responsible не возвращается."
+    ],
+    "scan": {
+      "rowsScanned": 0,
+      "elapsedMs": 0
+    }
+  }
+}

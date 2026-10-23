@@ -1,0 +1,17 @@
+{
+  "tool": "read.analytics.get_inventory",
+  "args": {},
+  "result": {
+    "database": "default",
+    "accounts": [
+      "1330 Счёт 1330"
+    ],
+    "totalAmount": 0,
+    "count": 0,
+    "items": [],
+    "scan": {
+      "rowsScanned": 0,
+      "elapsedMs": 0
+    }
+  }
+}

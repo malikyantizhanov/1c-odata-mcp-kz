@@ -1,0 +1,30 @@
+{
+  "tool": "read.analytics.get_sales_breakdown",
+  "args": {
+    "from": "2026-10-01",
+    "to": "2026-10-31"
+  },
+  "result": {
+    "database": "default",
+    "period": {
+      "from": "2026-10-01",
+      "to": "2026-10-31"
+    },
+    "filters": {},
+    "entitySet": "Document_РеализацияТоваровУслуг",
+    "documents": 1,
+    "total": 116000,
+    "groups": [
+      {
+        "label": "ИТОГО",
+        "count": 1,
+        "sum": 116000
+      }
+    ],
+    "scan": {
+      "documentsScanned": 1,
+      "windows": 1,
+      "elapsedMs": 0
+    }
+  }
+}

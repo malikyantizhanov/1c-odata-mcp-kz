@@ -1,0 +1,14 @@
+{
+  "tool": "read.system.list_organizations",
+  "args": {},
+  "result": {
+    "count": 1,
+    "organizations": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000001",
+        "name": "Aru Market ИП",
+        "inn": "123123123123"
+      }
+    ]
+  }
+}

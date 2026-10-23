@@ -1,0 +1,64 @@
+{
+  "tool": "write.counterparty.create_counterparty",
+  "args": {
+    "name": "ТОО Фикстура",
+    "inn": "990140000001",
+    "legalType": "ЮридическоеЛицо",
+    "kbe": "17"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_Контрагенты",
+    "payload": {
+      "Description": "ТОО Фикстура",
+      "НаименованиеПолное": "ТОО Фикстура",
+      "ИдентификационныйКодЛичности": "990140000001",
+      "ЮрФизЛицо": "ЮрЛицо",
+      "КБЕ": "17"
+    },
+    "view": {
+      "title": "Контрагенты",
+      "fields": [
+        {
+          "name": "Description",
+          "label": "Description",
+          "value": "ТОО Фикстура"
+        },
+        {
+          "name": "НаименованиеПолное",
+          "label": "Наименование полное",
+          "value": "ТОО Фикстура"
+        },
+        {
+          "name": "ИдентификационныйКодЛичности",
+          "label": "Идентификационный код личности",
+          "value": "990140000001"
+        },
+        {
+          "name": "ЮрФизЛицо",
+          "label": "Юр физ лицо",
+          "value": "ЮрЛицо"
+        },
+        {
+          "name": "КБЕ",
+          "label": "КБЕ",
+          "value": "17"
+        }
+      ],
+      "tables": []
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "6cc81e51-5213-4ebd-abfc-d42c11e1642a"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "b2649e50-cebf-11f1-9623-2b29e6f02f09",
+    "code": "00000000001",
+    "description": "ТОО Фикстура",
+    "operationId": "6cc81e51-5213-4ebd-abfc-d42c11e1642a"
+  }
+}

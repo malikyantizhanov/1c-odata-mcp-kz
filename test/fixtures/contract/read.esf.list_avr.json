@@ -1,0 +1,28 @@
+{
+  "tool": "read.esf.list_avr",
+  "args": {},
+  "result": {
+    "database": "default",
+    "count": 1,
+    "truncated": false,
+    "avr": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000232",
+        "number": "00000000898",
+        "registrationNumber": "AVR-1",
+        "date": "2026-10-14",
+        "workDate": "2026-10-12",
+        "direction": "Входящий",
+        "status": "Подтвержденный",
+        "state": "ПодтвержденПолучателем",
+        "counterpartyRef": "00000000-0000-4000-8000-000000000002",
+        "counterparty": "ТОО \"TRADESPACE\"",
+        "withoutContract": true,
+        "amountWithVat": 500000,
+        "amountWithoutVat": 446428.57,
+        "vat": 0,
+        "hasBasis": false
+      }
+    ]
+  }
+}

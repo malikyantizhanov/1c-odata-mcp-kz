@@ -1,0 +1,26 @@
+{
+  "tool": "write.entity.update_entity",
+  "args": {
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "00000000-0000-4000-8000-000000000002",
+    "fields": {
+      "Description": "ТОО Фикстура"
+    }
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Catalog_Контрагенты(00000000-0000-4000-8000-000000000002)",
+    "fields": {
+      "Description": "ТОО Фикстура"
+    },
+    "note": "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "entitySet": "Catalog_Контрагенты",
+    "ref": "00000000-0000-4000-8000-000000000002",
+    "description": "ТОО Фикстура"
+  }
+}

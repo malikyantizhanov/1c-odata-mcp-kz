@@ -335,7 +335,7 @@ export function registerCashflowTools(server: McpServer, ctx: ServerContext): vo
       },
       outputSchema: dealHistoryResultSchema,
     },
-    ({ database, organization, dealKey, contractRef, from, to, limit }) =>
+    ({ database, organization, dealKey, contractRef, from, to, limit = 200 }) =>
       guard("read.analytics.get_deal_history", async () => {
         const t0 = Date.now();
         if (!dealKey && !contractRef) return fail("Укажите dealKey или contractRef.");

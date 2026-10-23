@@ -1,0 +1,45 @@
+{
+  "tool": "write.warehouse.update_kitting",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000411",
+    "quantity": 7
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Document_КомплектацияНоменклатуры(00000000-0000-4000-8000-000000000411)",
+    "fields": {
+      "Количество": 7
+    },
+    "view": {
+      "title": "Комплектация номенклатуры",
+      "fields": [
+        {
+          "name": "Количество",
+          "label": "Количество",
+          "value": 7
+        }
+      ],
+      "tables": [],
+      "changes": [
+        {
+          "name": "Количество",
+          "label": "Количество",
+          "from": {
+            "value": null
+          },
+          "to": {
+            "value": 7
+          }
+        }
+      ]
+    },
+    "note": "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "entitySet": "Document_КомплектацияНоменклатуры",
+    "ref": "00000000-0000-4000-8000-000000000411"
+  }
+}

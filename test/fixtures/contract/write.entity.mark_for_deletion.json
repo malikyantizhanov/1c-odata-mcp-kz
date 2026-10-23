@@ -1,0 +1,19 @@
+{
+  "tool": "write.entity.mark_for_deletion",
+  "args": {
+    "entitySet": "Catalog_Номенклатура",
+    "ref": "00000000-0000-4000-8000-000000000004"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "willPatch": "Catalog_Номенклатура(00000000-0000-4000-8000-000000000004)",
+    "payload": {},
+    "note": "Предпросмотр. Чтобы применить пометку, повторите с confirm=true."
+  },
+  "confirm": {
+    "updated": true,
+    "database": "default",
+    "ref": "00000000-0000-4000-8000-000000000004"
+  }
+}

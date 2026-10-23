@@ -1,0 +1,88 @@
+{
+  "tool": "read.payroll.check_month",
+  "args": {
+    "period": "2026-09"
+  },
+  "result": {
+    "database": "default",
+    "organization": "Aru Market ИП",
+    "period": "09.2026",
+    "status": "ok",
+    "issues": [],
+    "documents": [
+      {
+        "entitySet": "Document_НачислениеЗарплатыРаботникамОрганизаций",
+        "title": "Начисление зарплаты",
+        "documents": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000611",
+            "number": "00000000011",
+            "date": "2026-09-30",
+            "posted": true,
+            "deletionMark": false,
+            "sums": {
+              "Начисления.Результат": 600000
+            }
+          }
+        ]
+      },
+      {
+        "entitySet": "Document_РасчетЕдиногоПлатежа",
+        "title": "Расчёт единого платежа",
+        "documents": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000709",
+            "number": "00000000009",
+            "date": "2026-09-30",
+            "posted": true,
+            "deletionMark": false,
+            "sums": {
+              "ИсчисленныйЕП.СуммаПлатежа": 148642.2
+            }
+          }
+        ]
+      },
+      {
+        "entitySet": "Document_ЗарплатаКВыплатеОрганизаций",
+        "title": "Зарплата к выплате (ведомость)",
+        "documents": []
+      },
+      {
+        "entitySet": "Document_ЕППеречислениеВФонды",
+        "title": "Перечисление единого платежа",
+        "documents": []
+      }
+    ],
+    "employees": {
+      "active": 1,
+      "withoutAccrual": 0
+    },
+    "epBase": [],
+    "movements": [],
+    "toPay": {
+      "total": 517118.4,
+      "people": [
+        {
+          "person": "Касымова Диана Сериковна",
+          "ref": "00000000-0000-4000-8000-000000000501",
+          "amount": 517118.4
+        }
+      ]
+    },
+    "toTransfer": [
+      {
+        "fund": "ep",
+        "title": "ЕП",
+        "amount": 148642.2
+      }
+    ],
+    "notPublished": [
+      "Document_РасчетУдержанийРаботниковОрганизаций",
+      "Document_РасчетСНиСО",
+      "Document_ОтражениеЗарплатыВРеглУчете",
+      "Document_ОПВПеречислениеВФонды",
+      "Document_СОПеречислениеВФонды"
+    ],
+    "note": "Суммы считает 1С: «Заполнить»/«Рассчитать» и «Провести» бухгалтер делает в форме документа. Остатки — из регистров 1С на текущий момент. Ведомость — write.payroll.create_payroll_statement, перечисление в фонды — write.payroll.create_fund_transfer; долг перед фондами гасит платёжное поручение исходящее."
+  }
+}

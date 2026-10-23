@@ -1,0 +1,19 @@
+{
+  "tool": "read.document.print_invoice",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000100"
+  },
+  "result": {
+    "database": "default",
+    "ref": "00000000-0000-4000-8000-000000000100",
+    "name": "Счет на оплату покупателю № 7 от 07.10.2026.pdf",
+    "mimeType": "application/pdf",
+    "size": 16106,
+    "number": "7",
+    "date": "2026-10-07",
+    "total": 100,
+    "path": "/private<tmp>/1c-quick-test-u58xW3/Счет на оплату покупателю № 7 от 07.10.2026.pdf",
+    "fileName": "Счет на оплату покупателю № 7 от 07.10.2026.pdf",
+    "directory": "/private<tmp>/1c-quick-test-u58xW3"
+  }
+}

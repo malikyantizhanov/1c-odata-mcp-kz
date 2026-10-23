@@ -242,7 +242,7 @@ export function registerChartTools(server: McpServer, ctx: ServerContext): void 
         })
         .passthrough(),
     },
-    ({ database, codePrefix, search, currencyOnly, quantityOnly, includeDeleted, limit }) =>
+    ({ database, codePrefix, search, currencyOnly, quantityOnly, includeDeleted, limit = 500 }) =>
       guard("read.accounting.get_chart_of_accounts", async () => {
         const conn = ctx.db(database);
         const { chart, rows } = await loadChart(conn);

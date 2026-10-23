@@ -1,0 +1,17 @@
+{
+  "tool": "read.payroll.list_employees",
+  "args": {},
+  "result": {
+    "database": "default",
+    "count": 1,
+    "truncated": false,
+    "employees": [
+      {
+        "name": "Касымова Д.С",
+        "ref": "00000000-0000-4000-8000-000000000511",
+        "personRef": "00000000-0000-4000-8000-000000000501",
+        "hired": "2026-01-01"
+      }
+    ]
+  }
+}

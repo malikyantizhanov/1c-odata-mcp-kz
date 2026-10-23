@@ -59,7 +59,7 @@ export function registerPayrollTools(server: McpServer, ctx: ServerContext): voi
         })
         .passthrough(),
     },
-    ({ database, organization, query, includeDismissed }) =>
+    ({ database, organization, query = "", includeDismissed = false }) =>
       guard("read.payroll.list_employees", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, EMPLOYEES, "Справочник «Сотрудники организаций»");

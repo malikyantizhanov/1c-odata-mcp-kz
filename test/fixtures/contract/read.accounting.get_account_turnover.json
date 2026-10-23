@@ -1,0 +1,32 @@
+{
+  "tool": "read.accounting.get_account_turnover",
+  "args": {
+    "account": "1030",
+    "from": "2026-10-01",
+    "to": "2026-10-31"
+  },
+  "result": {
+    "database": "default",
+    "account": "1030",
+    "period": {
+      "from": "2026-10-01",
+      "to": "2026-10-31"
+    },
+    "openingDebit": 0,
+    "openingCredit": 0,
+    "debitTurnover": 0,
+    "creditTurnover": 0,
+    "closingDebit": 0,
+    "closingCredit": 0,
+    "consistent": true,
+    "accounts": [],
+    "openingNet": 0,
+    "closingNet": 0,
+    "note": "За период нет ни остатков, ни движений по счёту.",
+    "scan": {
+      "rowsScanned": 0,
+      "windows": 1,
+      "elapsedMs": 0
+    }
+  }
+}

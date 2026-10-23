@@ -1,0 +1,34 @@
+{
+  "tool": "read.vat.list_offset_notices",
+  "args": {},
+  "result": {
+    "database": "default",
+    "count": 1,
+    "truncated": false,
+    "totals": {
+      "turnover": 0,
+      "vatOffset": 0,
+      "turnoverNotOffset": 0,
+      "vatNotOffset": 0
+    },
+    "notPosted": 0,
+    "notices": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000500",
+        "number": "00000000001",
+        "date": "2026-01-05",
+        "posted": true,
+        "deletionMark": false,
+        "totals": {
+          "turnover": 0,
+          "vatOffset": 0,
+          "turnoverNotOffset": 0,
+          "vatNotOffset": 0
+        },
+        "lines": 0,
+        "errors": 0,
+        "quarters": []
+      }
+    ]
+  }
+}

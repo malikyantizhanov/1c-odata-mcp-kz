@@ -1,0 +1,16 @@
+{
+  "tool": "read.payroll.get_salary_debts",
+  "args": {},
+  "result": {
+    "database": "default",
+    "totalOwed": 517118.4,
+    "count": 1,
+    "people": [
+      {
+        "person": "Касымова Диана Сериковна",
+        "ref": "00000000-0000-4000-8000-000000000501",
+        "amount": 517118.4
+      }
+    ]
+  }
+}

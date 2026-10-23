@@ -1,0 +1,37 @@
+{
+  "tool": "write.catalog.create_security",
+  "args": {
+    "name": "Облигации Фикстура"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_ЦенныеБумаги",
+    "payload": {
+      "Description": "Облигации Фикстура"
+    },
+    "view": {
+      "title": "Ценные бумаги",
+      "fields": [
+        {
+          "name": "Description",
+          "label": "Description",
+          "value": "Облигации Фикстура"
+        }
+      ],
+      "tables": []
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "e23c47ea-020a-4bd9-95fc-db507a16067c"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_ЦенныеБумаги",
+    "ref": "b2b75230-cebf-11f1-9e2d-311476ee7bbd",
+    "code": "00000000001",
+    "description": "Облигации Фикстура",
+    "operationId": "e23c47ea-020a-4bd9-95fc-db507a16067c"
+  }
+}

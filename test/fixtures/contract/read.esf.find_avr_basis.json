@@ -1,0 +1,48 @@
+{
+  "tool": "read.esf.find_avr_basis",
+  "args": {
+    "avrRef": "00000000-0000-4000-8000-000000000232"
+  },
+  "result": {
+    "database": "default",
+    "summary": {
+      "unique": 1,
+      "ambiguous": 0,
+      "none": 0,
+      "noCounterparty": 0
+    },
+    "count": 1,
+    "items": [
+      {
+        "avrRef": "00000000-0000-4000-8000-000000000232",
+        "number": "00000000898",
+        "date": "2026-10-14",
+        "direction": "Входящий",
+        "basisEntity": "Document_ПоступлениеТоваровУслуг",
+        "amounts": {
+          "withVat": 500000,
+          "withoutVat": 446428.57
+        },
+        "verdict": "unique",
+        "candidates": [
+          {
+            "ref": "00000000-0000-4000-8000-000000000233",
+            "number": "00000000012",
+            "date": "2026-10-12",
+            "posted": true,
+            "amount": 500000,
+            "dateDiffDays": 0,
+            "contractMatches": false,
+            "score": 105,
+            "matchedBy": [
+              "сумма",
+              "контрагент",
+              "организация",
+              "дата ±1 день"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

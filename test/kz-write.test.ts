@@ -111,6 +111,52 @@ describe("контрагент в казахстанской базе", () => {
     expect(() => kzCounterpartyPayload({ name: "X", kpp: "123" })).toThrow(/КПП и ОГРН/);
     expect(() => kzCounterpartyPayload({ name: "X", inn: "12345" })).toThrow(/12 цифр/);
   });
+
+  it("правка пишет БИН/ИИН и КБЕ вместо ИНН", async () => {
+    const res = await preview("write.counterparty.update_counterparty", {
+      ref: BUYER,
+      name: "ТОО Новое",
+      inn: "990140000001",
+      kbe: "17",
+    });
+    expect(res.isError, JSON.stringify(res.content).slice(0, 400)).toBeFalsy();
+    const fields = (res.structuredContent as { fields: Record<string, unknown> }).fields;
+    expect(fields).toMatchObject({
+      Description: "ТОО Новое",
+      ИдентификационныйКодЛичности: "990140000001",
+      КБЕ: "17",
+    });
+    expect(fields).not.toHaveProperty("ИНН");
+    expect(fields).not.toHaveProperty("КПП");
+  });
+
+  it("правка отклоняет КПП и неверный БИН/КБЕ", async () => {
+    for (const args of [
+      { ref: BUYER, kpp: "123" },
+      { ref: BUYER, inn: "12345" },
+      { ref: BUYER, kbe: "7" },
+    ]) {
+      const res = await preview("write.counterparty.update_counterparty", args);
+      expect(res.isError).toBe(true);
+    }
+    const kpp = await preview("write.counterparty.update_counterparty", { ref: BUYER, kpp: "123" });
+    expect(JSON.stringify(kpp.content)).toMatch(/КПП и ОГРН/);
+  });
+
+  it("правка в не-казахстанской базе — без изменений (ИНН/КПП, КБЕ запрещён)", async () => {
+    const res = await preview(
+      "write.counterparty.update_counterparty",
+      { ref: BUYER, name: "ООО Новое", inn: "7701234567", kpp: "770101001" },
+      false,
+    );
+    expect(res.isError, JSON.stringify(res.content).slice(0, 400)).toBeFalsy();
+    const fields = (res.structuredContent as { fields: Record<string, unknown> }).fields;
+    expect(fields).toMatchObject({ Description: "ООО Новое", ИНН: "7701234567", КПП: "770101001" });
+    expect(fields).not.toHaveProperty("ИдентификационныйКодЛичности");
+    const kbe = await preview("write.counterparty.update_counterparty", { ref: BUYER, kbe: "17" }, false);
+    expect(kbe.isError).toBe(true);
+    expect(JSON.stringify(kbe.content)).toMatch(/только в казахстанской базе/);
+  });
 });
 
 describe("договор и номенклатура в казахстанской базе", () => {

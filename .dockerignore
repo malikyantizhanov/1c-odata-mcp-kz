@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.git
+.github
+.env
+.env.*
+*.log
+*.mcpb
+databases.json
+databases.yaml
+databases.yml

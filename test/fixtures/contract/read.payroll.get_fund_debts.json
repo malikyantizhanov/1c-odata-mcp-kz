@@ -1,0 +1,39 @@
+{
+  "tool": "read.payroll.get_fund_debts",
+  "args": {},
+  "result": {
+    "database": "default",
+    "totalOwed": 148642.2,
+    "funds": [
+      {
+        "fund": "ep",
+        "title": "ЕП",
+        "total": 148642.2,
+        "months": [
+          {
+            "month": "09.2026",
+            "amount": 148642.2
+          }
+        ],
+        "people": [
+          {
+            "person": "Касымова Диана Сериковна",
+            "ref": "00000000-0000-4000-8000-000000000501",
+            "month": "09.2026",
+            "amount": 148642.2
+          }
+        ]
+      }
+    ],
+    "notPublished": [
+      "AccumulationRegister_ОПВРасчетыСФондами",
+      "AccumulationRegister_ВОСМСРасчетыСФондами",
+      "AccumulationRegister_СОРасчетыСФондами",
+      "AccumulationRegister_ООСМСРасчетыСФондами",
+      "AccumulationRegister_ОПВРРасчетыСФондами",
+      "AccumulationRegister_ОППВРасчетыСФондами",
+      "AccumulationRegister_ИПНРасчетыСБюджетом"
+    ],
+    "note": "Остатки посчитала 1С проведением расчётов (удержания, СН/СО, ЕП). Долг гасит платёжное поручение исходящее; документ «Перечисление в фонды» в опубликованных регистрах долг не уменьшает (проверено для ЕП). Пени и штрафы (ВидПлатежа не «Налог») — в other, в totalOwed не входят."
+  }
+}

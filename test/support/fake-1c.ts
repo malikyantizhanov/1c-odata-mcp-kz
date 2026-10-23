@@ -1,5 +1,5 @@
 import { afterAll, vi } from "vitest";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -161,6 +161,9 @@ export function matches(row: Row, filter: string | undefined): boolean {
   const ands = split(f, " and ");
   if (ands) return ands.every((p) => matches(row, p));
   if (f.startsWith("(") && f.endsWith(")")) return matches(row, f.slice(1, -1));
+  // startswith(Поле, 'префикс') — отбор счетов по первым цифрам кода, как в 1С.
+  const sw = /^startswith\((\S+),\s*'((?:[^']|'')*)'\)$/.exec(f);
+  if (sw) return String(row[sw[1]!] ?? "").startsWith(sw[2]!.replace(/''/g, "'"));
   const sub = /^substringof\('((?:[^']|'')*)',\s*(\S+)\)$/.exec(f);
   if (sub)
     return String(row[sub[2]!] ?? "")
@@ -193,6 +196,8 @@ export function matches(row: Row, filter: string | undefined): boolean {
 }
 
 export type FakeEntityMeta = {
+  entitySet?: string | undefined;
+  class?: string | undefined;
   properties: Array<{ name: string; type?: string }>;
   navigations?: Array<{ name: string; toType: string; collection: boolean }>;
 };
@@ -204,10 +209,18 @@ export function fake1C(
     store?: Store;
     /** Явные метаданные объектов (типы полей, табличные части, связи) поверх выведенных из store. */
     entities?: Record<string, FakeEntityMeta>;
+    /**
+     * Файл метаданных в формате дискового кеша (src/odata/metadata-cache.ts): сущности, свойства и навигации
+     * берутся из него, поверх — выведенные из store наборы (которых нет в файле) и явные entities. В репозиторий
+     * файл не копируем — путь приходит из переменной окружения (ONEC_METADATA_FILE).
+     */
+    metadataFile?: string | undefined;
     /** PUT набора записей: 1С «молча» не сохраняет субконто (ExtDimension…) — для проверки отката. */
     dropSubcontoOnPut?: boolean;
     /** false — общий HTTP-режим: при создании PDF не печатается. */
     printOnCreate?: boolean;
+    /** false — общий HTTP-режим: на диск не пишем, PDF/файлы идут только ресурсом. */
+    printToDisk?: boolean | undefined;
   } = {},
 ) {
   const store = opts.store ?? baseStore();
@@ -222,6 +235,7 @@ export function fake1C(
     printDir: tmp(),
     writeOperationMarker: false,
     ...(opts.printOnCreate === false ? { printOnCreate: false } : {}),
+    ...(opts.printToDisk === false ? { printToDisk: false } : {}),
   };
   const conn = new Connection(
     {
@@ -233,15 +247,85 @@ export function fake1C(
     },
     behavior,
   );
+  // Класс объекта выводим из префикса имени — как в настоящей базе (нужен проверкам isDocument и карте объектов).
+  const docClass = (set: string): string => {
+    if (set.startsWith("Document_")) return "document";
+    if (set.startsWith("Catalog_")) return "catalog";
+    if (set.startsWith("InformationRegister_")) return "informationRegister";
+    if (set.startsWith("AccumulationRegister_")) return "accumulationRegister";
+    if (set.startsWith("AccountingRegister_")) return "accountingRegister";
+    if (set.startsWith("ChartOfAccounts_")) return "chartOfAccounts";
+    if (set.startsWith("ChartOfCharacteristicTypes_")) return "chartOfCharacteristicTypes";
+    return "other";
+  };
   const props = (set: string) => ({
+    entitySet: set.split("/")[0]!,
+    class: docClass(set.split("/")[0]!),
     properties: [...new Set((store[set] ?? []).flatMap((r) => Object.keys(r)))].map((name) => ({ name })),
   });
+  const fromFile = new Map<string, FakeEntityMeta>();
+  if (opts.metadataFile) {
+    const raw = readFileSync(opts.metadataFile, "utf8");
+    const cached = JSON.parse(raw) as {
+      entities?: Array<{
+        entitySet?: string;
+        properties?: Array<{ name?: string; type?: string }>;
+        navigations?: Array<{ name?: string; toType?: string; collection?: boolean }>;
+      }>;
+    };
+    for (const e of cached.entities ?? []) {
+      if (!e.entitySet) continue;
+      fromFile.set(e.entitySet, {
+        entitySet: e.entitySet,
+        ...(typeof (e as { class?: unknown }).class === "string"
+          ? { class: (e as { class: string }).class }
+          : {}),
+        properties: (e.properties ?? [])
+          .filter((p) => typeof p.name === "string")
+          .map((p) => ({ name: p.name as string, ...(p.type ? { type: p.type } : {}) })),
+        navigations: (e.navigations ?? [])
+          .filter((n) => typeof n.name === "string" && typeof n.toType === "string")
+          .map((n) => ({
+            name: n.name as string,
+            toType: n.toType as string,
+            collection: n.collection === true,
+          })),
+      });
+    }
+  }
   const entities = new Map<string, FakeEntityMeta>([
-    ...Object.keys(store).map((s) => [s, props(s)] as [string, FakeEntityMeta]),
-    ["ChartOfAccounts_Типовой", { properties: [] }],
+    ...fromFile,
+    ...Object.keys(store)
+      .map((s) => [s, props(s)] as [string, FakeEntityMeta])
+      .filter(([s]) => !fromFile.has(s)),
+    ...(!fromFile.has("ChartOfAccounts_Типовой")
+      ? [["ChartOfAccounts_Типовой", { properties: [] }] as [string, FakeEntityMeta]]
+      : []),
     ...Object.entries(opts.entities ?? {}),
   ]);
   vi.spyOn(conn, "getMetadata").mockResolvedValue({ entities } as never);
+  // Bound-действия Post/Unpost идут сырым fetch (client.actionRaw → send), мимо мока request — эмулируем здесь:
+  // переворачиваем Posted у строки и отвечаем 200, как провела бы 1С.
+  const rawSend = conn.client as unknown as {
+    send: (url: string, init: RequestInit) => Promise<Response>;
+  };
+  const origSend = rawSend.send.bind(conn.client);
+  vi.spyOn(rawSend, "send").mockImplementation(async (url: string, init?: RequestInit) => {
+    const act = /([^/()]+)\(guid'([^']+)'\)\/(Post|Unpost)$/.exec(
+      decodeURIComponent(String(url).split("?")[0]),
+    );
+    if (!act) return origSend(url, init as RequestInit);
+    const [, set, ref, actionName] = act;
+    const row = (store[set] ?? []).find(
+      (r) =>
+        String(r["Ref_Key"] ?? "")
+          .replace(/[{}]/g, "")
+          .toLowerCase() === ref.toLowerCase(),
+    );
+    if (!row) return { ok: false, status: 404, text: async () => "" } as Response;
+    row["Posted"] = actionName === "Post";
+    return { ok: true, status: 200, text: async () => "" } as Response;
+  });
   const posts: Array<{ set: string; body: Row }> = [];
   const patches: Array<{ set: string; ref: string; body: Row }> = [];
   const gets: string[] = [];
@@ -327,7 +411,11 @@ export function fake1C(
     return { value: all.slice(skip, skip + top) };
   }) as never);
   const tools = (
-    createServer({ db: () => conn } as never) as unknown as {
+    createServer({
+      db: () => conn,
+      defaultName: "default",
+      databases: () => [{ name: "default", isDefault: true }],
+    } as never) as unknown as {
       _registeredTools: Record<string, { handler: (a: Row, e: Row) => Promise<CallToolResult> }>;
     }
   )._registeredTools;

@@ -1,0 +1,29 @@
+{
+  "tool": "read.currency.get_rates",
+  "args": {},
+  "result": {
+    "database": "default",
+    "date": "2026-10-23",
+    "count": 2,
+    "rates": [
+      {
+        "currencyRef": "00000000-0000-4000-8000-000000000226",
+        "code": "840",
+        "name": "Доллар США",
+        "period": "",
+        "rate": 470,
+        "multiplier": 1,
+        "perUnit": 470
+      },
+      {
+        "currencyRef": "00000000-0000-4000-8000-000000000007",
+        "code": "398",
+        "name": "KZT",
+        "period": "",
+        "rate": 1,
+        "multiplier": 1,
+        "perUnit": 1
+      }
+    ]
+  }
+}

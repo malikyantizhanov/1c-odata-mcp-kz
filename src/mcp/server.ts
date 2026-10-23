@@ -8,6 +8,7 @@ import type { ServerContext } from "../context.js";
 import { createResultSchema } from "../schemas/output.js";
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
 import { ANY_ENTITY_PARAMS, DOCUMENT_ENTITY_PARAMS, normalizeToolArgs } from "../odata/entity-name.js";
+import { buildQuery } from "../odata/query.js";
 import { registerMetaTools } from "../tools/meta.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
@@ -167,6 +168,27 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
           const conn = ctx.db(typeof args.database === "string" ? args.database : undefined);
           const settled = await conn.client.operationSettled(operationId, requestHash);
           if (settled) {
+            // Повтор создания документа: та же карточка, что у записи, — если документ читается.
+            let card: Record<string, unknown> = {};
+            if (isCreateTool && settled.entitySet.startsWith("Document_")) {
+              const ref = String(settled.result["Ref_Key"] ?? "").replace(/[{}]/g, "");
+              if (ref) {
+                const doc = await conn.client
+                  .getEntity(
+                    `${settled.entitySet}(guid'${ref}')${buildQuery({ select: ["Number", "Date", "Posted", "СуммаДокумента"] })}`,
+                  )
+                  .catch(() => undefined);
+                if (doc) {
+                  const date = String(doc["Date"] ?? "").slice(0, 10);
+                  const total = Number(doc["СуммаДокумента"]);
+                  card = {
+                    ...(date ? { date } : {}),
+                    ...(Number.isFinite(total) ? { total } : {}),
+                    ...(typeof doc["Posted"] === "boolean" ? { posted: doc["Posted"] } : {}),
+                  };
+                }
+              }
+            }
             replay = ok({
               ...(isCreateTool ? { created: true } : { updated: true }),
               replayed: true,
@@ -175,6 +197,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
               entitySet: settled.entitySet,
               ref: settled.result["Ref_Key"],
               ...(settled.result["Code"] ? { code: settled.result["Code"] } : {}),
+              ...card,
               operationId,
             });
           }

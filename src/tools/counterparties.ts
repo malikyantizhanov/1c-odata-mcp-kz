@@ -53,7 +53,7 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
       },
       outputSchema: truncatedList(counterpartySchema),
     },
-    ({ database, query, limit }) =>
+    ({ database, query, limit = 20 }) =>
       guard("read.counterparty.find_counterparty", async () => {
         const conn = ctx.db(database);
         const set = await counterpartySet(conn);
@@ -180,7 +180,7 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
       inputSchema: historyInput,
       outputSchema: counterpartyHistoryResultSchema,
     },
-    ({ database, organization, ref, from, to, limit }) =>
+    ({ database, organization, ref, from, to, limit = 100 }) =>
       guard("read.counterparty.get_customer_history", async () => {
         const conn = ctx.db(database);
         const orgKey = await orgKeyOf(conn, organization);
@@ -214,7 +214,7 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
       inputSchema: historyInput,
       outputSchema: counterpartyHistoryResultSchema,
     },
-    ({ database, organization, ref, from, to, limit }) =>
+    ({ database, organization, ref, from, to, limit = 100 }) =>
       guard("read.counterparty.get_supplier_history", async () => {
         const conn = ctx.db(database);
         const orgKey = await orgKeyOf(conn, organization);

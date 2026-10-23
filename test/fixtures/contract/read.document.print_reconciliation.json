@@ -1,0 +1,24 @@
+{
+  "tool": "read.document.print_reconciliation",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000104"
+  },
+  "result": {
+    "database": "default",
+    "ref": "00000000-0000-4000-8000-000000000104",
+    "number": "5",
+    "date": "2026-10-09",
+    "closing": 116000,
+    "files": [
+      {
+        "form": "Акт сверки",
+        "name": "Акт сверки № 5 от 09.10.2026.pdf",
+        "size": 15343,
+        "path": "/private<tmp>/1c-quick-test-kDbvMr/акты сверки/Акт сверки № 5 от 09.10.2026.pdf",
+        "fileName": "Акт сверки № 5 от 09.10.2026.pdf",
+        "directory": "/private<tmp>/1c-quick-test-kDbvMr/акты сверки"
+      }
+    ],
+    "path": "/private<tmp>/1c-quick-test-kDbvMr/акты сверки/Акт сверки № 5 от 09.10.2026.pdf"
+  }
+}

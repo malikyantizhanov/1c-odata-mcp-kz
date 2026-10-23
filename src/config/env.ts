@@ -63,10 +63,15 @@ export interface Behavior {
    */
   safeNetwork?: boolean | undefined;
   /**
-   * Печатать PDF сразу при создании документа быстрыми инструментами (quick_invoice, quick_sale). В общем
-   * HTTP-режиме выключено: файл остался бы на диске коннектора, пользователю его оттуда не отдать.
+   * Печатать PDF сразу при создании документа быстрыми инструментами (quick_invoice, quick_sale,
+   * quick_reconciliation): PDF отдаётся ресурсом MCP в ответе записи. В общем HTTP-режиме включено.
    */
   printOnCreate?: boolean | undefined;
+  /**
+   * Писать PDF печатных форм на диск коннектора (каталог печати). В общем HTTP-режиме выключено: файл остался бы
+   * на диске коннектора, пользователю его оттуда не отдать — PDF идёт только ресурсом MCP, поля path в ответе нет.
+   */
+  printToDisk?: boolean | undefined;
 }
 
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
@@ -92,6 +97,7 @@ const BehaviorSchema = z.object({
   ODATA_ANALYTICS_MAX_ROWS: z.coerce.number().int().positive().max(1_000_000).default(200_000),
   ODATA_WRITE_JOURNAL_DIR: z.string().min(1).optional(),
   ODATA_PRINT_DIR: z.string().min(1).optional(),
+  ODATA_PRINT_TO_DISK: z.enum(["true", "false"]).default("true"),
   ODATA_WRITE_OPERATION_MARKER: z.enum(["true", "false"]).default("false"),
   ODATA_CACHE_DIR: z.string().min(1).optional(),
   ODATA_METADATA_CACHE_TTL_HOURS: z.coerce
@@ -250,6 +256,7 @@ function behaviorOf(b: z.infer<typeof BehaviorSchema>): Behavior {
     writeOperationMarker: b.ODATA_WRITE_OPERATION_MARKER === "true",
     writeJournalDir: resolve(b.ODATA_WRITE_JOURNAL_DIR ?? join(homedir(), ".1c-odata-mcp", "write-journal")),
     printDir: resolve(b.ODATA_PRINT_DIR ?? DEFAULT_PRINT_DIR),
+    printToDisk: b.ODATA_PRINT_TO_DISK === "true",
     metadataCache:
       b.ODATA_METADATA_CACHE_TTL_HOURS > 0
         ? {
@@ -271,7 +278,7 @@ export function parseBehavior(env: Env): { behavior: Behavior; logLevel: LogLeve
     throw new Error(`Некорректная конфигурация коннектора:\n${issues}`);
   }
   return {
-    behavior: { ...behaviorOf(parsed.data), safeNetwork: true, printOnCreate: false },
+    behavior: { ...behaviorOf(parsed.data), safeNetwork: true, printOnCreate: true, printToDisk: false },
     logLevel: parsed.data.LOG_LEVEL,
   };
 }

@@ -1,0 +1,93 @@
+{
+  "tool": "write.sales.quick_invoice",
+  "args": {
+    "buyer": "240440007327",
+    "date": "2026-10-08",
+    "lines": [
+      {
+        "name": "Разработка программного обеспечения",
+        "quantity": 1,
+        "price": 100,
+        "kind": "service"
+      }
+    ]
+  },
+  "dryRun": {
+    "dryRun": true,
+    "ready": true,
+    "database": "default",
+    "operationId": "fc9ccddd-8a9d-4a1f-b2f8-0d2c6ff84c4b",
+    "date": "2026-10-08",
+    "organization": {
+      "ref": "00000000-0000-4000-8000-000000000001",
+      "name": "Aru Market ИП",
+      "vatPayer": false
+    },
+    "buyer": {
+      "ref": "00000000-0000-4000-8000-000000000002",
+      "name": "ТОО \"TRADESPACE\"",
+      "bin": "240440007327"
+    },
+    "contract": {
+      "action": "найден",
+      "ref": "00000000-0000-4000-8000-000000000003",
+      "name": "Договор б/н",
+      "number": "б/н",
+      "date": "2026-10-08"
+    },
+    "bankAccount": {
+      "ref": "00000000-0000-4000-8000-000000000005",
+      "number": "KZ86125KZT1004100100",
+      "name": "Основной"
+    },
+    "lines": [
+      {
+        "action": "найдена",
+        "ref": "00000000-0000-4000-8000-000000000004",
+        "name": "Разработка программного обеспечения",
+        "kind": "услуга",
+        "quantity": 1,
+        "price": 100,
+        "sum": 100,
+        "vatRate": "без НДС"
+      }
+    ],
+    "totals": {
+      "sum": 100,
+      "vat": 0,
+      "total": 100,
+      "withVat": false
+    },
+    "possibleDuplicates": [],
+    "willCreate": [
+      "Счёт на оплату покупателю (без проведения) + PDF"
+    ],
+    "notes": [
+      "КНП не указан — поле «Код назначения платежа» в счёте будет пустым."
+    ],
+    "note": "План. Ничего не создано. Чтобы создать, повторите вызов с теми же аргументами, confirm=true и этим operationId.",
+    "elapsedMs": 13
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "operationId": "fc9ccddd-8a9d-4a1f-b2f8-0d2c6ff84c4b",
+    "possibleDuplicates": [],
+    "invoice": {
+      "ref": "b27b81b0-cebf-11f1-8f41-fd4d89210bc7",
+      "number": "1",
+      "number1C": "00000000001",
+      "date": "2026-10-08",
+      "total": 100,
+      "posted": false
+    },
+    "pdf": {
+      "path": "/private<tmp>/1c-quick-test-M3zmRl/Счет на оплату покупателю № 1 от 08.10.2026.pdf",
+      "fileName": "Счет на оплату покупателю № 1 от 08.10.2026.pdf",
+      "size": 16109
+    },
+    "notes": [
+      "Счёт создан без проведения (счёт на оплату проводок не делает)."
+    ]
+  }
+}

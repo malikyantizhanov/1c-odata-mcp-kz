@@ -91,7 +91,7 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
         })
         .passthrough(),
     },
-    ({ database, organization, from, to, direction, status, counterpartyRef, limit, offset }) =>
+    ({ database, organization, from, to, direction, status, counterpartyRef, limit = 50, offset = 0 }) =>
       guard("read.esf.list_esf", async () => {
         const conn = ctx.db(database);
         const set = await requireEntity(conn, ["Document_ЭСФ"], "Документ «ЭСФ»");
@@ -355,7 +355,7 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
       description:
         "Возвращает присоединённый файл (напр. PDF печатной формы) как ресурс MCP с base64-содержимым и MIME-типом — " +
         "его можно отправить клиенту. filesCatalog и ref — из read.files.list_attachments. Файлы, хранящиеся в томах " +
-        "на диске сервера 1С, через OData недоступны.",
+        "на диске сервера 1С, через OData недоступны. В общем режиме (общий HTTP) — не больше 10 МБ.",
       inputSchema: {
         database: databaseField,
         filesCatalog: z
@@ -383,6 +383,10 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
     ({ database, filesCatalog, ref, maxBytes }) =>
       guard("read.files.get_attachment", async (): Promise<CallToolResult> => {
         const conn = ctx.db(database);
+        // Общий режим (printToDisk=false): файл идёт только ресурсом MCP — не больше 10 МБ.
+        const limit = conn.behavior.printToDisk === false ? Math.min(maxBytes, 10_000_000) : maxBytes;
+        if (conn.behavior.printToDisk === false && maxBytes > 10_000_000)
+          throw new InputError("В общем режиме maxBytes — не больше 10 000 000 (10 МБ).");
         if (!(await conn.available()).has(filesCatalog))
           throw new InputError(`Справочник ${filesCatalog} не опубликован.`);
         const file = await conn.client.getEntity(
@@ -398,8 +402,8 @@ export function registerKzRecordTools(server: McpServer, ctx: ServerContext): vo
           );
         }
         const { bytes, decoded } = attachmentBytes(data);
-        if (bytes.length > maxBytes)
-          throw new InputError(`Файл ${bytes.length} байт — больше maxBytes (${maxBytes}).`);
+        if (bytes.length > limit)
+          throw new InputError(`Файл ${bytes.length} байт — больше maxBytes (${limit}).`);
         const name = `${String(file["Description"] ?? "file")}${extension ? `.${extension}` : ""}`;
         const mimeType =
           decoded === "unknown"

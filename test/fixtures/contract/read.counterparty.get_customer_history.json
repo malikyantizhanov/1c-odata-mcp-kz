@@ -1,0 +1,32 @@
+{
+  "tool": "read.counterparty.get_customer_history",
+  "args": {
+    "ref": "00000000-0000-4000-8000-000000000002"
+  },
+  "result": {
+    "counterparty": "00000000-0000-4000-8000-000000000002",
+    "period": {},
+    "rows": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000101",
+        "type": "Document_РеализацияТоваровУслуг",
+        "entitySet": "Document_РеализацияТоваровУслуг",
+        "number": "00000000018",
+        "date": "2026-10-08T10:00:00",
+        "posted": true,
+        "amount": 116000
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000100",
+        "type": "Document_СчетНаОплатуПокупателю",
+        "entitySet": "Document_СчетНаОплатуПокупателю",
+        "number": "00000000007",
+        "date": "2026-10-07T10:00:00",
+        "posted": false,
+        "amount": 100
+      }
+    ],
+    "count": 2,
+    "truncated": false
+  }
+}

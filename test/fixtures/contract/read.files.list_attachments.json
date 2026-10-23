@@ -1,0 +1,13 @@
+{
+  "tool": "read.files.list_attachments",
+  "args": {
+    "entitySet": "Document_СчетНаОплатуПокупателю",
+    "ref": "00000000-0000-4000-8000-000000000100"
+  },
+  "result": {
+    "database": "default",
+    "filesCatalog": "Catalog_СчетНаОплатуПокупателюПрисоединенныеФайлы",
+    "count": 0,
+    "files": []
+  }
+}

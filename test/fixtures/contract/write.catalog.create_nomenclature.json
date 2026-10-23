@@ -1,0 +1,30 @@
+{
+  "tool": "write.catalog.create_nomenclature",
+  "args": {
+    "name": "Услуга фикстура",
+    "isService": true
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_Номенклатура",
+    "payload": {
+      "Description": "Услуга фикстура",
+      "НаименованиеПолное": "Услуга фикстура",
+      "Услуга": true,
+      "БазоваяЕдиницаИзмерения_Key": "00000000-0000-4000-8000-000000000008"
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "b5f4f022-d0c6-433a-af33-7cc684f348ac"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_Номенклатура",
+    "ref": "b26d02c0-cebf-11f1-9bb4-7503db8cbec7",
+    "code": "00000000001",
+    "description": "Услуга фикстура",
+    "operationId": "b5f4f022-d0c6-433a-af33-7cc684f348ac"
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "tool": "read.accounting.get_chart_of_accounts",
+  "args": {},
+  "result": {
+    "database": "default",
+    "chart": "ChartOfAccounts_Типовой",
+    "count": 5,
+    "accounts": [
+      {
+        "ref": "00000000-0000-4000-8000-000000000220",
+        "code": "1030",
+        "description": "Счёт 1030",
+        "type": "",
+        "typeShort": "",
+        "offBalance": false,
+        "currency": true,
+        "quantity": false,
+        "forbiddenInEntries": false,
+        "deleted": false,
+        "subconto": [
+          {
+            "index": 1,
+            "kindRef": "00000000-0000-4000-8000-000000000210",
+            "kind": "Денежные средства",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          }
+        ],
+        "hasSubaccounts": false
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000221",
+        "code": "3310",
+        "description": "Счёт 3310",
+        "type": "",
+        "typeShort": "",
+        "offBalance": false,
+        "currency": false,
+        "quantity": false,
+        "forbiddenInEntries": false,
+        "deleted": false,
+        "subconto": [
+          {
+            "index": 1,
+            "kindRef": "00000000-0000-4000-8000-000000000211",
+            "kind": "Контрагенты",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          },
+          {
+            "index": 2,
+            "kindRef": "00000000-0000-4000-8000-000000000212",
+            "kind": "Прочее",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          }
+        ],
+        "hasSubaccounts": false
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000222",
+        "code": "7210",
+        "description": "Счёт 7210",
+        "type": "",
+        "typeShort": "",
+        "offBalance": false,
+        "currency": false,
+        "quantity": false,
+        "forbiddenInEntries": false,
+        "deleted": false,
+        "subconto": [
+          {
+            "index": 1,
+            "kindRef": "00000000-0000-4000-8000-000000000213",
+            "kind": "Статьи затрат",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          },
+          {
+            "index": 2,
+            "kindRef": "00000000-0000-4000-8000-000000000214",
+            "kind": "Подразделения",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          }
+        ],
+        "hasSubaccounts": false
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000223",
+        "code": "1610",
+        "description": "Счёт 1610",
+        "type": "",
+        "typeShort": "",
+        "offBalance": false,
+        "currency": false,
+        "quantity": false,
+        "forbiddenInEntries": false,
+        "deleted": false,
+        "subconto": [
+          {
+            "index": 1,
+            "kindRef": "00000000-0000-4000-8000-000000000213",
+            "kind": "Статьи затрат",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          },
+          {
+            "index": 2,
+            "kindRef": "00000000-0000-4000-8000-000000000214",
+            "kind": "Подразделения",
+            "types": [],
+            "turnoversOnly": false,
+            "amount": true,
+            "currency": false,
+            "quantity": false
+          }
+        ],
+        "hasSubaccounts": false
+      },
+      {
+        "ref": "00000000-0000-4000-8000-000000000229",
+        "code": "1330",
+        "description": "Счёт 1330",
+        "type": "",
+        "typeShort": "",
+        "offBalance": false,
+        "currency": false,
+        "quantity": false,
+        "forbiddenInEntries": false,
+        "deleted": false,
+        "subconto": [],
+        "hasSubaccounts": false
+      }
+    ]
+  }
+}

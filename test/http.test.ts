@@ -125,9 +125,10 @@ describe("общий HTTP-режим", () => {
     const b = await client(BOB);
     const names = (await a.listTools()).tools.map((t) => t.name);
     expect(names).toContain("read.system.health_check");
-    expect(
-      names.some((n) => n.startsWith("meta.") || n.startsWith("read.files.") || n.includes(".print_")),
-    ).toBe(false);
+    expect(names.some((n) => n.startsWith("meta."))).toBe(false);
+    // Печать и вложения в общем режиме разрешены — PDF/файлы идут ресурсом, без диска.
+    expect(names).toContain("read.document.print_invoice");
+    expect(names).toContain("read.files.get_attachment");
 
     const dbA = (await a.callTool({ name: "read.system.list_databases", arguments: {} }))
       .structuredContent as {
@@ -176,7 +177,7 @@ describe("разбор заголовка и фильтр инструменто
     expect(() => parseConnectionHeader(header({ ...BOB, id: "../etc" }))).toThrow(/id/);
   });
 
-  it("в общем режиме нет шлюза, печати и вложений; запись — только из белого списка", () => {
+  it("в общем режиме нет только шлюза; печать и вложения разрешены, запись — из белого списка", () => {
     expect(sharedToolFilter("read.analytics.debtors")).toBe(true);
     expect(sharedToolFilter("write.sales.quick_invoice")).toBe(false); // список пуст — записи нет
     expect(sharedToolFilter("write.operation.status")).toBe(false);
@@ -188,8 +189,9 @@ describe("разбор заголовка и фильтр инструменто
     expect(sharedToolFilter("write.document.post_document", writes)).toBe(false);
     expect(sharedToolFilter("write.operation.status", writes)).toBe(true); // сверка после сбоя — вместе с записью
     expect(sharedToolFilter("meta.call_tool")).toBe(false);
-    expect(sharedToolFilter("read.document.print_invoice")).toBe(false);
-    expect(sharedToolFilter("read.files.get_attachment")).toBe(false);
+    expect(sharedToolFilter("read.document.print_invoice")).toBe(true);
+    expect(sharedToolFilter("read.files.get_attachment")).toBe(true);
+    expect(sharedToolFilter("read.document.print_sale")).toBe(true);
   });
 });
 

@@ -41,6 +41,7 @@ import { ODataError, htmlText } from "../odata/errors.js";
 import { getDocumentMovements } from "../odata/movements.js";
 import { getDocumentPostings } from "./registers.js";
 import { PAYROLL_SUM_SETS, payrollPostRefusal } from "./payroll-sums.js";
+import { buildPreviewView, readDocumentCard } from "./preview-view.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
@@ -1189,12 +1190,14 @@ export async function createOrPreview(
   const extra = allNotes.length ? { notes: allNotes } : {};
   if (!confirm) {
     await conn.client.prepareCreate(entitySet, payload);
+    const view = await buildPreviewView(conn, entitySet, payload).catch(() => undefined);
     return ok({
       dryRun: true,
       database: conn.cfg.name,
       writableBase: conn.cfg.writable,
       willCreate: entitySet,
       payload,
+      ...(view ? { view } : {}),
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true."
@@ -1207,6 +1210,11 @@ export async function createOrPreview(
   } catch (e) {
     throw await withEnumValues(conn, e);
   }
+  // Карточка документа после записи: одно чтение — дата, сумма и признак проведения.
+  const card =
+    entitySet.startsWith("Document_") && typeof created["Ref_Key"] === "string"
+      ? await readDocumentCard(conn, entitySet, created["Ref_Key"] as string)
+      : {};
   return ok({
     created: true,
     ...(created["_operation_replayed"] === true
@@ -1221,6 +1229,7 @@ export async function createOrPreview(
     code: created["Code"],
     number: created["Number"],
     description: created["Description"],
+    ...card,
     ...extra,
   });
 }
@@ -1237,11 +1246,17 @@ export async function patchOrPreview(
   const guid = ref.replace(/[{}']/g, "");
   const extra = notes?.length ? { notes } : {};
   if (!confirm) {
+    // «Было» для changes: одно чтение документа; не читается — предпросмотр без changes.
+    const before = await conn.client
+      .getEntity(`${entitySet}(guid'${guid}')?$format=json`)
+      .catch(() => undefined);
+    const view = await buildPreviewView(conn, entitySet, fields, { before }).catch(() => undefined);
     return ok({
       dryRun: true,
       database: conn.cfg.name,
       willPatch: `${entitySet}(${guid})`,
       fields,
+      ...(view ? { view } : {}),
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."

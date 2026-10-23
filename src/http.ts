@@ -20,18 +20,15 @@ import { logger } from "./logger.js";
  * X-OneC-Connection (её присылает бэкенд чата), доступ к самому коннектору — по общему ключу Authorization: Bearer.
  * Streamable HTTP без сессий: на каждый POST /mcp — свой McpServer поверх подключения из пула.
  *
- * Чего нет в общем режиме: шлюза meta.* (инструменты для модели отбирает бэкенд), печатных форм и вложений
- * (файлы пишутся на диск коннектора — пользователю их отсюда не отдать). Пишущие инструменты — только из белого
- * списка ODATA_HTTP_WRITE_TOOLS (пусто — ни одного); write.operation.status — вместе с ними, для сверки после сбоя.
+ * Чего нет в общем режиме: шлюза meta.* (инструменты для модели отбирает бэкенд). Печатные формы
+ * read.document.print_* и вложения read.files.* разрешены: PDF и файлы отдаются ресурсом MCP, на диск коннектора
+ * при printToDisk=false ничего не пишется. Пишущие инструменты — только из белого списка
+ * ODATA_HTTP_WRITE_TOOLS (пусто — ни одного); write.operation.status — вместе с ними, для сверки после сбоя.
  */
 export function sharedToolFilter(name: string, writes: ReadonlySet<string> = new Set()): boolean {
   if (name.startsWith("write."))
     return writes.has(name) || (name === "write.operation.status" && writes.size > 0);
-  return !(
-    name.startsWith("meta.") ||
-    name.startsWith("read.files.") ||
-    name.startsWith("read.document.print_")
-  );
+  return !name.startsWith("meta.");
 }
 
 /** ODATA_HTTP_WRITE_TOOLS: имена пишущих инструментов через запятую. */

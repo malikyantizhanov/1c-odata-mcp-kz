@@ -64,6 +64,25 @@ export interface AccountLayout {
 export const typeName = (entity: string): string => `StandardODATA.${entity}`;
 const entityOfType = (t: string): string => t.replace(/^StandardODATA\./, "");
 
+const BARE_TYPE_RE =
+  /^(Catalog|Document|ChartOfAccounts|ChartOfCharacteristicTypes|ChartOfCalculationTypes|ExchangePlan|BusinessProcess|Task)_/;
+
+/**
+ * Тип составной ссылки (<поле>_Type) без пространства имён — «Catalog_НоменклатурныеГруппы» — 1С не принимает
+ * («Недопустимое значение … составного типа»): дописываем «StandardODATA.» в шапке и в строках табличных частей.
+ */
+export function withTypeNamespace<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v: unknown) => withTypeNamespace(v)) as T;
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>))
+    out[k] =
+      k.endsWith("_Type") && typeof v === "string" && BARE_TYPE_RE.test(v.trim())
+        ? typeName(v.trim())
+        : withTypeNamespace(v);
+  return out as T;
+}
+
 /** Планы видов характеристик: Ref_Key → наименование (читаем один раз на соединение и план). */
 const kindCache = new WeakMap<object, Map<string, Map<string, string>>>();
 async function kindNames(conn: Connection, pvc: string): Promise<Map<string, string>> {
@@ -177,7 +196,7 @@ export async function fillSubcontoTypes(
   payload: Record<string, unknown>,
 ): Promise<{ payload: Record<string, unknown>; notes: string[] }> {
   const meta = await conn.getMetadata();
-  const out: Record<string, unknown> = { ...payload };
+  const out: Record<string, unknown> = { ...withTypeNamespace(payload) };
   const notes: string[] = [];
   const layouts = new Map<string, Promise<AccountLayout | undefined>>();
   const names = new Map<string, Promise<string | undefined>>();

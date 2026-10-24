@@ -6,7 +6,9 @@ import { catalogFields } from "../odata/catalog-fields.js";
 import { ODataError } from "../odata/errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { ensurePublished } from "../odata/publication.js";
-import { and, buildQuery, cmp, contains, or, odataGuid, odataString } from "../odata/query.js";
+import { fuzzyCandidates } from "../odata/fuzzy.js";
+import { OWNER_CATALOGS, ownerFieldOf, ownerFilter, sameOwner, type OwnerFilter } from "../odata/owner.js";
+import { and, buildQuery, cmp, contains, or, odataString } from "../odata/query.js";
 import { databaseField, guard, ok } from "./_shared.js";
 
 /**
@@ -56,9 +58,11 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         "счета учёта; у плана может не быть признака группы IsFolder): Ref_Key, наименование, код, признак группы " +
         "и пометки удаления. entitySet — техническое имя " +
         "('Catalog_СтатьиЗатрат'), без префикса или в синтаксисе 1С ('Справочник.СтатьиЗатрат'). query — поиск по " +
-        "части наименования (без учёта регистра); если query состоит из цифр — ещё и по коду (точно, а также без " +
+        "части наименования (без учёта регистра); точного вхождения нет — похожие по написанию с оценкой score " +
+        "(ё/е, кавычки, ТОО/LLP, латиница↔кириллица: «Schneider» найдёт «Шнейдер Электрик ТОО»); если query состоит из цифр — ещё и по коду (точно, а также без " +
         "ведущих нулей и с нулями до длины кодов справочника: «104» найдёт «000000104»); code — только по коду; " +
-        "owner — Ref_Key владельца (договоры — контрагент, банковские счета — организация, контактные лица — объект-владелец); " +
+        "owner — Ref_Key владельца (договоры — контрагент, банковские счета — организация или контрагент, контактные лица — " +
+        "объект-владелец; составной тип владельца Owner/Владелец + _Type MCP отбирает сам — не передавайте Владелец_Key в select); " +
         "пустой query — список. По умолчанию группы и помеченные на " +
         "удаление скрыты (includeFolders / includeDeleted). Для следующих страниц передавайте nextOffset. " +
         "select — дополнительные поля (имена из read.schema.describe_entity), напр. ВидРасходовНУ_Key. " +
@@ -113,7 +117,8 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
                 code: z.string().optional(),
                 isFolder: z.boolean().optional(),
                 deletionMark: z.boolean().optional(),
-                matchedBy: z.literal("code").optional(),
+                matchedBy: z.enum(["code", "fuzzy"]).optional(),
+                score: z.number().optional(),
                 fields: z.record(z.string(), z.unknown()).optional(),
               })
               .passthrough(),
@@ -154,6 +159,14 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         const bad = extra.filter(
           (n) => !has(n) || (props.find((p) => p.name === n)?.type ?? "").startsWith("Collection("),
         );
+        const ownerLike = bad.filter((n) => /^(Owner|Владелец|ОбъектВладелец)(_Key|_Type)?$/.test(n));
+        if (ownerLike.length && ownerFieldOf(props))
+          throw new InputError(
+            `${ownerLike.join(", ")}: отбор по владельцу задаётся параметром owner=<Ref_Key владельца>, а не через select ` +
+              "(у справочника владелец может быть составного типа — MCP сам отберёт по Owner и типу владельца). " +
+              "Банковские счета организации — owner = Ref_Key организации (read.system.list_organizations), " +
+              "договоры и счета контрагента — owner = Ref_Key контрагента (read.counterparty.find_counterparty).",
+          );
         if (bad.length)
           throw new InputError(
             `В ${entitySet} нет простых полей: ${bad.join(", ")}. Есть: ` +
@@ -192,20 +205,19 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           : undefined;
         const codeFilter = codeParam ? byCode : undefined;
         const nameOrCode = (text: string) => or(contains(fields.name, text), byCode);
-        // Владелец: Owner_Key — отбор на сервере; полиморфные Owner / ОбъектВладелец (банковские счета,
-        // контактные лица) серверным eq не отбираются — фильтруем на стороне коннектора.
+        // Владелец: Owner_Key — eq на сервере; составной Owner/Владелец (банковские счета, договоры части баз РК) —
+        // cast(guid'…', 'Catalog_…') по справочнику, где найден Ref_Key владельца (src/odata/owner.ts).
         const ownerGuid = owner?.trim().replace(/[{}]/g, "");
-        let ownerServer: string | undefined;
-        let ownerClientField: string | undefined;
+        let ownerSel: OwnerFilter | undefined;
         if (ownerGuid) {
-          if (has("Owner_Key")) ownerServer = cmp("Owner_Key", "eq", odataGuid(ownerGuid));
-          else if (has("Owner")) ownerClientField = "Owner";
-          else if (has("ОбъектВладелец")) ownerClientField = "ОбъектВладелец";
-          else
+          ownerSel = await ownerFilter(conn, entitySet, ownerGuid);
+          if (!ownerSel)
             throw new InputError(
               `У ${entitySet} нет владельца — отбор owner невозможен (есть владельцы у договоров, банковских счетов и контактных лиц).`,
             );
         }
+        const ownerServer = ownerSel?.filter;
+        const ownerClientField = ownerSel?.clientField;
         const filter = and(
           codeFilter,
           !codeParam && qText ? nameOrCode(qText) : undefined,
@@ -221,9 +233,16 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
             conn.client,
             entitySet,
             {
-              select: [fields.ref, fields.name, fields.code, fields.isFolder, deletion, ...extra].filter(
-                Boolean,
-              ),
+              select: [
+                fields.ref,
+                fields.name,
+                fields.code,
+                fields.isFolder,
+                deletion,
+                ...extra,
+                // Без поля в $select 1С его не вернёт — сравнивать владельца было бы не с чем.
+                ownerClientField ?? "",
+              ].filter(Boolean),
               filter: filter || undefined,
               orderby: `${fields.name},${fields.ref}`,
               skip: offset,
@@ -237,16 +256,11 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           throw e;
         }
         const filtered = ownerClientField
-          ? page.rows.filter(
-              (r) =>
-                String(r[ownerClientField] ?? "")
-                  .replace(/[{}]/g, "")
-                  .toLowerCase() === ownerGuid!.toLowerCase(),
-            )
+          ? page.rows.filter((r) => sameOwner(r[ownerClientField], ownerGuid!))
           : page.rows;
         const sliced = filtered.slice(0, limit);
         const truncated = page.truncated || filtered.length > limit;
-        const rows = sliced.map((r) => ({
+        const rowOf = (r: Record<string, unknown>, score?: number) => ({
           ref: String(r[fields.ref]),
           name: String(r[fields.name] ?? ""),
           ...(fields.code && r[fields.code] ? { code: String(r[fields.code]) } : {}),
@@ -256,23 +270,65 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
           ...(deletion && typeof r[deletion] === "boolean" ? { deletionMark: r[deletion] as boolean } : {}),
           ...(candidates.length && fields.code && candidates.includes(String(r[fields.code]))
             ? { matchedBy: "code" as const }
-            : {}),
+            : score !== undefined
+              ? { matchedBy: "fuzzy" as const, score }
+              : {}),
           ...(extra.length ? { fields: Object.fromEntries(extra.map((n) => [n, r[n]])) } : {}),
-        }));
+        });
+        let rows = sliced.map((r) => rowOf(r));
+        // Точного вхождения нет — похожие по написанию (ё/е, кавычки, ТОО/LLP, латиница ↔ кириллица, опечатки).
+        let fuzzy = false;
+        if (!rows.length && qText && !codeParam && !digitsQuery && !offset && !ownerClientField) {
+          const hits = await fuzzyCandidates(conn, entitySet, qText, {
+            nameFields: [fields.name, fields.fullName].filter(Boolean),
+            select: [
+              fields.ref,
+              fields.name,
+              fields.fullName,
+              fields.code,
+              fields.isFolder,
+              deletion,
+              ...extra,
+            ].filter(Boolean),
+            filter: and(
+              ownerServer,
+              !includeFolders && fields.isFolder ? cmp(fields.isFolder, "eq", "false") : undefined,
+              !includeDeleted && deletion ? cmp(deletion, "eq", "false") : undefined,
+            ),
+            limit,
+          }).catch(() => []);
+          rows = hits.map((h) => rowOf(h.row, h.score));
+          fuzzy = rows.length > 0;
+        }
+        const ownerText = ownerGuid
+          ? `владелец ${ownerGuid}${ownerSel?.ownerType ? ` (${ownerSel.ownerType})` : ""}`
+          : "";
+        const emptyNote = (): string => {
+          if (codeParam)
+            return `Элемента с кодом «${codeParam}» нет в ${entitySet} (проверены варианты ${candidates.join(", ") || codeParam}). Попробуйте поиск по названию (query).`;
+          if (qText)
+            return `По запросу «${qText}» ничего не найдено в ${entitySet}${candidates.length ? ` (по названию и коду: ${candidates.join(", ")})` : ""}${ownerText ? ` (${ownerText})` : ""}, похожих по написанию тоже нет. Попробуйте часть слова, БИН/код или пустой query.`;
+          // Только владелец: пустой список — это «у владельца нет элементов», а не «ничего не найдено по запросу».
+          if (ownerSel?.field.kind === "composite" && !ownerSel.ownerType)
+            return `Ref_Key ${ownerGuid} не найден ни в одном справочнике-владельце (${OWNER_CATALOGS.join(", ")}) — проверьте, что передан Ref_Key владельца (организации или контрагента), а не самого элемента ${entitySet}.`;
+          return `У владельца ${ownerGuid}${ownerSel?.ownerType ? ` (${ownerSel.ownerType})` : ""} нет элементов в ${entitySet}${includeDeleted ? "" : " (помеченные на удаление скрыты — includeDeleted=true)"}. Проверьте, что передан Ref_Key нужного владельца: банковские счета организации — Ref_Key организации, договоры — Ref_Key контрагента.`;
+        };
         return ok({
           database: conn.cfg.name,
           entitySet,
           rows,
           count: rows.length,
-          truncated,
-          ...(truncated ? { nextOffset: offset + rows.length } : {}),
-          ...(!rows.length && (qText || codeParam || ownerGuid)
+          truncated: fuzzy ? false : truncated,
+          ...(!fuzzy && truncated ? { nextOffset: offset + rows.length } : {}),
+          ...(fuzzy
             ? {
-                note: codeParam
-                  ? `Элемента с кодом «${codeParam}» нет в ${entitySet} (проверены варианты ${candidates.join(", ") || codeParam}). Попробуйте поиск по названию (query).`
-                  : `По запросу «${qText}» ничего не найдено в ${entitySet}${candidates.length ? ` (по названию и коду: ${candidates.join(", ")})` : ""}${ownerGuid ? ` (владелец ${ownerGuid})` : ""}. Попробуйте часть слова или пустой query.`,
+                note:
+                  `Точного вхождения «${qText}» в названия ${entitySet} нет — показаны похожие (score 0..1: 1 — то же название без ` +
+                  "учёта регистра, кавычек и ОПФ; ниже — близкое написание). Не берите кандидата молча: уточните у пользователя или выберите явно совпадающий по смыслу.",
               }
-            : {}),
+            : !rows.length && (qText || codeParam || ownerGuid)
+              ? { note: emptyNote() }
+              : {}),
         });
       }),
   );

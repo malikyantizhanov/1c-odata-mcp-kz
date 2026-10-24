@@ -5,7 +5,8 @@ import { ok, fail, guard, withTruncationNote, databaseField, organizationField }
 import { catalogFields } from "../odata/catalog-fields.js";
 import { InputError } from "../errors.js";
 import { fetchAll } from "../odata/pagination.js";
-import { and, cmp, contains, odataGuid, odataString, buildQuery } from "../odata/query.js";
+import { fuzzyCandidates, taxIdFilter } from "../odata/fuzzy.js";
+import { and, cmp, contains, odataGuid, odataString, or, buildQuery } from "../odata/query.js";
 import {
   CATALOGS,
   COUNTERPARTY_FIELDS as CF,
@@ -40,8 +41,10 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
     {
       title: "Поиск контрагента",
       description:
-        "Ищет контрагентов по части названия или по ИНН. Возвращает список совпадений " +
-        "с Ref_Key (используйте его в get_counterparty и истории взаиморасчётов). " +
+        "Ищет контрагентов по части названия (наименование и полное наименование) или по БИН/ИИН/ИНН (целиком или " +
+        "от 4 цифр). Нет точного вхождения — возвращает похожих с оценкой score (ё/е, кавычки, ТОО/ИП/АО/LLP, " +
+        "латиница↔кириллица, опечатки: «Schneider»/«Шнайдер» найдут «Шнейдер Электрик ТОО») — подтвердите выбор у пользователя. " +
+        "Ref_Key используйте в get_counterparty, истории взаиморасчётов и write-инструментах. " +
         "Пример: «найди контрагента Ромашка» или «контрагент с ИНН 7701234567».",
       inputSchema: {
         database: databaseField,
@@ -58,30 +61,61 @@ export function registerCounterpartyTools(server: McpServer, ctx: ServerContext)
         const conn = ctx.db(database);
         const set = await counterpartySet(conn);
         const fields = await catalogFields(conn, set);
-        const isInn = /^\d{10,12}$/.test(query.trim());
+        const q = query.trim();
+        const digits = q.replace(/\s+/g, "");
+        const isInn = /^\d{10,12}$/.test(digits);
         if (isInn && !fields.inn) throw new InputError("В справочнике не опубликовано поле ИНН/БИН/ИИН.");
-        const filter = !query.trim()
+        // Часть БИН/ИИН (от 4 цифр) — подстрокой по налоговому номеру; 10–12 цифр — точно.
+        const byTaxId = fields.inn
+          ? isInn
+            ? cmp(fields.inn, "eq", odataString(digits))
+            : taxIdFilter(fields.inn, digits)
+          : undefined;
+        const filter = !q
           ? undefined
-          : isInn
-            ? cmp(fields.inn, "eq", odataString(query.trim()))
-            : contains(fields.name, query);
+          : byTaxId
+            ? byTaxId
+            : or(contains(fields.name, q), fields.fullName ? contains(fields.fullName, q) : undefined);
+        const select = [fields.ref, fields.name, fields.code, fields.inn, fields.kpp, fields.isFolder].filter(
+          Boolean,
+        );
 
         const { rows, truncated } = await fetchAll(
           conn.client,
           set,
-          {
-            filter,
-            select: [fields.ref, fields.name, fields.code, fields.inn, fields.kpp, fields.isFolder].filter(
-              Boolean,
-            ),
-            orderby: fields.name,
-          },
+          { filter, select, orderby: fields.name },
           conn.behavior.pageSize,
           Math.min(limit, conn.behavior.maxRows),
         );
 
         const items = rows.map((row) => toCounterparty(row, fields)).filter((c) => !c.isFolder);
-        return ok(withTruncationNote(items, truncated, limit));
+        if (items.length || !q || byTaxId) {
+          const res = withTruncationNote(items, truncated, limit);
+          return ok(
+            !items.length && byTaxId
+              ? {
+                  ...res,
+                  note: `Контрагента с БИН/ИИН ${isInn ? "" : "содержащим "}«${digits}» нет. Проверьте номер или ищите по названию; нет в базе — write.counterparty.create_counterparty.`,
+                }
+              : res,
+          );
+        }
+        // Точного вхождения нет — похожие по написанию: ё/е, кавычки, ТОО/LLP, латиница ↔ кириллица, опечатки.
+        const hits = await fuzzyCandidates(conn, set, q, {
+          nameFields: [fields.name, fields.fullName].filter(Boolean),
+          select: [...select, fields.fullName].filter(Boolean),
+          limit,
+        });
+        return ok({
+          rows: hits.map((h) => ({ ...toCounterparty(h.row, fields), matchedBy: "fuzzy", score: h.score })),
+          count: hits.length,
+          truncated: false,
+          note: hits.length
+            ? `Точного вхождения «${q}» нет — показаны похожие (score 0..1: 1 — то же название без учёта регистра, кавычек и ОПФ). ` +
+              "Подтвердите контрагента у пользователя (лучше по БИН/ИИН), а не берите первого."
+            : `Контрагент «${q}» не найден ни по вхождению, ни по похожему написанию. Попробуйте БИН/ИИН или часть названия; ` +
+              "нет в базе — write.counterparty.create_counterparty.",
+        });
       }),
   );
 

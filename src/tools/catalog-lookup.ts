@@ -2,6 +2,7 @@ import type { Connection } from "../context.js";
 import { InputError } from "../errors.js";
 import { catalogFields } from "../odata/catalog-fields.js";
 import { ODataError } from "../odata/errors.js";
+import { fuzzyCandidates } from "../odata/fuzzy.js";
 import { fetchAll } from "../odata/pagination.js";
 import { ensurePublished } from "../odata/publication.js";
 import { and, buildQuery, cmp, contains, or, odataString } from "../odata/query.js";
@@ -88,11 +89,35 @@ export async function resolveCatalogItem(
   const list = (rows: typeof hits) =>
     rows.map((r) => `«${String(r[fields.name])}» (${String(r[fields.ref])})`).join("; ");
   if (hits.length === 1) return { ref: String(hits[0]![fields.ref]), name: String(hits[0]![fields.name]) };
-  if (!hits.length)
+  if (!hits.length) {
+    // Вхождения нет — похожие по написанию (ё/е, кавычки, латиница ↔ кириллица, опечатки): кандидаты с оценкой.
+    const similar = await guard(() =>
+      fuzzyCandidates(conn, entity, text, {
+        nameFields: [fields.name, fields.fullName].filter(Boolean),
+        select: [fields.ref, fields.name, fields.fullName].filter(Boolean),
+        filter: live || undefined,
+        limit: 10,
+      }),
+    ).catch((e: unknown) => {
+      if (e instanceof InputError) throw e;
+      return [];
+    });
+    // Тот же текст с точностью до регистра, ё/е и кавычек — это он и есть.
+    const same = similar.filter((h) => h.score >= 0.98);
+    if (same.length === 1)
+      return { ref: String(same[0]!.row[fields.ref]), name: String(same[0]!.row[fields.name]) };
     throw new InputError(
-      `${label} «${text}» не найдена в ${entity}. Посмотрите список: read.catalog.list_catalog (entitySet=${entity}), ` +
-        "затем передайте Ref_Key или точное название. Нужной статьи может не быть — тогда её заводят в 1С.",
+      similar.length
+        ? `${label} «${text}» не найдена в ${entity} точно; похожие (score 0..1): ` +
+            similar
+              .map((h) => `«${String(h.row[fields.name])}» (${String(h.row[fields.ref])}, score ${h.score})`)
+              .join("; ") +
+            ". Передайте Ref_Key нужной (уточните у пользователя)."
+        : `${label} «${text}» не найдена в ${entity} ни по вхождению, ни по похожему написанию. Посмотрите список: ` +
+            `read.catalog.list_catalog (entitySet=${entity}), затем передайте Ref_Key или точное название. ` +
+            "Нужного элемента может не быть — тогда его заводят в 1С.",
     );
+  }
   throw new InputError(
     `${label} «${text}» неоднозначна: ${list(hits.slice(0, 10))}${hits.length > 10 ? " и другие" : ""}. Передайте Ref_Key или точное название.`,
   );

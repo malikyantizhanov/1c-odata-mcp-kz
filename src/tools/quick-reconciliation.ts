@@ -12,6 +12,14 @@ import { resolveOrgOrDefault } from "../odata/orgs.js";
 import type { ODataEntity } from "../types/odata.js";
 import { databaseField, dateField, guard, ok, organizationField } from "./_shared.js";
 import { isKazakhstan, tengeRef } from "./write-kz.js";
+import { contractOption, counterpartyContracts, matchContracts } from "../odata/contracts.js";
+import {
+  counterpartyMatchNote,
+  fuzzyCandidates,
+  nameScore,
+  soleStrong,
+  type CounterpartyMatch,
+} from "../odata/fuzzy.js";
 import { almatyNow, normName, subOperationId, subRequestHash, writeBlocked } from "./quick-invoice.js";
 import { printTarget } from "./print.js";
 import {
@@ -236,7 +244,7 @@ async function resolveCounterparty(
   name?: string;
   fullName?: string;
   bin?: string;
-  fuzzy?: boolean;
+  match?: CounterpartyMatch;
   choice?: Choice;
 }> {
   const select = [
@@ -273,16 +281,50 @@ async function resolveCounterparty(
           normName(str(r["НаименованиеПолное"])) === normName(q),
       );
       if (exact.length) rows = exact;
-      else if (rows.length === 1) return { ...view(rows[0]!), fuzzy: true };
-      else if (rows.length)
-        return {
-          choice: {
-            field: "counterparty",
-            reason: `Точного совпадения «${q}» нет, есть похожие.`,
-            options: rows.slice(0, 10).map(view),
-            howTo: "Передайте counterparty — БИН/ИИН или ref нужного контрагента.",
-          },
-        };
+      else {
+        // Точного нет: вхождения с оценкой, нет и их — похожие по написанию. Единственный сильный кандидат —
+        // подставляем с пометкой (counterpartyMatch), иначе варианты.
+        const hits = rows.length
+          ? rows
+              .map((row) => ({
+                row,
+                score: Math.max(
+                  nameScore(q, str(row["Description"])),
+                  nameScore(q, str(row["НаименованиеПолное"])),
+                ),
+              }))
+              .sort((a, b) => b.score - a.score)
+          : await fuzzyCandidates(conn, "Catalog_Контрагенты", q.trim(), {
+              nameFields: ["Description", "НаименованиеПолное"],
+              select,
+              filter: cmp("DeletionMark", "eq", "false"),
+            });
+        const sole = soleStrong(hits);
+        if (sole) {
+          const v = view(sole.row);
+          // Оценка 1 — то же название без учёта ОПФ, кавычек и регистра: совпадение точное, без пометки.
+          if (sole.score >= 1) return v;
+          return {
+            ...v,
+            match: {
+              query: q,
+              matched: { ref: v.ref, name: v.name, bin: v.bin },
+              exact: false,
+              score: sole.score,
+            },
+          };
+        }
+        if (hits.length)
+          return {
+            choice: {
+              field: "counterparty",
+              reason: `Точного совпадения «${q}» нет, есть похожие (score 0..1).`,
+              options: hits.slice(0, 10).map((h) => ({ ...view(h.row), score: h.score })),
+              howTo:
+                "Подтвердите у пользователя и передайте counterparty — БИН/ИИН или ref нужного контрагента.",
+            },
+          };
+      }
     }
   }
   if (!rows.length) throw new InputError(`Контрагент «${q}» не найден. Укажите БИН/ИИН или Ref_Key.`);
@@ -305,29 +347,8 @@ async function resolveContract(
   cp: string,
   org: string,
 ): Promise<{ ref?: string; name?: string; choice?: Choice }> {
-  const { rows } = await fetchAll(
-    conn.client,
-    "Catalog_ДоговорыКонтрагентов",
-    {
-      filter: and(
-        cmp("Owner_Key", "eq", odataGuid(cp)),
-        cmp("Организация_Key", "eq", odataGuid(org)),
-        cmp("DeletionMark", "eq", "false"),
-      ),
-      select: ["Ref_Key", "Description", "НомерДоговора", "IsFolder"],
-    },
-    50,
-    50,
-  );
-  const items = rows.filter((r) => r["IsFolder"] !== true);
-  const hits = isGuid(q)
-    ? items.filter((r) => str(r["Ref_Key"]) === guid(q))
-    : items.filter(
-        (r) =>
-          normName(str(r["Description"])) === normName(q) ||
-          normName(str(r["НомерДоговора"])) === normName(q.replace(/^№\s*/, "")) ||
-          normName(str(r["Description"])).includes(normName(q)),
-      );
+  const items = await counterpartyContracts(conn, cp, org, "Catalog_ДоговорыКонтрагентов");
+  const hits = matchContracts(items, q);
   if (hits.length === 1) return { ref: str(hits[0]!["Ref_Key"]), name: str(hits[0]!["Description"]) };
   if (hits.length > 1)
     return {
@@ -341,8 +362,8 @@ async function resolveContract(
   throw new InputError(
     `Договор «${q}» не найден.` +
       (items.length
-        ? ` Есть: ${items.map((r) => `«${str(r["Description"])}» (ref ${str(r["Ref_Key"])})`).join("; ")}.`
-        : ""),
+        ? ` Есть: ${items.map(contractOption).join("; ")}. Передайте contract — ref нужного или не указывайте contract (сверка по всем договорам).`
+        : " У контрагента нет договоров с этой организацией — не указывайте contract."),
   );
 }
 
@@ -351,6 +372,8 @@ interface Plan {
   choices: Choice[];
   org: { ref: string; name: string };
   counterparty?: { ref: string; name: string; bin?: string | undefined };
+  /** Контрагент подставлен не по точному совпадению наименования. */
+  counterpartyMatch?: CounterpartyMatch | undefined;
   contract?: { ref: string; name: string };
   from?: string | undefined;
   to: string;
@@ -386,15 +409,11 @@ async function planReconciliation(conn: Connection, input: QuickInput): Promise<
   const cp = await resolveCounterparty(conn, input.counterparty);
   if (cp.choice) return { ...empty, choices: [cp.choice] };
   const counterparty = { ref: cp.ref!, name: cp.name!, bin: cp.bin };
-  const fuzzyNote = cp.fuzzy
-    ? [
-        `Контрагент найден по части наименования «${input.counterparty}»: «${cp.name}» (БИН/ИИН ${cp.bin ?? "—"}) — проверьте.`,
-      ]
-    : [];
+  const fuzzyNote = cp.match ? [counterpartyMatchNote(cp.match)] : [];
   let contract: Plan["contract"];
   if (input.contract?.trim()) {
     const c = await resolveContract(conn, input.contract.trim(), counterparty.ref, org.ref);
-    if (c.choice) return { ...empty, counterparty, choices: [c.choice] };
+    if (c.choice) return { ...empty, counterparty, counterpartyMatch: cp.match, choices: [c.choice] };
     contract = { ref: c.ref!, name: c.name! };
   }
   const reg = await reconciliationFromRegister(conn, {
@@ -467,6 +486,7 @@ async function planReconciliation(conn: Connection, input: QuickInput): Promise<
     choices: [],
     org,
     counterparty,
+    counterpartyMatch: cp.match,
     ...(contract ? { contract } : {}),
     from,
     to,
@@ -525,6 +545,7 @@ function planView(plan: Plan) {
   return {
     organization: plan.org,
     ...(plan.counterparty ? { counterparty: plan.counterparty } : {}),
+    ...(plan.counterpartyMatch ? { counterpartyMatch: plan.counterpartyMatch } : {}),
     contract: plan.contract ?? "все договоры контрагента",
     period: { from: plan.from ?? "с начала учёта", to: plan.to },
     opening: plan.opening,

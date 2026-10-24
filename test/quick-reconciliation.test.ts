@@ -229,11 +229,22 @@ describe("write.counterparty.quick_reconciliation", () => {
     expect((next["possibleDuplicates"] as Row[]).length).toBe(1);
   });
 
-  it("один похожий контрагент по части имени — берётся с пометкой; без контрагента в базе — ошибка", async () => {
+  it("то же название без ОПФ — точное совпадение; «ТрейдСпейс» — ближайший с counterpartyMatch; нет — ошибка", async () => {
     const f = fake1C({ store: store() });
     const plan = (await f.call(TOOL, { counterparty: "TRADESPACE", to: "2026-10-09" })).structuredContent!;
     expect(plan).toMatchObject({ ready: true, counterparty: { ref: BUYER } });
-    expect((plan["notes"] as string[]).join(" ")).toMatch(/по части наименования/);
+    expect(plan).not.toHaveProperty("counterpartyMatch");
+
+    const near = (await f.call(TOOL, { counterparty: "ТрейдСпейс", to: "2026-10-09" })).structuredContent!;
+    expect(near).toMatchObject({
+      ready: true,
+      counterparty: { ref: BUYER },
+      counterpartyMatch: { query: "ТрейдСпейс", matched: { ref: BUYER, bin: BIN }, exact: false, score: 0.9 },
+    });
+    expect((near["notes"] as string[]).join(" ")).toContain(
+      `Точного совпадения нет, беру ближайшее: «ТОО "TRADESPACE"» (БИН ${BIN})`,
+    );
+
     const missing = await f.call(TOOL, { counterparty: "Нет такого", to: "2026-10-09" });
     expect(missing.isError).toBe(true);
   });

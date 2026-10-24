@@ -1,7 +1,10 @@
 import type { Connection } from "../context.js";
+import { InputError } from "../errors.js";
+import { catalogOfRef, OWNER_CATALOGS } from "../odata/owner.js";
 import { fetchAll } from "../odata/pagination.js";
 import { buildQuery } from "../odata/query.js";
 import type { EntityMeta, ODataEntity } from "../types/odata.js";
+import { shortList } from "./_shared.js";
 
 /**
  * Субконто затрат в строках документов («Услуги» поступления, «Начисления» и т.п.): поля СубконтоЗатратБУ1..3 /
@@ -288,6 +291,113 @@ export async function fillSubcontoTypes(
           notes.push(`Субконто затрат ${stage}, ${where}, счёт ${layout.code}: ${lines.join("; ")}.`);
       }
     }
+  }
+  return { payload: out, notes };
+}
+
+/** Справочники, в которых ищем ссылку составного поля без _Type: виды субконто и типовые владельцы. */
+export const COMPOSITE_REF_CATALOGS: readonly string[] = [
+  ...new Set([
+    ...Object.values(SUBCONTO_ENTITY_BY_KIND),
+    ...OWNER_CATALOGS,
+    "Catalog_Валюты",
+    "Catalog_Кассы",
+  ]),
+];
+
+/** Счёт, по субконто которого раскладывается поле: СубконтоДоходовБУ2 → СчетДоходовБУ_Key, СубконтоДт1 → СчетДт_Key. */
+const subcontoAccount = (field: string): { account: string; stage: Stage; index: number } | undefined => {
+  const m = /^Субконто(.*?)(\d)$/u.exec(field);
+  if (!m) return undefined;
+  return { account: `Счет${m[1]}_Key`, stage: m[1]!.endsWith("НУ") ? "НУ" : "БУ", index: Number(m[2]) };
+};
+
+/**
+ * Составные поля (СубконтоДоходовБУ1..3, СубконтоРасходов…, СубконтоДт/Кт и др.): 1С требует рядом <Имя>_Type, а агент
+ * часто передаёт только Ref_Key. Дописываем _Type в шапке и строках табличных частей:
+ *  1) поле субконто со счётом в той же строке (СчетДоходовБУ_Key…) — по виду субконто счёта (ExtDimensionTypes);
+ *  2) иначе — по справочнику, где найден Ref_Key (COMPOSITE_REF_CATALOGS).
+ * Не определили — InputError с коротким списком допустимых типов (первые 10 и «и ещё N»).
+ * СубконтоЗатрат… здесь уже обработаны fillSubcontoTypes (у них _Type к этому моменту есть).
+ */
+export async function fillCompositeTypes(
+  conn: Connection,
+  em: EntityMeta,
+  payload: Record<string, unknown>,
+): Promise<{ payload: Record<string, unknown>; notes: string[] }> {
+  const meta = await conn.getMetadata();
+  const available = await conn.available();
+  const notes: string[] = [];
+  const layouts = new Map<string, Promise<AccountLayout | undefined>>();
+  const located = new Map<string, Promise<string | undefined>>();
+  const candidates = COMPOSITE_REF_CATALOGS.filter((c) => available.has(c));
+  const locate = (ref: string) => {
+    const key = ref.toLowerCase();
+    if (!located.has(key)) located.set(key, catalogOfRef(conn, ref, candidates));
+    return located.get(key)!;
+  };
+  const fill = async (
+    row: Record<string, unknown>,
+    rowMeta: EntityMeta,
+    where: string,
+  ): Promise<Record<string, unknown>> => {
+    const names = new Set(rowMeta.properties.map((p) => p.name));
+    const out = { ...row };
+    for (const [field, value] of Object.entries(row)) {
+      if (field.endsWith("_Type") || !names.has(`${field}_Type`)) continue;
+      if (!filled(value) || !isGuid(value)) continue;
+      const given = out[`${field}_Type`];
+      if (typeof given === "string" && given.trim() && !/Undefined$/.test(given)) continue;
+      let entity: string | undefined;
+      let how = "";
+      const sub = subcontoAccount(field);
+      const acc = sub ? out[sub.account] : undefined;
+      if (sub && filled(acc) && isGuid(acc)) {
+        const nav = rowMeta.navigations?.find((n) => n.name === sub.account.replace(/_Key$/, ""));
+        const chart = nav?.toType.replace(/^StandardODATA\./, "") ?? DEFAULT_CHART[sub.stage];
+        const key = `${chart}|${acc}`;
+        if (!layouts.has(key)) layouts.set(key, accountLayout(conn, chart, acc));
+        const slot = (await layouts.get(key)!)?.slots.find((s) => s.index === sub.index);
+        if (slot?.entity) {
+          entity = slot.entity;
+          how = `по субконто ${sub.index} счёта (${slot.kind ?? "?"})`;
+        }
+      }
+      if (!entity) {
+        entity = await locate(value);
+        if (entity) how = "по справочнику, где найдена ссылка";
+      }
+      if (!entity && !sub) {
+        // Не субконто (ДокументОснование и т.п. — бывает и документом): не гадаем, подсказываем.
+        notes.push(
+          `${where}: ${field} — составное поле без ${field}_Type; тип ссылки ${value} не определён (в справочниках её нет) — ` +
+            `передайте ${field}_Type (напр. «StandardODATA.Document_…»), иначе 1С запись не примет.`,
+        );
+        continue;
+      }
+      if (!entity)
+        throw new InputError(
+          `${where}: ${field} — составное поле, 1С требует ${field}_Type, а тип ссылки ${value} определить не удалось ` +
+            `(нет ни в одном справочнике; счёт ${sub!.account} не задан или его субконто не прочитаны). ` +
+            `Передайте ${field}_Type, напр. «StandardODATA.Catalog_СтатьиЗатрат». Допустимые типы: ` +
+            `${shortList(candidates.map(typeName), 10, ", ") || "см. read.schema.describe_entity"}.`,
+        );
+      out[`${field}_Type`] = typeName(entity);
+      notes.push(`${where}: ${field}_Type = ${typeName(entity)} — ${how}.`);
+    }
+    return out;
+  };
+  let out = await fill(withTypeNamespace(payload), em, em.entitySet);
+  for (const part of em.properties) {
+    const rowSet = rowSetOf(part.type);
+    const rowMeta = rowSet ? meta.entities.get(rowSet) : undefined;
+    const rows = out[part.name];
+    if (!rowMeta || !Array.isArray(rows)) continue;
+    if (!rowMeta.properties.some((p) => p.name.endsWith("_Type"))) continue;
+    const next: Array<Record<string, unknown>> = [];
+    for (const [i, r] of (rows as Array<Record<string, unknown>>).entries())
+      next.push(await fill(r, rowMeta, `${part.name}, строка ${i + 1}`));
+    out = { ...out, [part.name]: next };
   }
   return { payload: out, notes };
 }

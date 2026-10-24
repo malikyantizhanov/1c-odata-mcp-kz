@@ -73,31 +73,98 @@ describe("quick_invoice: план (confirm=false)", () => {
     expect(f.posts).toEqual([]);
   });
 
-  it("два действующих договора — варианты, без догадки", async () => {
+  it("два действующих договора, основного нет — последний по дате, с пометкой contractAutoSelected", async () => {
+    const store = baseStore();
+    store["Catalog_ДоговорыКонтрагентов"]!.push(
+      {
+        ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
+        Ref_Key: id(20),
+        Description: "Договор №2",
+        НомерДоговора: "2",
+        ДатаДоговора: "2026-10-20T00:00:00",
+      },
+      // Помеченный на удаление и чужого вида не участвуют, хотя они «новее».
+      {
+        ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
+        Ref_Key: id(21),
+        Description: "Договор удалённый",
+        ДатаДоговора: "2026-10-25T00:00:00",
+        DeletionMark: true,
+      },
+      {
+        ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
+        Ref_Key: id(22),
+        Description: "Договор поставки",
+        ВидДоговора: "СПоставщиком",
+        ДатаДоговора: "2026-10-24T00:00:00",
+      },
+    );
+    const plan = sc(await fake1C({ store }).quick(TRADESPACE));
+    expect(plan).toMatchObject({
+      ready: true,
+      contract: { action: "подставлен автоматически", ref: id(20) },
+      contractAutoSelected: {
+        ref: id(20),
+        name: "Договор №2",
+        reason: "последний договор вида «С покупателем»",
+        alternatives: [{ ref: CONTRACT, name: "Договор б/н" }],
+      },
+    });
+    expect((plan["notes"] as string[]).join(" ")).toContain(
+      "Выбран последний договор вида «С покупателем» «Договор №2»",
+    );
+    expect(plan).toHaveProperty("operationId");
+  });
+
+  it("основной договор контрагента среди нескольких — берётся он, с пометкой «можно сменить»", async () => {
     const store = baseStore();
     store["Catalog_ДоговорыКонтрагентов"]!.push({
       ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
       Ref_Key: id(20),
       Description: "Договор №2",
-      НомерДоговора: "2",
-    });
-    const plan = sc(await fake1C({ store }).quick(TRADESPACE));
-    expect(plan).toMatchObject({ ready: false, choices: [{ field: "contract" }] });
-    expect(plan["choices"][0].options.map((o: Row) => o["ref"]).sort()).toEqual([CONTRACT, id(20)].sort());
-    expect(plan).not.toHaveProperty("operationId");
-  });
-
-  it("основной договор контрагента среди нескольких — берётся он", async () => {
-    const store = baseStore();
-    store["Catalog_ДоговорыКонтрагентов"]!.push({
-      ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
-      Ref_Key: id(20),
+      ДатаДоговора: "2026-01-01T00:00:00",
     });
     store["Catalog_Контрагенты"]![0]!["ОсновнойДоговорКонтрагента_Key"] = id(20);
+    const plan = sc(await fake1C({ store }).quick(TRADESPACE));
+    expect(plan).toMatchObject({
+      ready: true,
+      contract: { ref: id(20) },
+      contractAutoSelected: {
+        ref: id(20),
+        reason: "основной договор",
+        alternatives: [{ ref: CONTRACT, name: "Договор б/н" }],
+      },
+    });
+    expect((plan["notes"] as string[]).join(" ")).toMatch(
+      /Выбран основной договор «Договор №2».*можно сменить/,
+    );
+  });
+
+  it("основной договор другой организации не берётся — последний подходящий", async () => {
+    const store = baseStore();
+    store["Catalog_ДоговорыКонтрагентов"]!.push(
+      {
+        ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
+        Ref_Key: id(20),
+        Description: "Договор №2",
+        ДатаДоговора: "2026-01-01T00:00:00",
+      },
+      {
+        ...store["Catalog_ДоговорыКонтрагентов"]![0]!,
+        Ref_Key: id(23),
+        Description: "Договор чужой организации",
+        Организация_Key: id(99),
+      },
+    );
+    store["Catalog_Контрагенты"]![0]!["ОсновнойДоговорКонтрагента_Key"] = id(23);
     expect(sc(await fake1C({ store }).quick(TRADESPACE))).toMatchObject({
       ready: true,
-      contract: { action: "найден", ref: id(20) },
+      contractAutoSelected: { ref: CONTRACT, reason: "последний договор вида «С покупателем»" },
     });
+  });
+
+  it("один подходящий договор — без contractAutoSelected", async () => {
+    expect(sc(await fake1C().quick(TRADESPACE))).not.toHaveProperty("contractAutoSelected");
   });
 
   it("недействующий договор и неточное наименование услуги — варианты; createNew — «создать»", async () => {

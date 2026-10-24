@@ -16,8 +16,71 @@ const kzReadReason =
 // Kazakhstan writes cover the invoice path (counterparty, nomenclature, contract, invoice) and, through the generic
 // document tools, payroll, its taxes and payouts; other documents with postings still assume Russian accounts and VAT.
 const kzWriteReason = `В казахстанской базе доступна запись: ${KZ_WRITE_TOOLS.join(", ")}. Документы флоу бухгалтера (продажи, закупки, деньги, зарплата, кадры, склад, ОС/НМА, подотчёт, сверка, закрытие месяца, налоги) — через ${KZ_DOCUMENT_TOOLS.join(", ")} (список — kazakhstanDocuments, схемы и нормы — read.system.kz_document_guide). Профильные российские инструменты (create_shipment, create_payment и т.п.) здесь не работают: они ставят российские счета и НДС.`;
-const kzDocumentReason = (entitySet: unknown) =>
-  `Документ ${String(entitySet)} в казахстанской базе этим инструментом не пишется. Доступны: ${KZ_DOCUMENTS.join(", ")}.`;
+/**
+ * Куда идти вместо неподдерживаемого документа: агент просит «Акт об оказании производственных услуг» (документ БП РФ),
+ * а в базе РК услуги продаются реализацией. Первое совпадение по имени — подсказка в начале сообщения.
+ */
+const KZ_DOCUMENT_ALTERNATIVES: ReadonlyArray<[RegExp, string]> = [
+  [
+    /Акт(Об)?Оказани|ОказаниеУслуг|АктВыполненныхРабот|РеализацияУслуг|УПД|Отгрузк/,
+    "Реализация услуг (акт, оказание услуг) в базе РК — write.sales.quick_sale (одним вызовом: план → confirm, " +
+      "по счёту на оплату или buyer + lines) или write.document.create_document с Document_РеализацияТоваровУслуг " +
+      "(табличная часть «Услуги»). ЭАВР по реализации — write.avr.create_draft.",
+  ],
+  [
+    /СчетНаОплату(Покупателю)?$|СчетПокупателю/,
+    "Счёт на оплату покупателю — write.sales.quick_invoice (одним вызовом).",
+  ],
+  [
+    /Поступлени.*(Услуг|Товар)|Покупк|Закупк|АктПоставщика|ПриобретениеУслуг/,
+    "Поступление услуг — write.purchase.create_services_receipt; товаров — write.document.create_document с " +
+      "Document_ПоступлениеТоваровУслуг.",
+  ],
+  [
+    /СписаниеСРасчетного|ПлатежноеПоручение$|ОплатаПоставщику/,
+    "Оплата с расчётного счёта — Document_ПлатежноеПоручениеИсходящее (или ПлатежныйОрдерСписаниеДенежныхСредств).",
+  ],
+  [
+    /ПоступлениеНаРасчетный|ОплатаОтПокупателя/,
+    "Поступление на расчётный счёт — Document_ПлатежноеПоручениеВходящее (или ПлатежныйОрдерПоступлениеДенежныхСредств).",
+  ],
+  [/АктСверки|Сверк/, "Акт сверки — write.counterparty.quick_reconciliation (одним вызовом, с PDF)."],
+  [
+    /ЭСФ|ЭлектронныйСчетФактура/,
+    "ЭСФ — write.esf.create_draft (черновик по счёту-фактуре выданному или реализации).",
+  ],
+  [/Доверенност/, "Доверенность — write.document.create_power_of_attorney."],
+  [/Комплектаци/, "Комплектация — write.warehouse.create_kitting."],
+];
+
+/** Части имени документа (по заглавным буквам) — для подбора похожих из списка доступных. */
+const nameParts = (set: string): string[] =>
+  (set.replace(/^Document_/, "").match(/[А-ЯЁA-Z][а-яёa-z]*/g) ?? []).map((w) => w.toLowerCase().slice(0, 5));
+
+/** Доступные документы, похожие по имени (общие части названия), — вместо полного списка из 70 строк. */
+export function similarKzDocuments(entitySet: string, limit = 5): string[] {
+  const want = new Set(nameParts(entitySet).filter((w) => w.length >= 4));
+  return KZ_DOCUMENTS.map((d) => ({ d, n: nameParts(d).filter((w) => want.has(w)).length }))
+    .filter((x) => x.n > 0)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, limit)
+    .map((x) => x.d);
+}
+
+export const kzDocumentReason = (entitySet: unknown): string => {
+  const set = String(entitySet);
+  const alt = KZ_DOCUMENT_ALTERNATIVES.find(([re]) => re.test(set.replace(/^Document_/, "")))?.[1];
+  const similar = similarKzDocuments(set);
+  return (
+    `Документ ${set} в казахстанской базе этим инструментом не пишется.` +
+    (alt ? ` ${alt}` : "") +
+    (similar.length ? ` Похожие доступные документы: ${similar.join(", ")}.` : "") +
+    // Подсказать нечего — тогда полный список: агенту надо из чего-то выбрать.
+    (alt || similar.length
+      ? ` Полный список (${KZ_DOCUMENTS.length}) — read.system.capabilities → kazakhstanDocuments, схемы проводок — read.system.kz_document_guide.`
+      : ` Доступны: ${KZ_DOCUMENTS.join(", ")}.`)
+  );
+};
 const kzDocumentsUsage = [
   "Акт сверки с контрагентом — write.counterparty.quick_reconciliation одним вызовом: сам считает сальдо, документы и обороты по регистру (как «Заполнить» в 1С), план → confirm=true → акт без проведения и PDF. Не собирайте акт вручную через create_document.",
   "Документы флоу пишутся write.document.create_document / update_document и проводятся write.document.post_document; схема проводок, нормы НК и особенности каждого — read.system.kz_document_guide. Суммы, ставки и вычеты задаёте сами — 1С при записи через OData их не пересчитывает и счета учёта по умолчанию не подставляет: передавайте sampleRef — проведённый документ того же вида, сделанный в 1С; из него берутся только счета, субконто и виды операций НДС.",

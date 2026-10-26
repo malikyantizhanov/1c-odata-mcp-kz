@@ -8,6 +8,21 @@ import { InputError } from "../errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { requireEntity } from "../odata/publication.js";
 import { and, buildQuery, cmp, contains, odataGuid, odataString } from "../odata/query.js";
+import {
+  contractOption,
+  counterpartyContracts,
+  matchContracts,
+  pickLikelyContract,
+  type ContractAutoSelected,
+} from "../odata/contracts.js";
+import {
+  counterpartyMatchNote,
+  fuzzyCandidates,
+  nameScore,
+  normalizeName,
+  soleStrong,
+  type CounterpartyMatch,
+} from "../odata/fuzzy.js";
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
 import { ODataError } from "../odata/errors.js";
 import { resolveOrgOrDefault } from "../odata/orgs.js";
@@ -132,7 +147,9 @@ export const quickInvoiceInput = {
     .max(200)
     .optional()
     .describe(
-      "Договор: Ref_Key, номер или наименование. Без него — действующий договор «С покупателем»; нет ни одного — будет создан «б/н».",
+      "Договор: Ref_Key, номер или наименование («Без договора»/«б/н» — договор без номера). Без него — действующий " +
+        "договор «С покупателем»; нет ни одного — будет создан «б/н». Указанный не найден — подставится единственный " +
+        "подходящий (с пометкой в плане), иначе ошибка со списком договоров.",
     ),
   bankAccount: z
     .string()
@@ -206,9 +223,21 @@ export interface QuickPlan {
   org: { ref: string; name: string; vatPayer: boolean; vatBasis: string; mainBank?: string | undefined };
   buyer?: { ref: string; name: string; bin?: string | undefined } | undefined;
   contract?:
-    | { action: "use" | "create"; ref?: string | undefined; name: string; number?: string; date?: string }
+    | {
+        action: "use" | "create";
+        ref?: string | undefined;
+        name: string;
+        number?: string;
+        date?: string;
+        /** Указанный договор не найден — подставлен единственный подходящий. */
+        auto?: boolean;
+      }
     | undefined;
   bank?: { ref: string; number?: string | undefined; name?: string | undefined } | undefined;
+  /** Покупатель подставлен не по точному совпадению наименования. */
+  counterpartyMatch?: CounterpartyMatch | undefined;
+  /** Договор выбран сам из нескольких подходящих (основной или последний) — можно сменить. */
+  contractAutoSelected?: ContractAutoSelected | undefined;
   date: string;
   dateTime: string;
   lines: PlannedLine[];
@@ -316,6 +345,7 @@ async function resolveBuyer(
 ): Promise<{
   buyer?: QuickPlan["buyer"];
   mainContract?: string | undefined;
+  match?: CounterpartyMatch;
   choice?: Choice;
   notes: string[];
 }> {
@@ -333,6 +363,19 @@ async function resolveBuyer(
     bin: str(r["ИдентификационныйКодЛичности"]) || undefined,
   });
   const option = (r: ODataEntity) => ({ ...toBuyer(r), fullName: str(r["НаименованиеПолное"]) || undefined });
+  // Точного совпадения нет, но сильный кандидат один — подставляем с пометкой (counterpartyMatch + note).
+  // Оценка 1 — то же название без учёта ОПФ, кавычек и регистра («TRADESPACE» = ТОО «TRADESPACE»): совпадение точное.
+  const closest = (r: ODataEntity, score: number) => {
+    const b = toBuyer(r);
+    if (score >= 1) return { buyer: b, mainContract: refOf(r["ОсновнойДоговорКонтрагента_Key"]), notes: [] };
+    const match: CounterpartyMatch = { query: q, matched: b, exact: false, score };
+    return {
+      buyer: b,
+      mainContract: refOf(r["ОсновнойДоговорКонтрагента_Key"]),
+      match,
+      notes: [counterpartyMatchNote(match)],
+    };
+  };
   let rows: ODataEntity[];
   let how: string;
   if (isGuid(q)) {
@@ -377,17 +420,52 @@ async function resolveBuyer(
     );
     rows = exact.length ? exact : found.rows;
     how = `по наименованию «${q}»`;
-    if (!rows.length) throw new InputError(`Покупатель «${q}» не найден. Укажите БИН/ИИН или Ref_Key.`);
-    if (!exact.length)
+    if (!rows.length) {
+      // Вхождения нет — похожие по написанию (ё/е, кавычки, ТОО/LLP, латиница ↔ кириллица): варианты с оценкой.
+      const hits = await fuzzyCandidates(conn, set, q, {
+        nameFields: ["Description", "НаименованиеПолное"],
+        select,
+        filter: cmp("DeletionMark", "eq", "false"),
+        limit: OPTIONS_LIMIT,
+      });
+      const sole = soleStrong(hits);
+      if (sole) return closest(sole.row, sole.score);
+      if (!hits.length)
+        throw new InputError(
+          `Покупатель «${q}» не найден ни по вхождению, ни по похожему написанию. Найдите его ` +
+            "read.counterparty.find_counterparty (по БИН/ИИН или части названия) и передайте buyer — БИН/ИИН или Ref_Key; " +
+            "нет в базе — write.counterparty.create_counterparty.",
+        );
+      return {
+        notes: [],
+        choice: {
+          field: "buyer",
+          reason: `Покупателя «${q}» нет, есть похожие по написанию (score 0..1).`,
+          options: hits.map((h) => ({ ...option(h.row), score: h.score })),
+          howTo: "Подтвердите у пользователя и передайте buyer — БИН/ИИН или ref нужного контрагента.",
+        },
+      };
+    }
+    if (!exact.length) {
+      const scored = rows.map((row) => ({
+        row,
+        score: Math.max(nameScore(q, str(row["Description"])), nameScore(q, str(row["НаименованиеПолное"]))),
+      }));
+      const sole = soleStrong(scored);
+      if (sole) return closest(sole.row, sole.score);
       return {
         notes: [],
         choice: {
           field: "buyer",
           reason: `Точного совпадения ${how} нет, есть похожие.`,
-          options: rows.slice(0, OPTIONS_LIMIT).map(option),
+          options: scored
+            .sort((a, b) => b.score - a.score)
+            .slice(0, OPTIONS_LIMIT)
+            .map((h) => ({ ...option(h.row), score: h.score })),
           howTo: "Передайте buyer — БИН/ИИН или ref нужного контрагента.",
         },
       };
+    }
   }
   if (rows.length > 1)
     return {
@@ -426,31 +504,14 @@ async function resolveContract(
   orgRef: string,
   mainContract: string | undefined,
   date: string,
-): Promise<{ contract?: QuickPlan["contract"]; choice?: Choice; notes: string[] }> {
+): Promise<{
+  contract?: QuickPlan["contract"];
+  autoSelected?: ContractAutoSelected;
+  choice?: Choice;
+  notes: string[];
+}> {
   if (!set) throw new InputError("Справочник «Договоры контрагентов» не опубликован в OData.");
-  const { rows } = await fetchAll(
-    conn.client,
-    set,
-    {
-      filter: and(
-        cmp("Owner_Key", "eq", odataGuid(buyerRef)),
-        cmp("Организация_Key", "eq", odataGuid(orgRef)),
-        cmp("DeletionMark", "eq", "false"),
-      ),
-      select: [
-        "Ref_Key",
-        "Description",
-        "НомерДоговора",
-        "ДатаДоговора",
-        "ВидДоговора",
-        "ДатаНачалаДействияДоговора",
-        "ДатаОкончанияДействияДоговора",
-        "IsFolder",
-      ],
-    },
-    50,
-    50,
-  );
+  const rows = await counterpartyContracts(conn, buyerRef, orgRef, set);
   const items = rows.filter((r) => r["IsFolder"] !== true);
   const view = (r: ODataEntity) => ({
     action: "use" as const,
@@ -459,17 +520,27 @@ async function resolveContract(
     number: str(r["НомерДоговора"]) || undefined,
     date: str(r["ДатаДоговора"]).slice(0, 10) || undefined,
   });
-  const option = (r: ODataEntity) => ({ ...view(r), kind: str(r["ВидДоговора"]), active: activeOn(r, date) });
+  // Несколько подходящих — не останавливаемся на выборе: основной договор контрагента, иначе последний по дате;
+  // в плане — contractAutoSelected с вариантами, карточка предлагает сменить.
+  const pick = (candidates: ODataEntity[], prefix: string) => {
+    const p = pickLikelyContract(candidates, "СПокупателем", mainContract)!;
+    return {
+      contract: { ...view(p.row), auto: true },
+      autoSelected: p.auto,
+      notes: [
+        prefix + p.note,
+        ...(str(p.row["ВидДоговора"]) && str(p.row["ВидДоговора"]) !== "СПокупателем"
+          ? [
+              `Договор «${str(p.row["Description"])}» — вид «${str(p.row["ВидДоговора"])}», не «С покупателем».`,
+            ]
+          : []),
+      ],
+    };
+  };
+  const active = items.filter((r) => str(r["ВидДоговора"]) === "СПокупателем" && activeOn(r, date));
   if (input?.trim()) {
     const q = input.trim();
-    const hits = isGuid(q)
-      ? items.filter((r) => str(r["Ref_Key"]) === guid(q))
-      : items.filter(
-          (r) =>
-            normName(str(r["Description"])) === normName(q) ||
-            normName(str(r["НомерДоговора"])) === normName(q.replace(/^№\s*/, "")) ||
-            normName(str(r["Description"])).includes(normName(q)),
-        );
+    const hits = matchContracts(items, q);
     if (hits.length === 1) {
       const r = hits[0]!;
       const notes = [
@@ -480,44 +551,25 @@ async function resolveContract(
       ];
       return { contract: view(r), notes };
     }
-    if (hits.length > 1)
-      return {
-        notes: [],
-        choice: {
-          field: "contract",
-          reason: `Под «${q}» подходит несколько договоров покупателя.`,
-          options: hits.slice(0, OPTIONS_LIMIT).map(option),
-          howTo: "Передайте contract — ref нужного договора.",
-        },
-      };
+    if (hits.length > 1) {
+      // Под запрос подходит несколько — среди них предпочитаем действующие «С покупателем».
+      const better = hits.filter((r) => active.includes(r));
+      return pick(better.length ? better : hits, `Под «${q}» подходит несколько договоров покупателя. `);
+    }
+    // Указанного нет — подставляем подходящий (эта организация, вид «С покупателем», действует) и говорим об этом
+    // в плане: так агент не застревает на «Без договора» при «Договор б/н» в базе.
+    if (active.length)
+      return pick(active, `Договор «${q}» у покупателя не найден — договор подставлен автоматически. `);
     throw new InputError(
-      `Договор «${q}» у покупателя не найден.` +
+      `Договор «${q}» у покупателя не найден, действующих договоров «С покупателем» с этой организацией нет.` +
         (items.length
-          ? ` Есть: ${items.map((r) => `«${str(r["Description"])}» (ref ${str(r["Ref_Key"])})`).join("; ")}.`
+          ? ` Есть: ${items.map(contractOption).join("; ")}.`
           : " Договоров нет — не указывайте contract, и договор «б/н» будет создан."),
     );
   }
-  const active = items.filter((r) => str(r["ВидДоговора"]) === "СПокупателем" && activeOn(r, date));
   if (active.length === 1) return { contract: view(active[0]!), notes: [] };
-  if (active.length > 1) {
-    const main = active.find((r) => str(r["Ref_Key"]) === mainContract);
-    if (main)
-      return {
-        contract: view(main),
-        notes: [
-          `Договоров «С покупателем» несколько — взят основной договор контрагента «${str(main["Description"])}».`,
-        ],
-      };
-    return {
-      notes: [],
-      choice: {
-        field: "contract",
-        reason: `У покупателя ${active.length} действующих договора «С покупателем».`,
-        options: active.slice(0, OPTIONS_LIMIT).map(option),
-        howTo: "Передайте contract — ref нужного договора.",
-      },
-    };
-  }
+  if (active.length > 1)
+    return pick(active, `У покупателя ${active.length} действующих договора «С покупателем». `);
   const inactive = items.filter((r) => str(r["ВидДоговора"]) === "СПокупателем");
   return {
     contract: { action: "create", name: "Договор б/н", number: "б/н", date },
@@ -595,6 +647,43 @@ async function resolveLine(
       normName(str(r["Description"])) === normName(name) ||
       normName(str(r["НаименованиеПолное"])) === normName(name),
   );
+  if (!items.length && !l.createNew) {
+    // Вхождения нет — похожие по написанию (ё/е, кавычки, латиница ↔ кириллица, опечатки), чтобы не завести дубль.
+    const hits = (
+      await fuzzyCandidates(conn, nomSet, name, {
+        nameFields: ["Description", "НаименованиеПолное"],
+        select,
+        filter: cmp("DeletionMark", "eq", "false"),
+        limit: OPTIONS_LIMIT,
+      }).catch(() => [])
+    ).filter((h) => h.row["IsFolder"] !== true);
+    const same = hits.filter(
+      (h) =>
+        (h.row["Услуга"] === true) === wantService &&
+        (normalizeName(str(h.row["Description"])) === normalizeName(name) ||
+          normalizeName(str(h.row["НаименованиеПолное"])) === normalizeName(name)),
+    );
+    if (same.length === 1) {
+      const r = same[0]!.row;
+      return {
+        ref: str(r["Ref_Key"]),
+        name: str(r["Description"]),
+        unitRef: refOf(r["БазоваяЕдиницаИзмерения_Key"]),
+        notes: [],
+      };
+    }
+    if (hits.length)
+      return {
+        name,
+        notes: [],
+        choice: {
+          field,
+          reason: `Точного совпадения «${name}» нет, есть похожие по написанию позиции (score 0..1).`,
+          options: hits.map((h) => ({ ...option(h.row), score: h.score })),
+          howTo: `Передайте ${field}.ref подходящей позиции или ${field}.createNew=true, чтобы завести новую.`,
+        },
+      };
+  }
   const exactKind = exact.filter((r) => (r["Услуга"] === true) === wantService);
   if (exactKind.length === 1) {
     const r = exactKind[0]!;
@@ -793,7 +882,9 @@ export async function planQuickInvoice(
     notes,
     org,
     buyer: buyerRes.buyer,
+    counterpartyMatch: buyerRes.match,
     contract: contractRes?.contract,
+    contractAutoSelected: contractRes?.autoSelected,
     bank,
     date,
     dateTime,
@@ -936,7 +1027,7 @@ function planView(plan: QuickPlan) {
             plan.contract.action === "create"
               ? { action: "создать", name: plan.contract.name, date: plan.contract.date }
               : {
-                  action: "найден",
+                  action: plan.contract.auto ? "подставлен автоматически" : "найден",
                   ref: plan.contract.ref,
                   name: plan.contract.name,
                   number: plan.contract.number,
@@ -944,6 +1035,8 @@ function planView(plan: QuickPlan) {
                 },
         }
       : {}),
+    ...(plan.counterpartyMatch ? { counterpartyMatch: plan.counterpartyMatch } : {}),
+    ...(plan.contractAutoSelected ? { contractAutoSelected: plan.contractAutoSelected } : {}),
     ...(plan.bank ? { bankAccount: plan.bank } : {}),
     lines: plan.lines.map((l) => ({
       ...(l.action === "create" ? { action: "создать" } : { action: "найдена", ref: l.ref }),
@@ -1201,11 +1294,15 @@ export function registerQuickInvoiceTool(server: McpServer, ctx: ServerContext):
     {
       title: "Счёт на оплату в один вызов (Казахстан)",
       description:
-        "Счёт на оплату покупателю за один-два вызова вместо 6–8. confirm=false (по умолчанию) — один вызов: сам находит " +
+        "Счёт на оплату покупателю за один-два вызова вместо 6–8. Обязательно: buyer (БИН/ИИН, Ref_Key из " +
+        "read.counterparty.find_counterparty или название — похожие придут вариантами со score; единственный сильный кандидат подставится с пометкой counterpartyMatch) и lines (name или ref " +
+        "номенклатуры, price). contract — Ref_Key, номер или название; «Без договора»/«б/н» — договор без номера; " +
+        "не указан или не найден, а подходящих несколько — подставится основной договор контрагента, иначе последний " +
+        "«С покупателем» (contractAutoSelected: ref, name, reason, alternatives — покажите «можно сменить»). confirm=false (по умолчанию) — один вызов: сам находит " +
         "организацию (статус НДС — по карточке; неплательщик — «без НДС»), покупателя по БИН/ИИН, действующий договор " +
         "«С покупателем», номенклатуру по наименованию, основной банковский счёт — и возвращает компактный план: " +
         "что найдено, что будет создано («создать» — договор/услуга), итоги, notes и operationId. Ничего не пишет. " +
-        "Неоднозначность (два договора, похожие услуги) — варианты в choices, без догадок. План проверяет дубли: " +
+        "Неоднозначность (похожие покупатели или услуги) — варианты в choices, без догадок. План проверяет дубли: " +
         "счета того же покупателя за тот же день на ту же сумму (проведённые и нет; помеченные на удаление не считаются) " +
         "— в possibleDuplicates (номер, дата, ref, сумма, posted, linesMatch). Не пуст — ОБЯЗАТЕЛЬНО покажите его " +
         "пользователю до подтверждения: «используй №N» (PDF — read.document.print_invoice) или «создай ещё». confirm=true с тем же operationId " +

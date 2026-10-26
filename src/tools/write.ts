@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { analyticsFields, applyLineAnalytics, type LineAnalytics } from "./line-analytics.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
-import { ok, fail, guard, databaseField, organizationField } from "./_shared.js";
+import { ok, fail, guard, databaseField, organizationField, shortList } from "./_shared.js";
 import { CATALOGS, DOCUMENTS, resolveEntity } from "../config/mapping.js";
 import { resolveOrgOrDefault } from "../odata/orgs.js";
 import { ensurePublished, requireEntity } from "../odata/publication.js";
@@ -15,8 +15,17 @@ import {
   resolveAdditionalProperty,
   type ContactKinds,
 } from "../odata/refdata.js";
+import {
+  contractActiveOn,
+  contractOption,
+  counterpartyContracts,
+  matchContracts,
+  pickLikelyContract,
+  type ContractAutoSelected,
+} from "../odata/contracts.js";
+import { fuzzyCandidates } from "../odata/fuzzy.js";
 import { fetchAll } from "../odata/pagination.js";
-import { and, buildQuery, cmp, contains, odataGuid, odataString } from "../odata/query.js";
+import { and, buildQuery, cmp, contains, odataString } from "../odata/query.js";
 import type { ODataEntity } from "../types/odata.js";
 import {
   createResultSchema,
@@ -42,6 +51,7 @@ import { getDocumentMovements } from "../odata/movements.js";
 import { getDocumentPostings } from "./registers.js";
 import { PAYROLL_SUM_SETS, payrollPostRefusal } from "./payroll-sums.js";
 import { buildPreviewView, readDocumentCard } from "./preview-view.js";
+import { findDocumentByNumber } from "./print.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
@@ -193,7 +203,19 @@ export async function resolveCatalogItem(
         )
       ).rows;
   const first = rows[0];
-  if (!first) throw new InputError(`${label}: «${query}» не найдено (по коду или наименованию).`);
+  if (!first) {
+    const similar = await fuzzyCandidates(conn, set, query, {
+      nameFields: ["Description"],
+      select: ["Ref_Key", "Code", "Description"],
+      limit: 10,
+    }).catch(() => []);
+    throw new InputError(
+      `${label}: «${query}» не найдено (по коду или наименованию)` +
+        (similar.length
+          ? `; похожие (score 0..1): ${similar.map((h) => `«${String(h.row["Description"])}» (${String(h.row["Ref_Key"])}, score ${h.score})`).join("; ")}. Передайте код или Ref_Key нужного.`
+          : `. Список — read.catalog.list_catalog (entitySet=${set}).`),
+    );
+  }
   return {
     ref: String(first["Ref_Key"]),
     code: first["Code"] ? String(first["Code"]) : undefined,
@@ -1067,56 +1089,137 @@ const CONTRACT_KIND_BY_DOC: ReadonlyMap<string, "СПокупателем" | "С
 
 const EMPTY_REF = "00000000-0000-0000-0000-000000000000";
 
+/** Варианты договоров для сообщения: первые 10 и «и ещё N». */
+const contractOptions = (rows: ODataEntity[]): string => shortList(rows.map(contractOption), 10);
+
 /**
- * Договор не указан — поступаем как форма 1С при выборе контрагента: если у контрагента ровно один
- * договор нужного вида с этой организацией, подставляем его. Несколько или ни одного — не угадываем,
- * а предупреждаем: без договора 1С документ не проведёт (в БП 3.0 падает невнятной ошибкой модуля
- * прослеживаемости «Преобразование значения к типу Булево»).
+ * Договор в документе — как форма 1С при выборе контрагента, плюс то, на чём застревают агенты:
+ *  • не указан: подходящий договор (вид, организация, действует на дату) один — подставляем; несколько — берём
+ *    основной договор контрагента (ОсновнойДоговорКонтрагента_Key), иначе последний по дате, и возвращаем
+ *    contractAutoSelected с вариантами («можно сменить»); ни одного — notes с вариантами: без договора 1С документ
+ *    не проведёт (в БП 3.0 — невнятной ошибкой модуля прослеживаемости «Преобразование значения к типу Булево»);
+ *  • указан текстом («Без договора», «б/н», «№ 12») — сопоставляем с договорами контрагента (договор без номера
+ *    для «без договора»/«б/н»); несколько совпадений — тот же выбор наиболее вероятного;
+ *  • указан, но не найден (ни по тексту, ни по Ref_Key): подставляем наиболее вероятный подходящий с пометкой;
+ *    InputError — только когда подходящих договоров нет вовсе.
  */
 export async function withDefaultContract(
   conn: Connection,
   entitySet: string,
   payload: Record<string, unknown>,
-): Promise<{ payload: Record<string, unknown>; notes: string[] }> {
+): Promise<{
+  payload: Record<string, unknown>;
+  notes: string[];
+  contractAutoSelected?: ContractAutoSelected | undefined;
+}> {
   const kind = CONTRACT_KIND_BY_DOC.get(entitySet);
   const counterparty = payload["Контрагент_Key"];
-  if (!kind || typeof counterparty !== "string" || !counterparty || payload["ДоговорКонтрагента_Key"]) {
+  if (!kind || typeof counterparty !== "string" || !counterparty || counterparty === EMPTY_REF) {
     return { payload, notes: [] };
   }
   const available = await conn.available();
   const set = CATALOGS.contracts.find((c) => available.has(c));
   if (!set) return { payload, notes: [] };
   const org = typeof payload["Организация_Key"] === "string" ? payload["Организация_Key"] : undefined;
-  const found = await conn.client.getCollection<ODataEntity>(
-    `${set}${buildQuery({
-      select: ["Ref_Key", "Description"],
-      filter: and(
-        cmp("Owner_Key", "eq", odataGuid(counterparty)),
-        cmp("ВидДоговора", "eq", odataString(kind)),
-        cmp("DeletionMark", "eq", "false"),
-        org ? cmp("Организация_Key", "eq", odataGuid(org)) : undefined,
-      ),
-      top: 3,
-    })}`,
-  );
   const kindText = kind === "СПокупателем" ? "с покупателем" : "с поставщиком";
-  if (found.value.length === 1) {
-    const ctr = found.value[0]!;
+  const given =
+    typeof payload["ДоговорКонтрагента_Key"] === "string" ? payload["ДоговорКонтрагента_Key"].trim() : "";
+  // Пустая ссылка передана явно — договор сознательно пуст: не подставляем, но варианты показываем.
+  const explicitEmpty = !!given && given.replace(/[{}]/g, "") === EMPTY_REF;
+  if (given && !explicitEmpty && GUID_RE.test(given)) {
+    // Ref_Key договора: существует — оставляем как есть (одно чтение); нет такого — подбираем ниже.
+    const exists = await conn.client
+      .getEntity(`${set}(guid'${given.replace(/[{}]/g, "")}')${buildQuery({ select: ["Ref_Key"] })}`)
+      .then(() => true)
+      .catch((e: unknown) => {
+        if (e instanceof ODataError && e.kind === "not_found") return false;
+        throw e;
+      });
+    if (exists) return { payload, notes: [] };
+  }
+  const items = await counterpartyContracts(conn, counterparty, org, set);
+  const date = typeof payload["Date"] === "string" ? payload["Date"].slice(0, 10) : undefined;
+  const ofKind = items.filter((r) => !r["ВидДоговора"] || r["ВидДоговора"] === kind);
+  const active = ofKind.filter((r) => contractActiveOn(r, date));
+  // Действующих на дату нет — берём из всех договоров нужного вида (1С проведёт, срок проверит бухгалтер).
+  const suitable = active.length ? active : ofKind;
+  const pick = async (candidates: ODataEntity[], prefix: string) => {
+    const main =
+      candidates.length > 1
+        ? await conn.client
+            .getEntity(
+              `${CATALOGS.counterparties.find((c) => available.has(c)) ?? "Catalog_Контрагенты"}(guid'${counterparty.replace(/[{}]/g, "")}')` +
+                buildQuery({ select: ["ОсновнойДоговорКонтрагента_Key"] }),
+            )
+            .then((r) =>
+              typeof r["ОсновнойДоговорКонтрагента_Key"] === "string"
+                ? r["ОсновнойДоговорКонтрагента_Key"]
+                : undefined,
+            )
+            .catch(() => undefined)
+        : undefined;
+    const p = pickLikelyContract(candidates, kind, main)!;
     return {
-      payload: { ...payload, ДоговорКонтрагента_Key: ctr["Ref_Key"] },
+      payload: { ...payload, ДоговорКонтрагента_Key: p.auto.ref },
       notes: [
-        `Договор не указан — подставлен единственный договор ${kindText}: «${String(ctr["Description"] ?? "")}».`,
+        prefix +
+          p.note +
+          (active.includes(p.row) || !date ? "" : ` Договор не действует на ${date} — проверьте.`),
+      ],
+      ...(candidates.length > 1 ? { contractAutoSelected: p.auto } : {}),
+    };
+  };
+  if (explicitEmpty)
+    return {
+      payload,
+      notes: [
+        `Договор пуст — укажите нужный в contractRef (ДоговорКонтрагента_Key), иначе 1С документ не проведёт.` +
+          (suitable.length ? ` Варианты: ${contractOptions(suitable)}.` : ""),
+      ],
+    };
+  if (given) {
+    if (!GUID_RE.test(given)) {
+      const hits = matchContracts(suitable.length ? suitable : items, given);
+      if (hits.length === 1)
+        return {
+          payload: { ...payload, ДоговорКонтрагента_Key: String(hits[0]!["Ref_Key"]) },
+          notes: [
+            `Договор «${given}» сопоставлен с «${String(hits[0]!["Description"] ?? "")}» (ref ${String(hits[0]!["Ref_Key"])}).`,
+          ],
+        };
+      if (hits.length > 1)
+        return pick(hits, `Под договор «${given}» подходит несколько договоров контрагента. `);
+    }
+    if (suitable.length)
+      return pick(
+        suitable,
+        `Договор «${given}» у контрагента не найден — договор подставлен автоматически. `,
+      );
+    throw new InputError(
+      `Договор «${given}» у контрагента не найден, договоров ${kindText} с этой организацией нет.` +
+        (items.length
+          ? ` Другие договоры контрагента: ${contractOptions(items)}.`
+          : " Договоров у контрагента нет — создайте его (write.catalog.create_contract, вид уточните у пользователя)."),
+    );
+  }
+  if (suitable.length === 1) {
+    const ctr = suitable[0]!;
+    return {
+      payload: { ...payload, ДоговорКонтрагента_Key: String(ctr["Ref_Key"]) },
+      notes: [
+        `Договор не указан — подставлен единственный договор ${kindText} (договор подставлен автоматически): ` +
+          `«${String(ctr["Description"] ?? "")}» (ref ${String(ctr["Ref_Key"])}).` +
+          (active.length || !date ? "" : ` Договор не действует на ${date} — проверьте.`),
       ],
     };
   }
+  if (suitable.length)
+    return pick(suitable, `Договор не указан, у контрагента ${suitable.length} договоров ${kindText}. `);
   return {
     payload,
     notes: [
-      found.value.length === 0
-        ? `У контрагента нет договора ${kindText} — документ создастся, но 1С его не проведёт. ` +
-          "Создайте договор (write.catalog.create_contract; вид уточните у пользователя) и передайте contractRef."
-        : `У контрагента несколько договоров ${kindText} — укажите нужный в contractRef, ` +
-          "иначе 1С документ не проведёт.",
+      `У контрагента нет договора ${kindText} — документ создастся, но 1С его не проведёт. ` +
+        "Создайте договор (write.catalog.create_contract; вид уточните у пользователя) и передайте contractRef.",
     ],
   };
 }
@@ -1126,7 +1229,7 @@ const CONTRACT_OPTIONAL = new Set(["Document_АктСверкиВзаимора�
 
 /**
  * Перед проведением: документ с контрагентом, но без договора 1С (БП 3.0) не проводит, причём падает
- * невнятной ошибкой модуля прослеживаемости. Говорим причину заранее, понятным текстом.
+ * невнятной ошибкой модуля прослеживаемости. Говорим причину заранее и сразу предлагаем договоры контрагента.
  */
 async function missingContract(
   conn: Connection,
@@ -1138,13 +1241,34 @@ async function missingContract(
   const props = new Set(em?.properties.map((p) => p.name) ?? []);
   if (!props.has("ДоговорКонтрагента_Key") || !props.has("Контрагент_Key")) return undefined;
   const doc = await conn.client.getEntity(
-    `${entitySet}(guid'${guid}')${buildQuery({ select: ["Контрагент_Key", "ДоговорКонтрагента_Key"] })}`,
+    `${entitySet}(guid'${guid}')${buildQuery({
+      select: [
+        "Контрагент_Key",
+        "ДоговорКонтрагента_Key",
+        ...(props.has("Организация_Key") ? ["Организация_Key"] : []),
+      ],
+    })}`,
   );
   const empty = (v: unknown) => !v || v === EMPTY_REF;
   if (empty(doc["Контрагент_Key"]) || !empty(doc["ДоговорКонтрагента_Key"])) return undefined;
+  const kind = CONTRACT_KIND_BY_DOC.get(entitySet);
+  let options = "";
+  try {
+    const org = empty(doc["Организация_Key"]) ? undefined : String(doc["Организация_Key"]);
+    const items = await counterpartyContracts(conn, String(doc["Контрагент_Key"]), org);
+    const suitable = kind ? items.filter((r) => !r["ВидДоговора"] || r["ВидДоговора"] === kind) : items;
+    options = suitable.length
+      ? ` Договоры контрагента${kind ? ` вида «${kind}»` : ""} с этой организацией: ${contractOptions(suitable)}.`
+      : items.length
+        ? ` Договоров вида «${kind}» нет; другие договоры контрагента: ${contractOptions(items)}.`
+        : " У контрагента нет договоров с этой организацией.";
+  } catch {
+    // варианты необязательны — достаточно причины
+  }
   return (
-    "В документе не заполнен договор с контрагентом — 1С его не проведёт. Укажите договор " +
-    '(write.document.update_document или write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
+    "В документе не заполнен договор с контрагентом — 1С его не проведёт." +
+    options +
+    ' Укажите договор (write.document.update_document или write.entity.update_entity с {"ДоговорКонтрагента_Key": "<Ref_Key договора>"}) и проведите снова; ' +
     "если договора нет — создайте его (write.catalog.create_contract, вид уточните у пользователя)."
   );
 }
@@ -1187,7 +1311,10 @@ export async function createOrPreview(
   const contract = await withDefaultContract(conn, entitySet, payload);
   payload = await withOperationMarker(conn, entitySet, contract.payload);
   const allNotes = [...(notes ?? []), ...contract.notes];
-  const extra = allNotes.length ? { notes: allNotes } : {};
+  const extra = {
+    ...(allNotes.length ? { notes: allNotes } : {}),
+    ...(contract.contractAutoSelected ? { contractAutoSelected: contract.contractAutoSelected } : {}),
+  };
   if (!confirm) {
     await conn.client.prepareCreate(entitySet, payload);
     const view = await buildPreviewView(conn, entitySet, payload).catch(() => undefined);
@@ -1419,6 +1546,45 @@ export function describeBody(body: string | undefined | null): string {
     );
   }
   return body.length > 1500 ? `${body.slice(0, 1500)}…` : body;
+}
+
+/**
+ * Документ для проведения: по ref (GUID) или по номеру и дате. Без них — понятная подсказка, где взять ref,
+ * вместо сырой ошибки валидации MCP («Required»).
+ */
+async function postTarget(
+  conn: Connection,
+  entitySet: string,
+  ref: string | undefined,
+  number: string | undefined,
+  date: string | undefined,
+): Promise<{ guid: string; found?: { number: string; date: string; posted: boolean } }> {
+  const r = ref?.trim() ?? "";
+  if (r) {
+    if (!GUID_RE.test(r.replace(/'/g, "")))
+      throw new InputError(
+        `ref «${r}» — не Ref_Key (GUID). Передайте Ref_Key документа из ответа create_*/quick_* или из ` +
+          "read.document.search_documents; номер документа передавайте в number (и date).",
+      );
+    return { guid: r.replace(/[{}']/g, "") };
+  }
+  if (!number?.trim())
+    throw new InputError(
+      `Укажите ref документа (Ref_Key, GUID) — найдите его read.document.search_documents по номеру и дате ` +
+        `(entitySet=${entitySet}), или передайте сюда number и date — документ найдётся по номеру.`,
+    );
+  const m = await findDocumentByNumber(
+    conn,
+    entitySet,
+    number,
+    { date },
+    {
+      what: `Документ ${entitySet}`,
+      several: "документов",
+      empty: "Укажите номер документа (number) или ref.",
+    },
+  );
+  return { guid: m.ref, found: { number: m.number, date: m.date, posted: m.posted } };
 }
 
 export function registerWriteTools(server: McpServer, ctx: ServerContext): void {
@@ -1741,7 +1907,9 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "организация, ВИД договора, номер/дата, валюта/тип цен и (опц.) руководитель/подписант. " +
         "ВАЖНО: вид договора (kind) обязателен и его НЕЛЬЗЯ выбирать самостоятельно — " +
         "уточните у пользователя, т.к. один контрагент может быть и покупателем, и поставщиком. " +
-        "Номер по умолчанию «б/н», дата — сегодня. По умолчанию предпросмотр (dry-run); создание — при confirm=true.",
+        "Номер по умолчанию «б/н», дата — сегодня. counterpartyRef — read.counterparty.find_counterparty. Сначала " +
+        "проверьте, нет ли уже договора: read.catalog.list_catalog (entitySet=Catalog_ДоговорыКонтрагентов, " +
+        "owner=<Ref_Key контрагента>) — дубль «б/н» потом путает подбор. По умолчанию предпросмотр (dry-run); создание — при confirm=true.",
       inputSchema: {
         database: databaseField,
         organization: organizationField,
@@ -1937,8 +2105,11 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
     {
       title: "Провести / отменить проведение документа",
       description:
-        "Проводит документ (влияет на учёт) или отменяет проведение. По умолчанию предпросмотр (dry-run); " +
-        "применение — при confirm=true. ВНИМАНИЕ: проведение меняет учётные данные — используйте осознанно.",
+        "Проводит документ (влияет на учёт) или отменяет проведение. Обязательно: entitySet и документ — ref (Ref_Key " +
+        "из ответа create_*/quick_* или read.document.search_documents) либо number (+ date). Перед проведением " +
+        "проверяет договор: пустой — ошибка с вариантами договоров контрагента (ref + название), поправить — " +
+        "write.document.update_document. Платёжки проводятся только при Оплачено=true. По умолчанию предпросмотр " +
+        "(dry-run); применение — при confirm=true. ВНИМАНИЕ: проведение меняет учётные данные — используйте осознанно.",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -1946,17 +2117,36 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           .describe(
             "Имя документа, напр. Document_СчетНаОплатуПокупателю (префикс Document_ можно опустить)",
           ),
-        ref: z.string().describe("Ref_Key документа (GUID)"),
+        ref: z
+          .string()
+          .optional()
+          .describe(
+            "Ref_Key документа (GUID) — из ответа create_*/quick_* или read.document.search_documents. " +
+              "Нет ref — передайте number (и date): документ найдётся по номеру",
+          ),
+        number: z
+          .string()
+          .max(50)
+          .optional()
+          .describe("Номер документа, как в 1С («3» или «00000000003») — вместо ref"),
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "Дата должна быть в формате YYYY-MM-DD")
+          .optional()
+          .describe(
+            "Дата документа YYYY-MM-DD — уточняет поиск по номеру (номера в 1С повторяются по годам)",
+          ),
         post: z.boolean().default(true).describe("true — провести, false — отменить проведение"),
         confirm: confirmField,
       },
       outputSchema: postDocumentResultSchema,
     },
-    ({ database, entitySet, ref, post, confirm }) =>
+    ({ database, entitySet, ref, number, date, post, confirm }) =>
       guard("write.document.post_document", async () => {
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
-        const guid = ref.replace(/[{}']/g, "");
+        const target = await postTarget(conn, entitySet, ref, number, date);
+        const guid = target.guid;
         const action = post ? "Post" : "Unpost";
         const path = `${entitySet}(guid'${guid}')/${action}?$format=json`;
         if (!confirm) {
@@ -1985,6 +2175,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             dryRun: true,
             database: conn.cfg.name,
             willCall: `${entitySet}(${guid})/${action}`,
+            ...(target.found ? { ref: guid, foundByNumber: target.found } : {}),
             ...(notes.length ? { notes } : {}),
             note: "Предпросмотр. Чтобы применить, повторите с confirm=true.",
           });
@@ -2588,7 +2779,8 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "содержание и счета задавайте заново; в казахстанской базе не работает — там update_document). (2) analytics — точечная правка аналитики затрат существующих строк по " +
         "номеру: счёт затрат БУ/НУ (costAccount/taxCostAccount — код или Ref_Key), статья затрат (costArticle — код, " +
         "название или Ref_Key), подразделение, номенклатурная группа, контрагент (subcontoCounterparty) и явные " +
-        "СубконтоЗатратБУ1..3 / НУ1..3 (subconto); остальные поля строк и сумма документа остаются как есть. Раскладка по слотам и _Type — по субконто счёта " +
+        "СубконтоЗатратБУ1..3 / НУ1..3 и другие слоты строки, напр. СубконтоДоходовБУ1..3 (subconto, значение — Ref_Key, _Type " +
+        "допишется сам); остальные поля строк и сумма документа остаются как есть. ref документа — read.document.search_documents. Раскладка по слотам и _Type — по субконто счёта " +
         "затрат (как в write.purchase.create_services_receipt); в notes — что изменится (старое → новое) и " +
         "предупреждения о пустых слотах. Документ должен быть НЕПРОВЕДЁННЫМ (проведённый — сначала post_document " +
         "post=false); dry-run с analytics по проведённому документу показывает план, но применить его нельзя. " +

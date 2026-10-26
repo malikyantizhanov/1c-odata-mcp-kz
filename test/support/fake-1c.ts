@@ -372,6 +372,7 @@ export function baseStore(): Store {
         НомерСчета: "KZ86125KZT1004100100",
         Банк_Key: BANK,
         Owner: ORG,
+        Owner_Type: "StandardODATA.Catalog_Организации",
       },
     ],
     Catalog_Банки: [
@@ -485,6 +486,8 @@ export function fake1C(
     printOnCreate?: boolean;
     /** false — общий HTTP-режим: на диск не пишем, PDF/файлы идут только ресурсом. */
     printToDisk?: boolean | undefined;
+    /** Как настоящая 1С: в ответе на выборку — только поля из $select (иначе строки целиком). */
+    honorSelect?: boolean;
   } = {},
 ) {
   const store = opts.store ?? baseStore();
@@ -676,7 +679,13 @@ export function fake1C(
     const all = (store[set] ?? []).filter((r) => matches(r, q.get("$filter") ?? undefined));
     const skip = Number(q.get("$skip") ?? 0);
     const top = Number(q.get("$top") ?? all.length);
-    return { value: all.slice(skip, skip + top) };
+    const sel = opts.honorSelect ? q.get("$select")?.split(",") : undefined;
+    const page = all.slice(skip, skip + top);
+    return {
+      value: sel
+        ? page.map((r) => Object.fromEntries(sel.filter((k) => k in r).map((k) => [k, r[k]])))
+        : page,
+    };
   }) as never);
   const tools = (
     createServer({

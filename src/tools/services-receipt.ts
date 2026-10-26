@@ -86,7 +86,9 @@ export function registerServicesReceiptTool(server: McpServer, ctx: ServerContex
         "rateMultiplicity; счета расчётов: settlementAccount ('3310'), advanceAccount ('1610'). Сумму, ставку и курс " +
         "считаете сами — 1С их не пересчитывает. Предпросмотр (confirm=false) в notes показывает итоговые субконто " +
         "по строкам и предупреждает о незаполненных счетах расчётов и пустой статье затрат; создание — confirm=true " +
-        "после согласия пользователя. Проведение — write.document.post_document. Пример: " +
+        "после согласия пользователя. Проведение — write.document.post_document. counterpartyRef — " +
+        "read.counterparty.find_counterparty; contractRef — read.catalog.list_catalog (Catalog_ДоговорыКонтрагентов, " +
+        "owner=<контрагент>): без договора 1С поступление не проведёт. Пример: " +
         '{"counterpartyRef":"<GUID>","contractRef":"<GUID>","expenseAccount":"7210","costArticle":"Прочие расходы",' +
         '"department":"Администрация","settlementAccount":"3310","lines":[{"nomenclatureRef":"<GUID услуги>",' +
         '"content":"Вознаграждение по займу за сентябрь","price":125000}]}.',
@@ -97,7 +99,13 @@ export function registerServicesReceiptTool(server: McpServer, ctx: ServerContex
         contractRef: z.string().optional().describe("Ref_Key договора (вид «СПоставщиком»)"),
         date: z.string().optional().describe("Дата документа YYYY-MM-DD (по умолчанию сегодня)"),
         comment: z.string().optional().describe("Комментарий (напр. расчёт ставки овернайт)"),
-        incomingNumber: z.string().optional().describe("Номер входящего документа поставщика"),
+        incomingNumber: z
+          .string()
+          .optional()
+          .describe(
+            "Номер входящего документа поставщика (акт/накладная). Не номер ЭСФ: регистрационный номер ЭСФ пишут во " +
+              "входящий номер счёта-фактуры полученного (Document_СчетФактураПолученный)",
+          ),
         incomingDate: z.string().optional().describe("Дата входящего документа YYYY-MM-DD"),
         currencyRef: z.string().optional().describe("Ref_Key валюты документа (ВалютаДокумента_Key)"),
         exchangeRate: z.number().positive().optional().describe("Курс взаиморасчётов (КурсВзаиморасчетов)"),

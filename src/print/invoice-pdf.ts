@@ -45,7 +45,7 @@ export interface InvoicePrintData {
   currency: string;
   /** «Параметры прописи» валюты из 1С — для суммы прописью («тенге» или «теңге», как настроено в базе). */
   currencySpelling?: string | undefined;
-  /** Исполнитель — как в подписи формы; без него 1С печатает «<Не указан>». */
+  /** Исполнитель — как в подписи формы. Пусто — под линией подписи ничего (1С печатает «/<Не указан>/», мы — нет). */
   executor?: string | undefined;
 }
 
@@ -104,6 +104,16 @@ const F10 = 9.84;
 const F14 = 14.28;
 const THIN = 0.75;
 const THICK = 1.5;
+
+/**
+ * Расшифровка подписи исполнителя «/Фамилия И.О./». Реквизит пуст (ответственный, подписант не заполнены) —
+ * undefined: плейсхолдер «<Не указан>» в документ для покупателя не выводим, линия подписи остаётся пустой.
+ */
+export function executorSignature(executor: string | undefined): string | undefined {
+  const name = (executor ?? "").trim();
+  if (!name || /^<?\s*не указан[аоы]?\s*>?$/i.test(name)) return undefined;
+  return `/${name}/`;
+}
 
 export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
   const pdf = new PDFDocument({
@@ -268,7 +278,8 @@ export function renderInvoicePdf(d: InvoicePrintData): Promise<Buffer> {
   // Подпись исполнителя.
   text("Исполнитель", "b", F10, 35.9, rule2 + 8.63);
   line(112.2, rule2 + 20.86, 332.76, rule2 + 20.86, THIN);
-  text(`/${d.executor || "<Не указан>"}/`, "r", F8, 334.7, rule2 + 10.73);
+  const signature = executorSignature(d.executor);
+  if (signature) text(signature, "r", F8, 334.7, rule2 + 10.73);
 
   pdf.end();
   return done;

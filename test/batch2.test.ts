@@ -608,7 +608,9 @@ describe("ЭСФ и ЭАВР по основанию", () => {
     });
     expect(p.Получатели[0]).toMatchObject({ ПолучательИдентификатор: "240440007327" });
     expect(p.Товары[0]).toMatchObject({ СуммаНДС: 16000, Сумма: 116000, СтавкаНДСЧисло: 16 });
-    for (const k of ["РегистрационныйНомер", "Статус", "Состояние"]) expect(p).not.toHaveProperty(k);
+    for (const k of ["РегистрационныйНомер", "Состояние"]) expect(p).not.toHaveProperty(k);
+    // Статус нового ЭСФ — «Черновик», как в форме 1С (с пустым статусом бухгалтер его не находит).
+    expect(p["Статус"]).toBe("Черновик");
     expect(sc(r)["notes"].join(" ")).toMatch(/Версия бланка ЭСФ не определена/);
     expect(f.posts).toHaveLength(0);
     const c = await f.call("write.esf.create_draft", {

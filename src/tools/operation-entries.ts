@@ -13,6 +13,7 @@ import { databaseField, dateField, fail, guard, ok } from "./_shared.js";
 import { getAccount, loadChart, refExists, type AccountInfo } from "./chart.js";
 import { rateOn } from "./registers-info.js";
 import { confirmField } from "./write.js";
+import { writeBlockedMessage, notWritableMessage } from "../write-status.js";
 
 /**
  * Проводки ручной операции (Document_ОперацияБух) — набор записей регистра бухгалтерии
@@ -565,14 +566,9 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
               : {}),
             note: conn.cfg.writable
               ? "Предпросмотр. Будет записан весь набор проводок документа; для записи повторите вызов с confirm=true после согласия бухгалтера."
-              : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
+              : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
           });
-        if (conn.behavior.readOnly)
-          return fail(
-            "Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).",
-          );
-        if (!conn.cfg.writable)
-          return fail(`Запись в базу "${conn.cfg.name}" запрещена: у базы нет writable: true.`);
+        if (writeBlockedMessage(conn)) return fail(writeBlockedMessage(conn)!);
 
         // Прежние проводки с субконто — чтобы вернуть их, если 1С не сохранит новый набор как задано.
         let previous: ODataEntity[] = [];

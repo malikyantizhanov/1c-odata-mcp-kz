@@ -348,7 +348,7 @@ exec npx -y "github:malikyantizhanov/1c-odata-mcp-kz#$SHA"
 | `meta.list_tools` | Актуальный список инструментов сервера — из того же реестра, что `tools/list`: версия сервера, число, имя, заголовок, описание, `inputSchema`, аннотации. Фильтры `prefix`, `search` (имя и описание, без учёта регистра), `includeSchema` (по умолчанию `true`). Пример: `{"prefix": "read.currency"}` |
 | `meta.call_tool` | Вызов инструмента по имени тем же путём, что прямой вызов (валидация, `READ_ONLY`, `writable`, dry-run → `confirm`, `operationId`); ответ — как у прямого вызова, включая ошибки. Для `write.*` действуют те же ограничения; `meta.*` через шлюз не вызываются. Пример: `{"name": "read.system.health_check", "arguments": {}}` |
 
-Нужны клиентам, которые запоминают список инструментов в начале разговора: новые инструменты после обновления сервера видны через `meta.list_tools` и вызываются через `meta.call_tool`.
+Нужны клиентам, которые запоминают список инструментов в начале разговора: новые инструменты после обновления сервера видны через `meta.list_tools` и вызываются через `meta.call_tool`. Шлюз есть и в общем HTTP-режиме — только для опубликованных там инструментов, без обхода `ODATA_HTTP_WRITE_TOOLS`. Какая версия запущена и вышла ли новее — блок `server` в `read.system.health_check` / `read.system.capabilities` («Запущена vX, доступна vY — перезапустите подключение 1С»; проверка по GitHub ≈2 с с кешем, отключается `ODATA_UPDATE_CHECK=false`).
 
 **Чтение и аналитика:**
 
@@ -481,6 +481,10 @@ exec npx -y "github:malikyantizhanov/1c-odata-mcp-kz#$SHA"
 - `READ_ONLY` — **необязательный** явный режим «только чтение» (по умолчанию `false`, т. е. не мешает). `READ_ONLY=true` включается только вручную и запрещает запись во всех базах, даже с `writable: true`.
 
 Подтверждение каждой записи (dry-run → `confirm=true`) остаётся в любом случае.
+
+Почему запись выключена — видно в блоке `write` ответа `read.system.capabilities` / `read.system.health_check`
+(`writeStatus`, `reason`: `read_only_env`, `writable_false_file`, `writable_false_env`, `writable_false_header`,
+`shared_no_write_tools`); тот же текст с подсказкой, кто и как включает запись, приходит на попытку записи.
 
 Дополнительно при записи:
 

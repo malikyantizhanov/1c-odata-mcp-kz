@@ -1,6 +1,15 @@
 import type { Behavior, ConnectionConfig } from "../config/env.js";
 import { logger } from "../logger.js";
-import { ODataError, fromHttpStatus, htmlText } from "./errors.js";
+import {
+  ODataError,
+  fromHttpStatus,
+  htmlText,
+  isUnavailablePage,
+  looksLikeHtml,
+  unavailablePageError,
+  writeOutcomeUnknown,
+} from "./errors.js";
+import { notWritableMessage, readOnlyMessage } from "../write-status.js";
 import type { ODataCollection, ODataEntity } from "../types/odata.js";
 import { currentWriteOperationId, currentWriteRequestHash } from "./write-operation-context.js";
 import { WriteOperationJournal, type OperationCheck } from "./write-journal.js";
@@ -44,17 +53,12 @@ export class ODataClient {
    */
   private assertWritable(method: string): void {
     if (READ_METHODS.has(method)) return;
+    // Тексты — в write-status.ts: кто и как включает запись (READ_ONLY, файл баз, env, командный режим).
     if (this.behavior.readOnly) {
-      throw new ODataError({
-        kind: "bad_request",
-        message: `Операция ${method} запрещена: сервер в режиме только-чтение (включён явный режим READ_ONLY=true; уберите его или задайте READ_ONLY=false)`,
-      });
+      throw new ODataError({ kind: "bad_request", message: `Операция ${method}: ${readOnlyMessage()}` });
     }
     if (!this.conn.writable) {
-      throw new ODataError({
-        kind: "bad_request",
-        message: `Запись в базу "${this.conn.name}" запрещена: задайте ODATA_DB_${this.conn.name.toUpperCase()}_WRITABLE=true в .env`,
-      });
+      throw new ODataError({ kind: "bad_request", message: notWritableMessage(this.conn) });
     }
   }
 
@@ -70,8 +74,10 @@ export class ODataClient {
   async request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     this.assertWritable(method);
     const url = this.url(path);
-    // Тело пишущих запросов повторять небезопасно (не идемпотентно) — без retry.
-    const maxAttempts = body === undefined ? this.behavior.retries + 1 : 1;
+    // Запись (POST/PATCH/PUT, в том числе действия Post/Unpost без тела) повторять небезопасно — без retry:
+    // запрос мог дойти до 1С. Повторяется только чтение.
+    const isWrite = !READ_METHODS.has(method);
+    const maxAttempts = isWrite ? 1 : this.behavior.retries + 1;
 
     let lastErr: ODataError | undefined;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -93,12 +99,13 @@ export class ODataClient {
 
         const ms = Math.round(performance.now() - started);
         if (!res.ok) {
-          const body = await res.text().catch(() => undefined);
-          const err = fromHttpStatus(res.status, url, body);
+          const text = await res.text().catch(() => undefined);
+          const err = fromHttpStatus(res.status, url, text);
           logger.warn({ url, status: res.status, ms, kind: err.kind }, "odata error");
+          if (isWrite && err.kind === "unavailable") throw writeOutcomeUnknown(err);
           if (err.retryable && attempt < maxAttempts) {
             lastErr = err;
-            await backoff(attempt, res.headers.get("Retry-After"));
+            await backoff(attempt, res.headers?.get?.("Retry-After"));
             continue;
           }
           throw err;
@@ -107,16 +114,32 @@ export class ODataClient {
         logger.debug({ url, status: res.status, ms }, "odata ok");
         // Действия (Post/Unpost) могут вернуть пустое тело — это не ошибка.
         const text = await res.text();
-        if (/^\s*</.test(text)) {
-          // 1cfresh на ошибки прав/исключения 1С иногда отвечает HTML-страницей с кодом 200.
+        if (/^\s*</.test(text) || looksLikeHtml(text, res.headers?.get?.("Content-Type"))) {
+          // 1cfresh отвечает HTML-страницей (часто с кодом 200) и при временной недоступности сервиса,
+          // и на ошибки прав/исключения 1С. Первое — временный сбой: чтение повторяем, запись — нет.
+          if (isUnavailablePage(text)) {
+            const err = unavailablePageError(res.status, url, text);
+            logger.warn({ url, status: res.status, ms, kind: err.kind }, "odata unavailable page");
+            if (isWrite) throw writeOutcomeUnknown(err);
+            if (attempt < maxAttempts) {
+              lastErr = err;
+              await backoff(attempt, res.headers?.get?.("Retry-After"));
+              continue;
+            }
+            throw err;
+          }
+          const page = htmlText(text);
           throw new ODataError({
             kind: "parse",
             status: res.status,
             url,
             message:
-              `Сервис вернул HTML-страницу вместо ответа OData (HTTP ${res.status}). Обычно это нет прав пользователя OData ` +
-              "на объект (роль/«Доступ запрещен») или исключение 1С при записи. Для записи исход неизвестен — проверьте объект в 1С." +
-              (htmlText(text) ? ` Текст страницы: «${htmlText(text)}»` : ""),
+              `Сервис вернул HTML-страницу вместо ответа OData (HTTP ${res.status}). Признаков временной недоступности ` +
+              "в ней нет: обычно это нет прав пользователя OData на объект (роль/«Доступ запрещен») или исключение 1С." +
+              (isWrite
+                ? " Для записи исход неизвестен — проверьте write.operation.status / документ перед повтором."
+                : "") +
+              (page ? ` Текст страницы: «${page}»` : ""),
           });
         }
         return (text ? JSON.parse(text) : undefined) as T;
@@ -289,7 +312,12 @@ export class ODataClient {
         signal: controller.signal,
       });
       const body = await res.text().catch(() => "");
-      if (!res.ok) throw fromHttpStatus(res.status, url, body);
+      if (!res.ok) {
+        const err = fromHttpStatus(res.status, url, body);
+        throw err.kind === "unavailable" ? writeOutcomeUnknown(err) : err;
+      }
+      if (looksLikeHtml(body, res.headers?.get?.("Content-Type")) && isUnavailablePage(body))
+        throw writeOutcomeUnknown(unavailablePageError(res.status, url, body));
       logger.debug({ url, status: res.status }, "odata action ok");
       return { status: res.status, body };
     } catch (e) {
@@ -299,28 +327,45 @@ export class ODataClient {
     }
   }
 
-  /** Сырой текст (для $metadata — это XML, не JSON). */
+  /** Сырой текст (для $metadata — это XML, не JSON). Чтение: временные сбои повторяются, как в request. */
   async getText(path: string): Promise<string> {
     this.assertWritable("GET");
     const url = this.url(path);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
-    try {
-      const res = await this.send(url, {
-        method: "GET",
-        headers: { Authorization: this.authHeader },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const body = await res.text().catch(() => undefined);
-        throw fromHttpStatus(res.status, url, body);
+    const maxAttempts = this.behavior.retries + 1;
+    let lastErr: ODataError | undefined;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.behavior.timeoutMs);
+      let retryAfter: string | null = null;
+      try {
+        const res = await this.send(url, {
+          method: "GET",
+          headers: { Authorization: this.authHeader },
+          signal: controller.signal,
+        });
+        retryAfter = res.headers?.get?.("Retry-After") ?? null;
+        if (!res.ok) {
+          const body = await res.text().catch(() => undefined);
+          throw fromHttpStatus(res.status, url, body);
+        }
+        const text = await res.text();
+        if (looksLikeHtml(text, res.headers?.get?.("Content-Type")) && isUnavailablePage(text))
+          throw unavailablePageError(res.status, url, text);
+        return text;
+      } catch (e) {
+        const err = normalize(e, url);
+        if (err.retryable && attempt < maxAttempts) {
+          lastErr = err;
+          logger.warn({ url, kind: err.kind, attempt }, "retrying");
+          await backoff(attempt, retryAfter);
+          continue;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      return await res.text();
-    } catch (e) {
-      throw normalize(e, url);
-    } finally {
-      clearTimeout(timer);
     }
+    throw lastErr ?? new ODataError({ kind: "unknown", message: "Запрос не выполнен", url });
   }
 }
 

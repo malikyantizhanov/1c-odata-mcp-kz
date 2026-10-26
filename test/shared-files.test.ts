@@ -63,14 +63,14 @@ describe("поведение общего режима", () => {
     expect(existsSync(join(f.conn.behavior.printDir!, "счета"))).toBe(false);
   });
 
-  it("в общем режиме разрешены печать и вложения — запрещён только шлюз", () => {
+  it("в общем режиме разрешены печать, вложения и шлюз meta.*", () => {
     expect(sharedToolFilter("read.document.print_invoice")).toBe(true);
     expect(sharedToolFilter("read.document.print_sale")).toBe(true);
     expect(sharedToolFilter("read.document.print_reconciliation")).toBe(true);
     expect(sharedToolFilter("read.files.list_attachments")).toBe(true);
     expect(sharedToolFilter("read.files.get_attachment")).toBe(true);
-    expect(sharedToolFilter("meta.call_tool")).toBe(false);
-    expect(sharedToolFilter("meta.list_tools")).toBe(false);
+    expect(sharedToolFilter("meta.call_tool")).toBe(true);
+    expect(sharedToolFilter("meta.list_tools")).toBe(true);
   });
 });
 

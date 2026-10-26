@@ -52,6 +52,7 @@ import { getDocumentPostings } from "./registers.js";
 import { PAYROLL_SUM_SETS, payrollPostRefusal } from "./payroll-sums.js";
 import { buildPreviewView, readDocumentCard } from "./preview-view.js";
 import { findDocumentByNumber } from "./print.js";
+import { notWritableMessage } from "../write-status.js";
 
 /** Тип ссылки на номенклатуру в табличной части (полиморфная ссылка 1С). */
 const NOMENCLATURE_TYPE = "StandardODATA.Catalog_Номенклатура";
@@ -1328,7 +1329,7 @@ export async function createOrPreview(
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" сейчас запрещена — задайте ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true.`,
+        : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
     });
   }
   let created: ODataEntity;
@@ -1387,7 +1388,7 @@ export async function patchOrPreview(
       ...extra,
       note: conn.cfg.writable
         ? "Предпросмотр изменения. Чтобы применить, повторите с confirm=true."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true.`,
+        : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
     });
   }
   const updated = await conn.client.patch<ODataEntity>(`${entitySet}(guid'${guid}')?$format=json`, fields);

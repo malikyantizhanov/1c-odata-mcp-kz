@@ -125,7 +125,8 @@ describe("общий HTTP-режим", () => {
     const b = await client(BOB);
     const names = (await a.listTools()).tools.map((t) => t.name);
     expect(names).toContain("read.system.health_check");
-    expect(names.some((n) => n.startsWith("meta."))).toBe(false);
+    expect(names).toContain("meta.list_tools");
+    expect(names).toContain("meta.call_tool");
     // Печать и вложения в общем режиме разрешены — PDF/файлы идут ресурсом, без диска.
     expect(names).toContain("read.document.print_invoice");
     expect(names).toContain("read.files.get_attachment");
@@ -145,6 +146,35 @@ describe("общий HTTP-режим", () => {
     expect(calls.find((c) => c.url.startsWith("https://b."))?.auth).toBe(auth(BOB));
     await a.close();
     await b.close();
+  });
+
+  it("шлюз meta.* в общем режиме: тот же отфильтрованный реестр, неопубликованная запись — понятный отказ", async () => {
+    stub1C();
+    const a = await client(ALICE);
+    const listed = (await a.callTool({ name: "meta.list_tools", arguments: { prefix: "write." } }))
+      .structuredContent as { count: number };
+    expect(listed.count).toBe(0); // ODATA_HTTP_WRITE_TOOLS пуст — ни одного write.*
+    const viaGw = await a.callTool({
+      name: "meta.call_tool",
+      arguments: { name: "write.sales.quick_invoice", arguments: { confirm: true } },
+    });
+    expect(viaGw.isError).toBe(true);
+    const msg = (viaGw.content as Array<{ text: string }>)[0]!.text;
+    expect(msg).toMatch(/ODATA_HTTP_WRITE_TOOLS/);
+    expect(msg).toMatch(/пуст/);
+    expect(msg).toMatch(/обратитесь к администратору команды\.$/);
+    const unknown = await a.callTool({ name: "meta.call_tool", arguments: { name: "write.nope.nothing" } });
+    expect((unknown.content as Array<{ text: string }>)[0]!.text).toMatch(/нет на сервере/);
+    // capabilities через шлюз: блок write — командный режим и причина (READ_ONLY=true у коннектора).
+    const cap = (
+      await a.callTool({
+        name: "meta.call_tool",
+        arguments: { name: "read.system.capabilities", arguments: {} },
+      })
+    ).structuredContent as { write: { writeStatus: string; reason: string; mode: string; message: string } };
+    expect(cap.write).toMatchObject({ writeStatus: "disabled", reason: "read_only_env", mode: "shared" });
+    expect(cap.write.message).toMatch(/коннектор/);
+    await a.close();
   });
 
   it("переиспользует подключение, пока учётка та же", async () => {
@@ -177,7 +207,7 @@ describe("разбор заголовка и фильтр инструменто
     expect(() => parseConnectionHeader(header({ ...BOB, id: "../etc" }))).toThrow(/id/);
   });
 
-  it("в общем режиме нет только шлюза; печать и вложения разрешены, запись — из белого списка", () => {
+  it("в общем режиме опубликован и шлюз meta.*; печать и вложения разрешены, запись — из белого списка", () => {
     expect(sharedToolFilter("read.analytics.debtors")).toBe(true);
     expect(sharedToolFilter("write.sales.quick_invoice")).toBe(false); // список пуст — записи нет
     expect(sharedToolFilter("write.operation.status")).toBe(false);
@@ -188,7 +218,8 @@ describe("разбор заголовка и фильтр инструменто
     expect(sharedToolFilter("write.sales.quick_invoice", writes)).toBe(true);
     expect(sharedToolFilter("write.document.post_document", writes)).toBe(false);
     expect(sharedToolFilter("write.operation.status", writes)).toBe(true); // сверка после сбоя — вместе с записью
-    expect(sharedToolFilter("meta.call_tool")).toBe(false);
+    expect(sharedToolFilter("meta.call_tool")).toBe(true);
+    expect(sharedToolFilter("meta.list_tools")).toBe(true);
     expect(sharedToolFilter("read.document.print_invoice")).toBe(true);
     expect(sharedToolFilter("read.files.get_attachment")).toBe(true);
     expect(sharedToolFilter("read.document.print_sale")).toBe(true);

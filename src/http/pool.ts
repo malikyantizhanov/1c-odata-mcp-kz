@@ -47,6 +47,7 @@ export function parseConnectionHeader(raw: string | undefined): ConnectionConfig
     username: c.username,
     password: c.password,
     writable: c.writable,
+    writableSource: { kind: "header" },
   };
 }
 

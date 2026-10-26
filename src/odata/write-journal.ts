@@ -468,7 +468,13 @@ export class WriteOperationJournal {
   }
 
   private unknownResult(operationId: string, cause?: unknown): ODataError {
-    const reason = cause instanceof ODataError ? ` (${cause.kind})` : "";
+    // Недоступность площадки (502/503/504, страница «сервис недоступен») — с её текстом: бухгалтеру важно, что это сбой 1cfresh.
+    const reason =
+      cause instanceof ODataError
+        ? cause.kind === "unavailable"
+          ? ` (${cause.kind}: ${cause.message})`
+          : ` (${cause.kind})`
+        : "";
     return new ODataError({
       kind: "unknown",
       message:

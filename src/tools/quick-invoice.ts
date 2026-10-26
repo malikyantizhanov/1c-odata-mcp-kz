@@ -39,6 +39,7 @@ import {
 } from "./write-kz.js";
 import { resolveOrgBankAccount } from "./write.js";
 import { printInvoice, printTarget } from "./print.js";
+import { writeBlockedMessage } from "../write-status.js";
 
 /**
  * Счёт на оплату покупателю «в один вызов» (Казахстан). confirm=false — один вызов: параллельные чтения, один
@@ -1057,12 +1058,7 @@ function planView(plan: QuickPlan) {
 const duplicateList = (d: DuplicateInvoice[]): string =>
   d.map((x) => `№ ${x.number} от ${x.date} на ${x.total} (ref ${x.ref})`).join("; ");
 
-export const writeBlocked = (conn: Connection): string | undefined =>
-  conn.behavior.readOnly
-    ? "Запись запрещена: сервер в режиме только-чтение (READ_ONLY=true)."
-    : !conn.cfg.writable
-      ? `Запись в базу "${conn.cfg.name}" запрещена: задайте ODATA_DB_${conn.cfg.name.toUpperCase()}_WRITABLE=true.`
-      : undefined;
+export const writeBlocked = (conn: Connection): string | undefined => writeBlockedMessage(conn);
 
 /** Перечитывает созданный счёт из базы и печатает PDF. */
 async function finish(

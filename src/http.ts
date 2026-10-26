@@ -5,7 +5,6 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -14,13 +13,16 @@ import { ServerContext } from "./context.js";
 import { createServer } from "./mcp/server.js";
 import { ConnectionPool, parseConnectionHeader } from "./http/pool.js";
 import { logger } from "./logger.js";
+import { serverVersion } from "./version.js";
 
 /**
  * Общий HTTP-режим: один коннектор на много пользователей. Учётка базы приходит с каждым запросом в заголовке
  * X-OneC-Connection (её присылает бэкенд чата), доступ к самому коннектору — по общему ключу Authorization: Bearer.
  * Streamable HTTP без сессий: на каждый POST /mcp — свой McpServer поверх подключения из пула.
  *
- * Чего нет в общем режиме: шлюза meta.* (инструменты для модели отбирает бэкенд). Печатные формы
+ * Шлюз meta.list_tools / meta.call_tool опубликован и здесь: клиенты чата тоже запоминают список инструментов, а
+ * шлюз работает только с инструментами этого же отфильтрованного реестра — неопубликованный пишущий инструмент через
+ * него не вызвать (ответ объясняет, что его нет в ODATA_HTTP_WRITE_TOOLS). Печатные формы
  * read.document.print_* и вложения read.files.* разрешены: PDF и файлы отдаются ресурсом MCP, на диск коннектора
  * при printToDisk=false ничего не пишется. Пишущие инструменты — только из белого списка
  * ODATA_HTTP_WRITE_TOOLS (пусто — ни одного); write.operation.status — вместе с ними, для сверки после сбоя.
@@ -28,7 +30,7 @@ import { logger } from "./logger.js";
 export function sharedToolFilter(name: string, writes: ReadonlySet<string> = new Set()): boolean {
   if (name.startsWith("write."))
     return writes.has(name) || (name === "write.operation.status" && writes.size > 0);
-  return !name.startsWith("meta.");
+  return true;
 }
 
 /** ODATA_HTTP_WRITE_TOOLS: имена пишущих инструментов через запятую. */
@@ -39,17 +41,6 @@ export function writeToolsFrom(env: Record<string, string | undefined>): Set<str
       .map((s) => s.trim())
       .filter((s) => s.startsWith("write.")),
   );
-}
-
-function version(): string {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-      version?: string;
-    };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
 }
 
 function json(
@@ -78,7 +69,7 @@ export interface HttpServerOptions {
 
 /** HTTP-сервер коннектора (без listen): /healthz и POST /mcp. */
 export function buildHttpServer(opts: HttpServerOptions): Server & { inflight: () => number } {
-  const ver = version();
+  const ver = serverVersion();
   const writes = opts.writeTools ?? new Set<string>();
   let inflight = 0;
   const server = createNodeServer((req: IncomingMessage, res: ServerResponse) => {
@@ -114,7 +105,7 @@ export function buildHttpServer(opts: HttpServerOptions): Server & { inflight: (
       const lease = await opts.pool.acquire(cfg);
       release = lease.release;
       if (closed) return release();
-      const mcp = createServer(ServerContext.forConnection(lease.conn), {
+      const mcp = createServer(ServerContext.forConnection(lease.conn, { writeTools: [...writes].sort() }), {
         toolFilter: (name) => sharedToolFilter(name, writes),
       });
       const transport = new StreamableHTTPServerTransport({

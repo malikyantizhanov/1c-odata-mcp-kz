@@ -3,6 +3,7 @@ import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { logger } from "../logger.js";
 import { fail } from "./_shared.js";
+import { sharedToolMessage, type SharedMode } from "../write-status.js";
 
 /**
  * Шлюз для клиентов, которые запоминают tools/list в начале разговора и не видят инструменты, появившиеся
@@ -16,6 +17,13 @@ import { fail } from "./_shared.js";
 
 export const META_LIST = "meta.list_tools";
 export const META_CALL = "meta.call_tool";
+
+/** Имена всех пишущих инструментов сервера (запоминает createServer до фильтра инструментов). */
+const KNOWN_WRITE_TOOLS = new Set<string>();
+export function registerKnownWriteTool(name: string): void {
+  if (name.startsWith("write.")) KNOWN_WRITE_TOOLS.add(name);
+}
+const knownWriteTool = (name: string) => KNOWN_WRITE_TOOLS.has(name);
 
 type RequestHandler = (
   request: { method: string; params: Record<string, unknown> },
@@ -90,7 +98,12 @@ type Register = (
 ) => unknown;
 
 /** Регистрирует meta.list_tools и meta.call_tool напрямую (без префлайта базы: целевой вызов пройдёт его сам). */
-export function registerGatewayTools(server: McpServer, register: Register, version: string): void {
+export function registerGatewayTools(
+  server: McpServer,
+  register: Register,
+  version: string,
+  shared?: SharedMode,
+): void {
   register(
     META_LIST,
     {
@@ -160,7 +173,8 @@ export function registerGatewayTools(server: McpServer, register: Register, vers
         "Вызывает инструмент сервера по имени — тем же путём, что прямой вызов, и возвращает его ответ без " +
         "изменений (включая ошибки). Для инструментов, которых клиент не видит в своём списке (см. meta.list_tools). " +
         "Для write.* действуют те же ограничения: dry-run по умолчанию, confirm=true и operationId из предпросмотра, " +
-        "READ_ONLY и writable базы, согласие бухгалтера. meta.* через шлюз не вызываются. " +
+        "READ_ONLY и writable базы, согласие бухгалтера; в командном подключении — только инструменты из ODATA_HTTP_WRITE_TOOLS " +
+        "(обхода нет: шлюз видит тот же список, что и клиент). meta.* через шлюз не вызываются. " +
         'Пример: {"name": "read.currency.get_rates", "arguments": {"currencies": ["USD"]}}.',
       inputSchema: {
         name: z
@@ -186,6 +200,9 @@ export function registerGatewayTools(server: McpServer, register: Register, vers
         );
       const names = (await listRegistered(server, extra)).map((t) => t.name);
       if (!names.includes(name)) {
+        // Командный режим: пишущий инструмент существует, но коннектор его не опубликовал — объясняем, а не «нет такого».
+        if (shared && name.startsWith("write.") && !shared.writeTools.includes(name) && knownWriteTool(name))
+          return fail(sharedToolMessage(name, shared));
         const hint = similarNames(name, names);
         return fail(
           `Инструмента «${name}» нет на сервере.` +

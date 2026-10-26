@@ -146,3 +146,24 @@ exec npx -y "github:malikyantizhanov/1c-odata-mcp-kz#$SHA"
 
 Через шлюз действуют те же правила, что при прямом вызове: для `write.*` — предпросмотр по умолчанию, запись только
 с `confirm=true` и `operationId` из предпросмотра, `READ_ONLY` и `writable` базы, согласие бухгалтера.
+В общем HTTP-режиме шлюз видит только опубликованные инструменты (`ODATA_HTTP_WRITE_TOOLS`) и не обходит этот список.
+
+### Какая версия запущена
+
+`read.system.health_check` и `read.system.capabilities` возвращают блок `server`: `running` — запущенная версия,
+`latest` — последняя версия на GitHub (если удалось узнать за ~2 с), `hint` — напр. «Запущена v0.7.12, доступна
+v0.7.13 — перезапустите подключение 1С». Обёртка `npx github:…` подтягивает свежую сборку только при перезапуске
+подключения. Отключить проверку (нет интернета, лимит GitHub API) — `ODATA_UPDATE_CHECK=false`.
+
+### Почему агент не может записать
+
+Блок `write` в `read.system.health_check` / `read.system.capabilities` показывает `writeStatus` и причину:
+
+| `reason` | Что выключено | Как включить |
+|---|---|---|
+| `read_only_env` | `READ_ONLY=true` в Env подключения | убрать или `READ_ONLY=false`, перезапустить подключение |
+| `writable_false_file` | `"writable": false` (или поле не задано) у базы в `~/.1c-odata/databases.json` | `"writable": true` у этой базы, перезапустить подключение |
+| `writable_false_env` | `ODATA_DB_<ИМЯ>_WRITABLE` не `true` | `ODATA_DB_<ИМЯ>_WRITABLE=true`, перезапустить |
+| `writable_false_header` / `shared_no_write_tools` | общий коннектор команды: запись не включена у подключения или нет инструментов в `ODATA_HTTP_WRITE_TOOLS` | администратор общего коннектора |
+
+Тот же текст приходит в ответ на попытку записи. Если подключение настраивали не вы — обратитесь к администратору команды.

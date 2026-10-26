@@ -51,12 +51,18 @@ docker run -d --name onec-connector -e MCP_HTTP_TOKEN=<случайная стр
 
 ## Чем отличается от обычного режима
 
-- **Нет** шлюза `meta.list_tools` / `meta.call_tool` (инструменты для модели отбирает сервис). Печатные формы
+- Шлюз `meta.list_tools` / `meta.call_tool` **есть**, но работает только с инструментами этого сервера после
+  фильтра: неопубликованный `write.*` через `meta.call_tool` не вызвать (ответ объясняет, что инструмента нет в
+  `ODATA_HTTP_WRITE_TOOLS`, и называет разрешённые). Печатные формы
   `read.document.print_*` и вложения `read.files.*` разрешены: PDF и файлы отдаются ресурсом MCP, на диск коннектора
   при `printToDisk=false` ничего не пишется; быстрые инструменты (`quick_invoice`, `quick_sale`, `quick_reconciliation`)
   при создании печатают PDF ресурсом в ответе записи (без диска). Вложения в общем режиме — не больше 10 МБ.
 - **Запись** — только инструменты из `ODATA_HTTP_WRITE_TOOLS` (и `write.operation.status` вместе с ними), при
-  `READ_ONLY=false` и `writable: true` у подключения.
+  `READ_ONLY=false` и `writable: true` у подключения. Почему запись выключена, показывает блок `write` в
+  `read.system.capabilities` / `read.system.health_check` (`reason`: `read_only_env`, `writable_false_header`,
+  `shared_no_write_tools` …) — с текстом, кто её включает.
+- **Проверка новой версии** (`server.latest` в `health_check`/`capabilities`) ходит на `api.github.com` (≈2 с,
+  кеш 6 ч); без выхода в интернет поставьте `ODATA_UPDATE_CHECK=false`.
 - **Сеть:** адрес базы присылает пользователь, поэтому запросы к 1С не уходят во внутренние и служебные сети
   (`10/8`, `172.16/12`, `192.168/16`, `127/8`, `169.254/16`, `100.64/10`, IPv6-локальные) — проверяются все адреса из
   DNS в момент соединения; перенаправления (3xx) запрещены — укажите точный адрес OData.

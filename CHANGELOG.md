@@ -18,6 +18,8 @@
 - dry-run → `confirm=true` с `operationId`, СФ без проведения; предупреждения о дублях, датах и валюте договора. Поля
   обмена с ИС ЭСФ не заполняются.
 
+## [0.7.13] — 2026-10-27
+
 ### Исправлено — валюта и курс в `write.sales.quick_invoice` и `write.sales.quick_sale`
 
 - `quick_invoice`: новые параметры `currency` (код 840 / буквенный USD / Ref_Key) и `rate` (тенге за 1 единицу). По
@@ -1092,7 +1094,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...HEAD
+[0.7.13]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...v0.7.13
 [0.7.12]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.10...v0.7.11
 [0.7.10]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.9...v0.7.10

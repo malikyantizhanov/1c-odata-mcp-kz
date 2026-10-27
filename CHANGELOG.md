@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.16] — 2026-10-27
+
 ### Исправлено — недоступность 1cfresh, понятные причины запрета записи, версия сервера
 
 - Страница 1cfresh «сервис частично недоступен» / «технические работы» (часто с кодом 200) и ответы 502/503/504 больше
@@ -1134,7 +1136,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.15...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.16...HEAD
+[0.7.16]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.15...v0.7.16
 [0.7.15]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...v0.7.14
 [0.7.13]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...v0.7.13

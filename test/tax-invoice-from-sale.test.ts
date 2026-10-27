@@ -229,10 +229,31 @@ describe("tax_invoice_from_sale: валютная реализация", () => {
     });
   });
 
+  it("currencyMode не указан — по умолчанию tenge: СФ по USD-реализации в KZT по курсу на дату оборота", async () => {
+    const f = fake1C({ store: saleStore() });
+    // Дата оборота по умолчанию = дата реализации 12.10; курс USD на 12.10 — 453.93.
+    const plan = sc(await f.call(TOOL, { sale: SALE, date: "2026-10-14" }));
+    expect(plan).toMatchObject({
+      ready: true,
+      turnoverDate: "2026-10-12",
+      currency: { code: "398", rate: 453.93, mode: "в тенге" },
+      totals: { total: 305331.48 },
+      bankAccount: { ref: USD_ACC },
+    });
+    await f.call(TOOL, { sale: SALE, date: "2026-10-14", confirm: true, operationId: plan["operationId"] });
+    const body = f.posts.find((p) => p.set === SF_SET)!.body;
+    expect(body).toMatchObject({
+      ВалютаДокумента_Key: KZT,
+      КурсВзаиморасчетов: 453.93,
+      СуммаДокумента: 305331.48,
+      СчетОрганизации_Key: USD_ACC,
+    });
+  });
+
   it("auto без прошлых СФ — вопрос currencyMode; auto с прошлым СФ в тенге — тенге", async () => {
     const store = saleStore();
     const f = fake1C({ store });
-    const ask = sc(await f.call(TOOL, { sale: SALE, date: "2026-10-14" }));
+    const ask = sc(await f.call(TOOL, { sale: SALE, date: "2026-10-14", currencyMode: "auto" }));
     expect(ask).toMatchObject({ ready: false });
     expect(ask["choices"]).toEqual([expect.objectContaining({ field: "currencyMode" })]);
 
@@ -255,7 +276,7 @@ describe("tax_invoice_from_sale: валютная реализация", () => {
       ДокументОснование_Type: SALE_TYPE,
       СуммаДокумента: 300000,
     });
-    const auto = sc(await f.call(TOOL, { sale: SALE, date: "2026-10-14" }));
+    const auto = sc(await f.call(TOOL, { sale: SALE, date: "2026-10-14", currencyMode: "auto" }));
     expect(auto).toMatchObject({ ready: true, currency: { code: "398", mode: "в тенге" } });
     expect(auto["currency"]["source"]).toMatch(/как в СФ № 3 от 02\.10\.2026/);
   });

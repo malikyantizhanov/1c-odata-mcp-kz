@@ -33,7 +33,18 @@ export interface ConnectionConfig {
   password: string;
   /** Разрешена ли запись в эту базу (POST/PATCH). По умолчанию false. */
   writable: boolean;
+  /** Откуда взят writable — чтобы объяснить бухгалтеру, где и кто включает запись (write-status.ts). */
+  writableSource?: WritableSource | undefined;
 }
+
+/**
+ * Источник флага writable базы: файл баз (путь и имя базы), переменная окружения (её имя) или заголовок
+ * X-OneC-Connection общего HTTP-режима (флаг задаёт бэкенд чата).
+ */
+export type WritableSource =
+  | { kind: "file"; file: string; base: string; set: boolean }
+  | { kind: "env"; variable: string; set: boolean }
+  | { kind: "header" };
 
 export interface Behavior {
   timeoutMs: number;
@@ -136,6 +147,11 @@ function collectRawConnections(env: Env): Array<Record<string, unknown>> {
       username: env[`ODATA_DB_${tag}_USERNAME`],
       password: env[`ODATA_DB_${tag}_PASSWORD`],
       writable: env[`ODATA_DB_${tag}_WRITABLE`],
+      writableSource: {
+        kind: "env",
+        variable: `ODATA_DB_${tag}_WRITABLE`,
+        set: env[`ODATA_DB_${tag}_WRITABLE`] !== undefined,
+      },
     });
   }
 
@@ -148,6 +164,7 @@ function collectRawConnections(env: Env): Array<Record<string, unknown>> {
       username: env.ODATA_USERNAME,
       password: env.ODATA_PASSWORD,
       writable: env.ODATA_WRITABLE,
+      writableSource: { kind: "env", variable: "ODATA_WRITABLE", set: env.ODATA_WRITABLE !== undefined },
     });
   }
 
@@ -197,7 +214,11 @@ export function parseConfig(env: Env, opts: { home?: string | undefined } = {}):
       warnings.push(`база "${b.name}" из файла ${file!.path} переопределена переменными окружения`);
       continue;
     }
-    raw.push({ ...b });
+    const { writableSet, ...base } = b;
+    raw.push({
+      ...base,
+      writableSource: { kind: "file", file: file!.path, base: b.name, set: writableSet },
+    });
   }
   raw.push(...fromEnv);
   if (raw.length === 0 && !issues.length) {
@@ -221,7 +242,10 @@ export function parseConfig(env: Env, opts: { home?: string | undefined } = {}):
       continue;
     }
     seen.add(parsed.data.name);
-    connections.push(parsed.data);
+    connections.push({
+      ...parsed.data,
+      ...(r.writableSource ? { writableSource: r.writableSource as WritableSource } : {}),
+    });
   }
 
   if (issues.length > 0) {

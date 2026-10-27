@@ -47,9 +47,25 @@ describe("файл баз ODATA_CONFIG", () => {
       }),
     );
     const c = parseConfig({ ODATA_CONFIG: "~/.1c-odata/databases.json", ODATA_PW_IP: "pw-ip" }, { home });
+    const file = join(home, ".1c-odata", "databases.json");
     expect(c.connections).toEqual([
-      { name: "buh", label: "ТОО", baseUrl: URL1, username: "u1", password: SECRET, writable: true },
-      { name: "ip", baseUrl: `${URL2}/`, username: "u2", password: "pw-ip", writable: false },
+      {
+        name: "buh",
+        label: "ТОО",
+        baseUrl: URL1,
+        username: "u1",
+        password: SECRET,
+        writable: true,
+        writableSource: { kind: "file", file, base: "buh", set: true },
+      },
+      {
+        name: "ip",
+        baseUrl: `${URL2}/`,
+        username: "u2",
+        password: "pw-ip",
+        writable: false,
+        writableSource: { kind: "file", file, base: "ip", set: false },
+      },
     ]);
     expect(c.defaultName).toBe("ip");
     expect(c.configFile).toBe(join(home, ".1c-odata", "databases.json"));

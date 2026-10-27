@@ -342,7 +342,7 @@
     {
       "name": "read.system.capabilities",
       "title": "Доступные возможности и ограничения 1С",
-      "description": "Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads; при kazakhstan-limited записывайте только инструментами из kazakhstanWrites.",
+      "description": "Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads; при kazakhstan-limited записывайте только инструментами из kazakhstanWrites. Блок write — можно ли писать в эту базу и, если нет, почему и кто включает запись (READ_ONLY, writable в файле баз или env, командное подключение); передайте его message бухгалтеру как есть. Блок server — запущенная версия и подсказка, если вышла новая (перезапустить подключение 1С).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -370,13 +370,74 @@
           },
           "writePolicy": {
             "type": "string"
+          },
+          "write": {
+            "type": "object",
+            "properties": {
+              "writeStatus": {
+                "type": "string",
+                "enum": [
+                  "enabled",
+                  "disabled"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "shared"
+                ]
+              },
+              "sharedWriteTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "writeStatus",
+              "message",
+              "mode"
+            ],
+            "additionalProperties": {}
+          },
+          "server": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "string"
+              },
+              "latest": {
+                "type": "string"
+              },
+              "updateAvailable": {
+                "type": "boolean"
+              },
+              "hint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "running",
+              "hint"
+            ],
+            "additionalProperties": {}
           }
         },
         "required": [
           "database",
           "profile",
           "blockedReads",
-          "writePolicy"
+          "writePolicy",
+          "write",
+          "server"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
@@ -466,7 +527,7 @@
     {
       "name": "read.system.health_check",
       "title": "Проверка соединения",
-      "description": "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. Возвращает версию OData и число опубликованных объектов. Вызывайте первым, если другие инструменты выдают ошибки. Метаданные базы кешируются на диске (ODATA_CACHE_DIR, срок — ODATA_METADATA_CACHE_TTL_HOURS); refreshMetadata=true перечитывает их из 1С и обновляет кеш — после изменения состава OData или обновления конфигурации.",
+      "description": "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. Возвращает версию OData и число опубликованных объектов, можно ли писать в базу (write: если нет — почему и кто включает запись) и версию сервера (server: запущена vX, доступна vY — перезапустите подключение 1С). Вызывайте первым, если другие инструменты выдают ошибки. Метаданные базы кешируются на диске (ODATA_CACHE_DIR, срок — ODATA_METADATA_CACHE_TTL_HOURS); refreshMetadata=true перечитывает их из 1С и обновляет кеш — после изменения состава OData или обновления конфигурации.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -504,6 +565,65 @@
           },
           "readOnly": {
             "type": "boolean"
+          },
+          "write": {
+            "type": "object",
+            "properties": {
+              "writeStatus": {
+                "type": "string",
+                "enum": [
+                  "enabled",
+                  "disabled"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "shared"
+                ]
+              },
+              "sharedWriteTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "writeStatus",
+              "message",
+              "mode"
+            ],
+            "additionalProperties": {}
+          },
+          "server": {
+            "type": "object",
+            "properties": {
+              "running": {
+                "type": "string"
+              },
+              "latest": {
+                "type": "string"
+              },
+              "updateAvailable": {
+                "type": "boolean"
+              },
+              "hint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "running",
+              "hint"
+            ],
+            "additionalProperties": {}
           },
           "writeJournal": {
             "type": "object",
@@ -14574,7 +14694,7 @@
     {
       "name": "meta.call_tool",
       "title": "Вызвать инструмент по имени",
-      "description": "Вызывает инструмент сервера по имени — тем же путём, что прямой вызов, и возвращает его ответ без изменений (включая ошибки). Для инструментов, которых клиент не видит в своём списке (см. meta.list_tools). Для write.* действуют те же ограничения: dry-run по умолчанию, confirm=true и operationId из предпросмотра, READ_ONLY и writable базы, согласие бухгалтера. meta.* через шлюз не вызываются. Пример: {\"name\": \"read.currency.get_rates\", \"arguments\": {\"currencies\": [\"USD\"]}}.",
+      "description": "Вызывает инструмент сервера по имени — тем же путём, что прямой вызов, и возвращает его ответ без изменений (включая ошибки). Для инструментов, которых клиент не видит в своём списке (см. meta.list_tools). Для write.* действуют те же ограничения: dry-run по умолчанию, confirm=true и operationId из предпросмотра, READ_ONLY и writable базы, согласие бухгалтера; в командном подключении — только инструменты из ODATA_HTTP_WRITE_TOOLS (обхода нет: шлюз видит тот же список, что и клиент). meta.* через шлюз не вызываются. Пример: {\"name\": \"read.currency.get_rates\", \"arguments\": {\"currencies\": [\"USD\"]}}.",
       "inputSchema": {
         "type": "object",
         "properties": {

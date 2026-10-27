@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -43,19 +42,9 @@ import { registerQuickReconciliationTool } from "../tools/quick-reconciliation.j
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
 import { registerTaxInvoiceFromSaleTool } from "../tools/tax-invoice-from-sale.js";
-import { META_LIST, registerGatewayTools } from "../tools/gateway.js";
+import { META_LIST, registerGatewayTools, registerKnownWriteTool } from "../tools/gateway.js";
+import { serverVersion as readVersion } from "../version.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
-
-/** Версия берётся из package.json (в собранном пакете он на два уровня выше dist/mcp/). */
-function readVersion(): string {
-  try {
-    const url = new URL("../../package.json", import.meta.url);
-    const pkg = JSON.parse(readFileSync(url, "utf8")) as { version?: string };
-    return pkg.version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
 
 const INSTRUCTIONS =
   "Доступ к данным 1С:Предприятие через OData. По умолчанию только чтение " +
@@ -113,6 +102,8 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
     config: Record<string, unknown>,
     cb: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>,
   ) => {
+    // Имя запоминаем до фильтра: шлюз в командном режиме отличает «не опубликован» от «нет такого инструмента».
+    registerKnownWriteTool(name);
     if (opts.toolFilter && !opts.toolFilter(name)) return undefined;
     const execute = cb;
     cb = (args, extra) =>
@@ -263,7 +254,8 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerServicesReceiptTool(server, ctx);
   registerPoaKittingTools(server, ctx);
   // Шлюз — последним и в обход обёртки (без префлайта базы): целевой вызов идёт через tools/call целиком.
-  if (!opts.toolFilter || opts.toolFilter(META_LIST)) registerGatewayTools(server, original, readVersion());
+  if (!opts.toolFilter || opts.toolFilter(META_LIST))
+    registerGatewayTools(server, original, readVersion(), ctx.shared);
 
   return server;
 }

@@ -5,6 +5,7 @@ import { readMetadataCache, setsFingerprint, writeMetadataCache } from "./odata/
 import { ODataError } from "./odata/errors.js";
 import { logger } from "./logger.js";
 import type { MetadataMap } from "./types/odata.js";
+import type { SharedMode } from "./write-status.js";
 
 /** Откуда взята текущая карта метаданных (для health_check и профилирования). */
 export interface MetadataInfo {
@@ -136,6 +137,8 @@ export class Connection {
 export class ServerContext {
   readonly defaultName: string;
   readonly behavior: Behavior;
+  /** Командный (общий HTTP) режим: какие пишущие инструменты опубликованы — для объяснения «почему нет записи». */
+  shared: SharedMode | undefined;
   private readonly map = new Map<string, Connection>();
 
   constructor(rc: RuntimeConfig) {
@@ -148,7 +151,7 @@ export class ServerContext {
    * Контекст из одного готового подключения — для общего HTTP-режима: подключение живёт в пуле между запросами
    * (src/http/pool.ts), поэтому его кеши ($metadata, план счетов, субконто) не собираются заново на каждый вызов.
    */
-  static forConnection(conn: Connection): ServerContext {
+  static forConnection(conn: Connection, shared?: SharedMode): ServerContext {
     const ctx = new ServerContext({
       connections: [],
       defaultName: conn.cfg.name,
@@ -156,6 +159,7 @@ export class ServerContext {
       logLevel: "info",
     });
     ctx.map.set(conn.cfg.name, conn);
+    ctx.shared = shared;
     return ctx;
   }
 

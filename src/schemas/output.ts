@@ -158,6 +158,25 @@ export const healthCheckResultSchema = z
     entityCount: z.number(),
     baseUrl: z.string(),
     readOnly: z.boolean(),
+    write: z
+      .object({
+        writeStatus: z.enum(["enabled", "disabled"]),
+        reason: z.string().optional(),
+        message: z.string(),
+        mode: z.enum(["local", "shared"]),
+        sharedWriteTools: z.array(z.string()).optional(),
+      })
+      .passthrough()
+      .optional(),
+    server: z
+      .object({
+        running: z.string(),
+        latest: z.string().optional(),
+        updateAvailable: z.boolean().optional(),
+        hint: z.string(),
+      })
+      .passthrough()
+      .optional(),
     writeJournal: z
       .object({
         dir: z.string().optional(),

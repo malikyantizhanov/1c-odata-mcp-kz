@@ -9,7 +9,8 @@ export type ODataErrorKind =
   | "not_found" // 404 — объект не опубликован или не существует
   | "bad_request" // 400 — кривой $filter/$select
   | "rate_limit" // 429
-  | "server" // 5xx
+  | "server" // 5xx (кроме 502/503/504)
+  | "unavailable" // 502/503/504 или HTML-страница «сервис (частично) недоступен» — временный сбой площадки
   | "timeout" // прервано по таймауту
   | "network" // DNS/соединение
   | "parse" // не удалось разобрать ответ
@@ -44,6 +45,7 @@ const RETRYABLE_DEFAULT: Record<ODataErrorKind, boolean> = {
   bad_request: false,
   rate_limit: true,
   server: true,
+  unavailable: true,
   timeout: true,
   network: true,
   parse: false,
@@ -75,8 +77,83 @@ export function fromHttpStatus(status: number, url: string, body?: string): ODat
   }
   if (status === 400) return base("Некорректный запрос к OData (400)", "bad_request");
   if (status === 429) return base("Слишком много запросов (429)", "rate_limit");
+  if (status === 502 || status === 503 || status === 504) {
+    const page = body && looksLikeHtml(body) ? htmlText(body, 300) : "";
+    return new ODataError({
+      kind: "unavailable",
+      status,
+      url,
+      message:
+        `${hostOf(url)} временно недоступен: ${UNAVAILABLE_STATUS_TEXT[status]}. Это сбой площадки, а не ошибка в запросе или ` +
+        "правах — повторите позже." +
+        (detail ? ` Ответ: ${detail}` : page ? ` Текст страницы: «${page}»` : ""),
+    });
+  }
   if (status >= 500) return base(`Ошибка сервера 1С (${status})`, "server");
   return base(`Неожиданный ответ OData (${status})`, "unknown");
+}
+
+const UNAVAILABLE_STATUS_TEXT: Record<number, string> = {
+  502: "502 Bad Gateway — веб-сервер публикации не получил ответа от 1С",
+  503: "503 Service Unavailable — сервис перегружен или на технических работах",
+  504: "504 Gateway Timeout — 1С не ответила веб-серверу публикации вовремя",
+};
+
+/** Хост из URL запроса (для текста ошибки), напр. «1cfresh.kz». */
+export function hostOf(url: string | undefined): string {
+  try {
+    return url ? new URL(url).hostname : "Сервис 1С";
+  } catch {
+    return "Сервис 1С";
+  }
+}
+
+/** Тело похоже на HTML-страницу (а не на JSON или XML OData). */
+export function looksLikeHtml(body: string, contentType?: string | null): boolean {
+  if (contentType && /text\/html/i.test(contentType)) return true;
+  return (
+    /^\s*(<!doctype html|<html[\s>])/i.test(body) || /<(body|head|title)[\s>]/i.test(body.slice(0, 2000))
+  );
+}
+
+/**
+ * Страница 1cfresh/веб-сервера «сервис временно (частично) недоступен», «технические работы», 502/503/504 —
+ * временный сбой площадки (её обычно отдают с кодом 200). Отличаем от страниц «доступ запрещён» и исключений 1С.
+ */
+const UNAVAILABLE_PAGE_RE =
+  /частично\s+недоступ|временно\s+недоступ|(сервис|сервер|приложение|база)\s+(сейчас\s+)?недоступ|технически[хе]\s+работ|регламентн[а-я]*\s+работ|перегружен|service\s+(is\s+)?(temporarily\s+)?unavailable|temporarily\s+unavailable|bad\s+gateway|gateway\s+time-?out|under\s+maintenance/i;
+
+export function isUnavailablePage(body: string): boolean {
+  return UNAVAILABLE_PAGE_RE.test(htmlText(body, 5000));
+}
+
+/** HTML-страница «сервис недоступен» с кодом 200 — как 503: для чтения повторяется. */
+export function unavailablePageError(status: number, url: string, body: string): ODataError {
+  return new ODataError({
+    kind: "unavailable",
+    status,
+    url,
+    message:
+      `${hostOf(url)} временно недоступен: вместо ответа OData пришла страница «сервис недоступен» (HTTP ${status}). ` +
+      `Это сбой площадки, а не нехватка прав или ошибка 1С — повторите позже. Текст страницы: «${htmlText(body, 300)}»`,
+  });
+}
+
+/**
+ * Запись, прерванная недоступностью площадки (502/503/504, страница «сервис недоступен», обрыв): запрос мог дойти
+ * до 1С. Не повторяется — исход неизвестен, сначала сверка.
+ */
+export function writeOutcomeUnknown(err: ODataError): ODataError {
+  return new ODataError({
+    kind: "unavailable",
+    status: err.status,
+    url: err.url,
+    retryable: false,
+    cause: err,
+    message:
+      `${hostOf(err.url)} временно недоступен; исход записи неизвестен — проверьте write.operation.status / документ ` +
+      `перед повтором. Подробности: ${err.message}`,
+  });
 }
 
 /** Пытается достать человекочитаемое сообщение из тела ошибки OData (JSON или XML). */

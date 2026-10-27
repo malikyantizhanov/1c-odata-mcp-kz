@@ -7,6 +7,15 @@
     "entityCount": 46,
     "baseUrl": "https://1c.test/odata/",
     "readOnly": false,
+    "write": {
+      "writeStatus": "enabled",
+      "message": "Запись в базу \"default\" разрешена — всегда через предпросмотр (dry-run) и confirm=true после согласия бухгалтера.",
+      "mode": "local"
+    },
+    "server": {
+      "running": "0.7.12",
+      "hint": "Запущена v0.7.12. После обновления новые инструменты появляются только после перезапуска подключения 1С в клиенте; до этого их можно найти через meta.list_tools и вызвать через meta.call_tool."
+    },
     "writeJournal": {
       "writable": true,
       "uncertainOperations": 0,

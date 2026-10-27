@@ -7,6 +7,8 @@ import { KZ_DOCUMENT_TOOLS, KZ_DOCUMENTS, KZ_WRITE_TOOLS } from "./write-kz.js";
 import { KZ_FLOW, KZ_RATES_2026, KZ_SOURCES, kzGuide } from "./kz-flow.js";
 import { KZ_PAYROLL_GUIDE } from "./payroll-guide.js";
 import { KZ_ESF_GUIDE } from "./esf-guide.js";
+import { writeStatusBlock } from "../write-status.js";
+import { versionInfo } from "../version.js";
 
 // Balances, turnovers and document postings read the Kazakhstan Типовой register; tax payments still assume
 // Russian tax-payment operations and stay blocked there.
@@ -105,9 +107,12 @@ export async function capabilities(ctx: ServerContext, database?: string) {
   const kz =
     meta.entities.has("ChartOfAccounts_Типовой") ||
     !!cp?.properties.some((p) => p.name === "ИдентификационныйКодЛичности");
+  // Почему нет записи (или что она разрешена) — по текущей базе: READ_ONLY, writable в файле/env/заголовке, командный режим.
+  const write = writeStatusBlock(conn.behavior ?? ctx.behavior ?? { readOnly: false }, conn.cfg, ctx.shared);
   return {
     database: conn.cfg.name,
     profile: kz ? "kazakhstan" : "upstream-russian-or-custom",
+    write,
     blockedReads: kz ? [...russianAccounting] : [],
     writePolicy: kz ? "kazakhstan-limited" : "preview-and-confirmation",
     ...(kz
@@ -185,13 +190,32 @@ export function kzUpdateEntityCheck(args: Record<string, unknown>) {
     );
 }
 
+export const writeStatusSchema = z
+  .object({
+    writeStatus: z.enum(["enabled", "disabled"]),
+    reason: z.string().optional(),
+    message: z.string(),
+    mode: z.enum(["local", "shared"]),
+    sharedWriteTools: z.array(z.string()).optional(),
+  })
+  .passthrough();
+
+export const serverVersionSchema = z
+  .object({
+    running: z.string(),
+    latest: z.string().optional(),
+    updateAvailable: z.boolean().optional(),
+    hint: z.string(),
+  })
+  .passthrough();
+
 export function registerCapabilities(server: McpServer, ctx: ServerContext) {
   server.registerTool(
     "read.system.capabilities",
     {
       title: "Доступные возможности и ограничения 1С",
       description:
-        "Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads; при kazakhstan-limited записывайте только инструментами из kazakhstanWrites.",
+        "Проверяет профиль выбранной базы, ограничения бухгалтерских/налоговых инструментов и записи. Вызовите перед первой работой с базой; не вызывайте blockedReads; при kazakhstan-limited записывайте только инструментами из kazakhstanWrites. Блок write — можно ли писать в эту базу и, если нет, почему и кто включает запись (READ_ONLY, writable в файле баз или env, командное подключение); передайте его message бухгалтеру как есть. Блок server — запущенная версия и подсказка, если вышла новая (перезапустить подключение 1С).",
       inputSchema: { database: databaseField },
       outputSchema: z
         .object({
@@ -199,10 +223,16 @@ export function registerCapabilities(server: McpServer, ctx: ServerContext) {
           profile: z.string(),
           blockedReads: z.array(z.string()),
           writePolicy: z.string(),
+          write: writeStatusSchema,
+          server: serverVersionSchema,
         })
         .passthrough(),
     },
-    ({ database }) => guard("read.system.capabilities", async () => ok(await capabilities(ctx, database))),
+    ({ database }) =>
+      guard("read.system.capabilities", async () => {
+        const [cap, server] = await Promise.all([capabilities(ctx, database), versionInfo()]);
+        return ok({ ...cap, server });
+      }),
   );
 
   server.registerTool(

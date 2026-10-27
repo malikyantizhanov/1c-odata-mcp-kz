@@ -10,6 +10,7 @@ import { databaseField, fail, guard, ok } from "./_shared.js";
 import { counterpartyByBin } from "./esf-avr.js";
 import { confirmField, patchOrPreview } from "./write.js";
 import { buildPreviewView, humanize } from "./preview-view.js";
+import { writeBlockedMessage, notWritableMessage } from "../write-status.js";
 
 /**
  * Запись связей ЭАВР → документ-основание и ЭСФ → счёт-фактура (Казахстан). Пишутся ТОЛЬКО перечисленные поля:
@@ -300,13 +301,10 @@ async function applyOrPreview(
       willPatch: `${set}(${guidOf(ref)})`,
       note: conn.cfg.writable
         ? "Предпросмотр. Будут записаны только перечисленные поля; для записи повторите вызов с confirm=true после согласия бухгалтера."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
+        : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
     });
   }
-  if (conn.behavior.readOnly)
-    return fail("Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).");
-  if (!conn.cfg.writable)
-    return fail(`Запись в базу "${conn.cfg.name}" запрещена: у базы нет writable: true.`);
+  if (writeBlockedMessage(conn)) return fail(writeBlockedMessage(conn)!);
   const res = await patchOrPreview(conn, set, ref, fields, true, info.warnings);
   if (res.isError) return res;
   const after = await conn.client.getEntity(
@@ -367,13 +365,10 @@ async function repostAndPatch(
       willPatch: `${set}(${g})`,
       note: conn.cfg.writable
         ? "Предпросмотр. ЭСФ проведён: будет выполнено три шага (см. steps). Для записи повторите с confirm=true после согласия бухгалтера."
-        : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
+        : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
     });
   }
-  if (conn.behavior.readOnly)
-    return fail("Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).");
-  if (!conn.cfg.writable)
-    return fail(`Запись в базу "${conn.cfg.name}" запрещена: у базы нет writable: true.`);
+  if (writeBlockedMessage(conn)) return fail(writeBlockedMessage(conn)!);
   const postedNow = async () =>
     (await conn.client.getEntity(`${set}(guid'${g}')${buildQuery({ select: ["Posted"] })}`))["Posted"] ===
     true;

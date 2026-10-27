@@ -2,6 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerNomenclatureRead } from "./nomenclature-read.js";
 import { registerCatalogRead } from "./catalog-read.js";
 import { registerCapabilities } from "./capabilities.js";
+import { writeStatusBlock } from "../write-status.js";
+import { versionInfo } from "../version.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
 import { ok, fail, guard, databaseField } from "./_shared.js";
@@ -60,7 +62,8 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
       title: "Проверка соединения",
       description:
         "Проверяет доступность OData-сервиса 1С и корректность авторизации для выбранной базы. " +
-        "Возвращает версию OData и число опубликованных объектов. " +
+        "Возвращает версию OData и число опубликованных объектов, можно ли писать в базу (write: если нет — почему и кто " +
+        "включает запись) и версию сервера (server: запущена vX, доступна vY — перезапустите подключение 1С). " +
         "Вызывайте первым, если другие инструменты выдают ошибки. Метаданные базы кешируются на диске " +
         "(ODATA_CACHE_DIR, срок — ODATA_METADATA_CACHE_TTL_HOURS); refreshMetadata=true перечитывает их из 1С " +
         "и обновляет кеш — после изменения состава OData или обновления конфигурации.",
@@ -77,8 +80,11 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
       guard("read.system.health_check", async () => {
         const conn = ctx.db(database);
         const started = performance.now();
+        // Проверка версии — параллельно с метаданными (≤ 2 с, кеш, ошибки игнорируются).
+        const versionP = versionInfo();
         const meta = refreshMetadata ? await conn.refreshMetadata() : await conn.getMetadata();
         const loadMs = Math.round(performance.now() - started);
+        const server = await versionP;
         const info = conn.metadataInfo();
         const journal = await conn.client.journalSummary();
         return ok({
@@ -89,6 +95,8 @@ export function registerMetaTools(server: McpServer, ctx: ServerContext): void {
           entityCount: meta.entities.size,
           baseUrl: conn.cfg.baseUrl,
           readOnly: conn.behavior.readOnly,
+          write: writeStatusBlock(conn.behavior, conn.cfg, ctx.shared),
+          server,
           ...(info
             ? {
                 metadata: {

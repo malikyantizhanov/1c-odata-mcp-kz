@@ -26,6 +26,7 @@ import {
   type FillCtx,
 } from "./esf-fill.js";
 import { confirmField } from "./write.js";
+import { writeBlockedMessage, notWritableMessage } from "../write-status.js";
 
 /**
  * write.esf.update_draft — правка черновика исходящего ЭСФ до отправки в ИС ЭСФ: номер документа (вручную или
@@ -643,15 +644,10 @@ export function registerEsfUpdateTools(server: McpServer, ctx: ServerContext): v
             willPatch: `${set}(${g})`,
             note: conn.cfg.writable
               ? "Предпросмотр. Будут записаны только перечисленные поля (табличные части — целиком, как требует 1С). Для записи повторите вызов с теми же аргументами, confirm=true и operationId из этого ответа после согласия бухгалтера."
-              : `Предпросмотр. ВНИМАНИЕ: запись в базу "${conn.cfg.name}" запрещена — задайте writable: true для этой базы.`,
+              : `Предпросмотр. ВНИМАНИЕ: ${notWritableMessage(conn.cfg)}`,
           });
         }
-        if (conn.behavior.readOnly)
-          return fail(
-            "Запись запрещена: включён режим READ_ONLY=true. Уберите его (или задайте READ_ONLY=false).",
-          );
-        if (!conn.cfg.writable)
-          return fail(`Запись в базу "${conn.cfg.name}" запрещена: у базы нет writable: true.`);
+        if (writeBlockedMessage(conn)) return fail(writeBlockedMessage(conn)!);
         const postedNow = async () =>
           (await conn.client.getEntity(`${set}(guid'${g}')${buildQuery({ select: ["Posted"] })}`))[
             "Posted"

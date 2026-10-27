@@ -26,6 +26,8 @@ export interface FileBase {
   username: string;
   password: string | undefined;
   writable: boolean;
+  /** Поле writable в файле задано явно (иначе — false по умолчанию). */
+  writableSet: boolean;
 }
 
 export interface LoadedFile {
@@ -172,6 +174,7 @@ export function loadConfigFile(
       username: e.username,
       password,
       writable: e.writable === true,
+      writableSet: e.writable !== undefined,
     });
   });
   return { path, defaultName, bases, warnings };

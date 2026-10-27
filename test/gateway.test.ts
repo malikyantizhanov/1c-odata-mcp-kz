@@ -144,6 +144,9 @@ describe("meta.call_tool", () => {
       const direct = await client.callTool({ name: "write.catalog.create_security", arguments: args });
       expect(gw.isError, JSON.stringify(opts)).toBe(true);
       expect(gw).toEqual(direct);
+      // Понятный текст: что выключено, кто и как включает запись.
+      expect(text(gw)).toMatch(opts.readOnly ? /READ_ONLY=true/ : /writable|WRITABLE/);
+      expect(text(gw)).toMatch(/обратитесь к администратору команды\.$/);
       expect(f.posts).toHaveLength(0);
       await client.close();
     }

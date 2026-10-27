@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.14] — 2026-10-27
+
 ### Добавлено — `write.sales.tax_invoice_from_sale`: счёт-фактура выданный по реализации
 
 - Составной инструмент «Счёт-фактура выданный на основании реализации» (Казахстан): `sale` — ref или номер +
@@ -1094,7 +1096,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.14...HEAD
+[0.7.14]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...v0.7.14
 [0.7.13]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...v0.7.13
 [0.7.12]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...v0.7.12
 [0.7.11]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.10...v0.7.11

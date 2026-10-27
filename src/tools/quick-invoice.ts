@@ -23,6 +23,17 @@ import {
   vatRateRefs,
 } from "./write-kz.js";
 import { resolveOrgBankAccount } from "./write.js";
+import {
+  contractCurrencyRef,
+  currencyByRef,
+  orgBankAccountsWithCurrency,
+  pickBankForCurrency,
+  rateForDocument,
+  rateText,
+  resolveCurrency,
+  type CurrencyInfo,
+  type DocRate,
+} from "./currency-kz.js";
 import { printInvoice, printTarget } from "./print.js";
 
 /**
@@ -138,7 +149,27 @@ export const quickInvoiceInput = {
     .string()
     .max(200)
     .optional()
-    .describe("Банковский счёт организации: Ref_Key, номер (IBAN) или название. По умолчанию — основной."),
+    .describe(
+      "Банковский счёт организации: Ref_Key, номер (IBAN) или название. По умолчанию — основной, если он в валюте " +
+        "счёта, иначе счёт организации в этой валюте.",
+    ),
+  currency: z
+    .string()
+    .max(100)
+    .optional()
+    .describe(
+      "Валюта счёта: цифровой код (398, 840), буквенный (KZT, USD) или Ref_Key. По умолчанию — валюта взаиморасчётов " +
+        "договора; договора нет — тенге.",
+    ),
+  rate: z
+    .number()
+    .positive()
+    .max(1_000_000)
+    .optional()
+    .describe(
+      "Курс взаиморасчётов — тенге за 1 единицу валюты. По умолчанию — из регистра «Курсы валют» на дату счёта " +
+        "(срез последних, с кратностью); для тенге всегда 1.",
+    ),
   sumIncludesVat: z.boolean().default(true).describe("Цена включает НДС (для плательщика НДС)"),
   outputDir: z
     .string()
@@ -164,6 +195,8 @@ export type QuickInput = {
   paymentCode?: string | undefined;
   contract?: string | undefined;
   bankAccount?: string | undefined;
+  currency?: string | undefined;
+  rate?: number | undefined;
   sumIncludesVat: boolean;
   outputDir?: string | undefined;
   confirm: boolean;
@@ -218,6 +251,9 @@ export interface QuickPlan {
   contractSet?: string | undefined;
   nomSet: string;
   currencyRef?: string | undefined;
+  /** Валюта документа (из входа, договора или тенге) и курс взаиморасчётов на дату документа. */
+  currency?: CurrencyInfo | undefined;
+  rate?: DocRate | undefined;
   vatRefs: Map<string, string>;
   /** Похожие счета: тот же покупатель и организация, тот же день, та же сумма (без помеченных на удаление). */
   duplicates: DuplicateInvoice[];
@@ -736,7 +772,7 @@ export async function planQuickInvoice(
   const total = roundMoney(sum + (withVat && !input.sumIncludesVat ? vat : 0));
 
   // Волна 2: договор, банковский счёт, ставки, единица, возможные дубли — после организации и покупателя.
-  const [contractRes, bank, vatRefs, newUnit, dupRes] = await Promise.all([
+  const [contractRes, [explicitBank, accounts], vatRefs, newUnit, dupRes] = await Promise.all([
     buyerRes.buyer
       ? resolveContract(
           conn,
@@ -748,22 +784,10 @@ export async function planQuickInvoice(
           date,
         )
       : Promise.resolve(undefined),
-    (input.bankAccount
-      ? resolveOrgBankAccount(conn, orgRef, input.bankAccount)
-      : Promise.resolve(org.mainBank)
-    ).then(async (bankRef): Promise<QuickPlan["bank"]> => {
-      if (!bankRef) return undefined;
-      const acc = await conn.client
-        .getEntity(
-          `Catalog_БанковскиеСчета(guid'${guid(bankRef)}')${buildQuery({ select: ["Ref_Key", "Description", "НомерСчета"] })}`,
-        )
-        .catch(() => ({}) as ODataEntity);
-      return {
-        ref: guid(bankRef),
-        number: str(acc["НомерСчета"]) || undefined,
-        name: str(acc["Description"]) || undefined,
-      };
-    }),
+    Promise.all([
+      input.bankAccount ? resolveOrgBankAccount(conn, orgRef, input.bankAccount) : Promise.resolve(undefined),
+      orgBankAccountsWithCurrency(conn, orgRef),
+    ]),
     withVat ? vatRateRefs(conn, [...new Set(rates)]) : Promise.resolve(new Map<string, string>()),
     needCreateUnit ? unitRef(conn) : Promise.resolve(undefined),
     // Для реализации (quick_sale) дубли ищутся среди реализаций — там своя проверка.
@@ -781,6 +805,62 @@ export async function planQuickInvoice(
   ]);
   if (contractRes?.choice) choices.push(contractRes.choice);
   notes.unshift(...dupRes.notes);
+
+  // Волна 3: валюта (вход → договор → тенге), курс на дату счёта, банковский счёт в валюте документа.
+  const contractCurrency =
+    contractRes?.contract?.action === "use"
+      ? await currencyByRef(conn, await contractCurrencyRef(conn, contractSet, contractRes.contract.ref))
+      : undefined;
+  const currency: CurrencyInfo | undefined = input.currency?.trim()
+    ? await resolveCurrency(conn, input.currency)
+    : (contractCurrency ?? (currencyRef ? await currencyByRef(conn, currencyRef) : undefined));
+  if (currency && contractCurrency && currency.ref.toLowerCase() !== contractCurrency.ref.toLowerCase())
+    notes.push(
+      `Валюта счёта ${currency.name} не совпадает с валютой договора ${contractCurrency.name} — 1С ведёт взаиморасчёты ` +
+        "в валюте договора; проверьте договор или валюту.",
+    );
+  let rate: DocRate | undefined;
+  if (currency?.isTenge) {
+    rate = { rate: 1, multiplier: 1 };
+    if (input.rate !== undefined && input.rate !== 1)
+      notes.push("Счёт в тенге — курс всегда 1, переданный rate не применён.");
+  } else if (currency && input.rate !== undefined) rate = { rate: input.rate, multiplier: 1 };
+  else if (currency) {
+    rate = await rateForDocument(conn, currency, date);
+    if (!rate)
+      choices.push({
+        field: "rate",
+        reason:
+          `В регистре «Курсы валют» нет курса ${currency.name} на ${date} (или там только курс 1 — курсы не ` +
+          "загружены).",
+        options: [],
+        howTo: "Загрузите курсы в 1С или передайте rate — тенге за 1 единицу валюты.",
+      });
+  }
+  if (currency && rate && !currency.isTenge)
+    notes.push(
+      `Валюта счёта ${currency.name}${contractCurrency && !input.currency ? " (из договора)" : ""}; курс ${rateText(currency, rate)}` +
+        `${input.rate !== undefined ? " — передан явно" : ""}.`,
+    );
+  const pick = pickBankForCurrency(accounts, currency, {
+    explicitRef: explicitBank,
+    preferredRef: org.mainBank,
+    tengeRef: currencyRef,
+  });
+  if (pick.note) notes.push(pick.note);
+  let bank: QuickPlan["bank"];
+  if (pick.ref) {
+    const known = accounts.find((a) => a.ref.toLowerCase() === guid(pick.ref!).toLowerCase());
+    const acc =
+      known ??
+      (await conn.client
+        .getEntity(
+          `Catalog_БанковскиеСчета(guid'${guid(pick.ref)}')${buildQuery({ select: ["Ref_Key", "Description", "НомерСчета"] })}`,
+        )
+        .then((r) => ({ name: str(r["Description"]), number: str(r["НомерСчета"]) }))
+        .catch(() => ({ name: "", number: "" })));
+    bank = { ref: guid(pick.ref), number: acc.number || undefined, name: acc.name || undefined };
+  }
   notes.push(...(contractRes?.notes ?? []));
   if (!bank && !opts.forSale)
     notes.push("У организации нет банковского счёта — в счёте не будет реквизитов для оплаты.");
@@ -803,7 +883,9 @@ export async function planQuickInvoice(
     invoiceSet,
     contractSet,
     nomSet,
-    currencyRef,
+    currencyRef: currency?.ref ?? currencyRef,
+    currency,
+    rate,
     vatRefs,
     duplicates: dupRes.duplicates,
   };
@@ -867,8 +949,8 @@ export function invoicePayload(
     Контрагент_Key: plan.buyer!.ref,
     ДоговорКонтрагента_Key: refs.contract,
     ВалютаДокумента_Key: plan.currencyRef,
-    КурсВзаиморасчетов: 1,
-    КратностьВзаиморасчетов: 1,
+    КурсВзаиморасчетов: plan.rate?.rate ?? 1,
+    КратностьВзаиморасчетов: plan.rate?.multiplier ?? 1,
     УчитыватьНДС: plan.withVat,
     СуммаВключаетНДС: plan.withVat && input.sumIncludesVat,
     СуммаДокумента: plan.totals.total,
@@ -942,6 +1024,17 @@ function planView(plan: QuickPlan) {
                   number: plan.contract.number,
                   date: plan.contract.date,
                 },
+        }
+      : {}),
+    ...(plan.currency
+      ? {
+          currency: {
+            code: plan.currency.code,
+            name: plan.currency.name,
+            rate: plan.rate?.rate,
+            multiplier: plan.rate?.multiplier,
+            ...(plan.rate?.period ? { ratePeriod: plan.rate.period } : {}),
+          },
         }
       : {}),
     ...(plan.bank ? { bankAccount: plan.bank } : {}),
@@ -1203,7 +1296,9 @@ export function registerQuickInvoiceTool(server: McpServer, ctx: ServerContext):
       description:
         "Счёт на оплату покупателю за один-два вызова вместо 6–8. confirm=false (по умолчанию) — один вызов: сам находит " +
         "организацию (статус НДС — по карточке; неплательщик — «без НДС»), покупателя по БИН/ИИН, действующий договор " +
-        "«С покупателем», номенклатуру по наименованию, основной банковский счёт — и возвращает компактный план: " +
+        "«С покупателем», номенклатуру по наименованию, валюту (по умолчанию — валюта договора; currency — явно) и курс " +
+        "на дату счёта из регистра «Курсы валют» (с кратностью; rate — явно), банковский счёт организации в валюте " +
+        "счёта — и возвращает компактный план: " +
         "что найдено, что будет создано («создать» — договор/услуга), итоги, notes и operationId. Ничего не пишет. " +
         "Неоднозначность (два договора, похожие услуги) — варианты в choices, без догадок. План проверяет дубли: " +
         "счета того же покупателя за тот же день на ту же сумму (проведённые и нет; помеченные на удаление не считаются) " +

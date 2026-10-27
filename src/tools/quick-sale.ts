@@ -15,6 +15,13 @@ import type { ContractAutoSelected } from "../odata/contracts.js";
 import type { CounterpartyMatch } from "../odata/fuzzy.js";
 import { databaseField, dateField, guard, ok, organizationField } from "./_shared.js";
 import { isKazakhstan } from "./write-kz.js";
+import {
+  currencyByRef,
+  orgBankAccountsWithCurrency,
+  pickBankForCurrency,
+  rateForDocument,
+  rateText,
+} from "./currency-kz.js";
 import { fillFromSample } from "./kz-flow.js";
 import { findInvoiceByNumber, printTarget } from "./print.js";
 import { printSale, printedFilesOutput, type SaleForm } from "./print-sale.js";
@@ -41,7 +48,8 @@ import {
  *
  * Заполнение «на основании» — как в 1С (Документы.РеализацияТоваровУслуг.ЗаполнитьДокументПоСчетуНаОплатуПокупателю
  * + ЗаполнениеДокументов.ЗаполнитьШапкуДокументаПоОснованию): организация, структурное подразделение, склад,
- * ответственный, контрагент, договор (если он той же организации), валюта = валюта взаиморасчётов договора, тип цен,
+ * ответственный, контрагент, договор (если он той же организации), валюта = валюта взаиморасчётов договора (курс —
+ * срез последних регистра «Курсы валют» на дату реализации, как пересчитывает 1С), тип цен,
  * флаги НДС и акциза, адрес доставки, банковский счёт = «Структурная единица» счёта, ДокументОснование = счёт,
  * способ выписки АВР = из договора (пусто — «на портале госзакупа» для госучреждения, иначе «в бумажном виде»),
  * вид операции = товары / услуги / «продажа, комиссия» по составу строк, строки товаров и услуг — копия строк счёта.
@@ -174,6 +182,8 @@ export interface SalePlan {
   ready: boolean;
   choices: Choice[];
   notes: string[];
+  /** Предупреждения, которые нужно показать пользователю до confirm (валюта основания ≠ валюте договора и т. п.). */
+  warnings: string[];
   mode: "basis" | "direct";
   basis?: { ref: string; number: string; date: string; total: number; posted: boolean } | undefined;
   org: { ref: string; name: string };
@@ -468,6 +478,7 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
   let groupsP: Promise<ODataEntity[]> | undefined;
 
   const notes: string[] = [];
+  const warnings: string[] = [];
   const choices: Choice[] = [];
   const filled: string[] = [];
   let header: Record<string, unknown>;
@@ -550,6 +561,37 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
       ? { ref: contractRef, name: str(contractCard["Description"]), action: "use" }
       : undefined;
     const currency = refOf(contractCard["ВалютаВзаиморасчетов_Key"]) ?? refOf(basis["ВалютаДокумента_Key"]);
+    // Валюта и курс: валюта — договора (как 1С), курс — из регистра «Курсы валют» на дату реализации.
+    const basisCurrencyRef = refOf(basis["ВалютаДокумента_Key"]);
+    const [docCurrency, basisCurrency, accounts] = await Promise.all([
+      currencyByRef(conn, currency).catch(() => undefined),
+      currencyByRef(conn, basisCurrencyRef).catch(() => undefined),
+      orgBankAccountsWithCurrency(conn, orgRef),
+    ]);
+    if (currency && basisCurrencyRef && currency.toLowerCase() !== basisCurrencyRef.toLowerCase())
+      warnings.push(
+        `Валюта счёта-основания № ${docNumber(str(basis["Number"]))} (${basisCurrency?.name ?? basisCurrencyRef}) не совпадает ` +
+          `с валютой договора (${docCurrency?.name ?? currency}). Реализация будет в валюте договора, а цены и суммы ` +
+          "строк скопированы из счёта как есть — без пересчёта. Исправьте счёт или договор до подтверждения.",
+      );
+    let rate: { rate: number; multiplier: number } = {
+      rate: Number(basis["КурсВзаиморасчетов"] ?? 1) || 1,
+      multiplier: Number(basis["КратностьВзаиморасчетов"] ?? 1) || 1,
+    };
+    if (docCurrency?.isTenge) rate = { rate: 1, multiplier: 1 };
+    else if (docCurrency) {
+      const r = await rateForDocument(conn, docCurrency, date);
+      if (r) {
+        rate = r;
+        notes.push(
+          `Валюта реализации ${docCurrency.name}; курс ${rateText(docCurrency, r)} — на дату реализации.`,
+        );
+      } else
+        warnings.push(
+          `В регистре «Курсы валют» нет курса ${docCurrency.name} на ${date} (или только курс 1) — курс взят из счёта (${rate.rate}). ` +
+            "Загрузите курсы в 1С и повторите план.",
+        );
+    }
     const actsWay =
       str(contractCard["СпособВыпискиАктовВыполненныхРабот"]) ||
       (buyerCard["ГосударственноеУчреждение"] === true ? "НаПорталеГосЗакупа" : "ВБумажномВиде");
@@ -577,8 +619,8 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
       Контрагент_Key: buyerRef,
       ...(contractOk ? { ДоговорКонтрагента_Key: contractRef } : {}),
       ...(currency ? { ВалютаДокумента_Key: currency } : {}),
-      КурсВзаиморасчетов: basis["КурсВзаиморасчетов"] ?? 1,
-      КратностьВзаиморасчетов: basis["КратностьВзаиморасчетов"] ?? 1,
+      КурсВзаиморасчетов: rate.rate,
+      КратностьВзаиморасчетов: rate.multiplier,
       ...(refOf(basis["ТипЦен_Key"]) ? { ТипЦен_Key: basis["ТипЦен_Key"] } : {}),
       УчитыватьНДС: basis["УчитыватьНДС"] === true,
       СуммаВключаетНДС: basis["СуммаВключаетНДС"] === true,
@@ -593,16 +635,17 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
     };
     filled.push(
       "из счёта: организация, контрагент, договор, ответственный, тип цен, флаги НДС/акциза, адрес доставки, " +
-        "банковский счёт, строки товаров и услуг; валюта — из договора; ДокументОснование — счёт",
+        "банковский счёт, строки товаров и услуг; валюта — из договора, курс — из регистра «Курсы валют» на дату " +
+        "реализации; ДокументОснование — счёт",
     );
     if (!basisInfo.posted)
       notes.push(
         `Счёт-основание № ${basisInfo.number} не проведён — 1С позволяет вводить на его основании, просто к сведению.`,
       );
-    if (currency && Number(header["КурсВзаиморасчетов"]) !== 1)
-      notes.push(
-        "Курс взаиморасчётов скопирован из счёта — 1С пересчитала бы его на дату реализации; проверьте в 1С.",
-      );
+    if (bankRef) {
+      const pick = pickBankForCurrency(accounts, docCurrency, { explicitRef: bankRef });
+      if (pick.note) notes.push(pick.note);
+    }
   } else {
     invoicePlan = await planQuickInvoice(
       conn,
@@ -669,8 +712,8 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
       ...(buyer ? { Контрагент_Key: buyer.ref } : {}),
       ...(contract?.ref ? { ДоговорКонтрагента_Key: contract.ref } : {}),
       ...(p.currencyRef ? { ВалютаДокумента_Key: p.currencyRef } : {}),
-      КурсВзаиморасчетов: 1,
-      КратностьВзаиморасчетов: 1,
+      КурсВзаиморасчетов: p.rate?.rate ?? 1,
+      КратностьВзаиморасчетов: p.rate?.multiplier ?? 1,
       УчитыватьНДС: p.withVat,
       СуммаВключаетНДС: p.withVat && input.sumIncludesVat,
       ...(p.bank ? { БанковскийСчетОрганизации_Key: p.bank.ref } : {}),
@@ -791,6 +834,7 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
     ready: choices.length === 0,
     choices,
     notes,
+    warnings,
     mode: input.basis ? "basis" : "direct",
     basis: basisInfo,
     org,
@@ -933,6 +977,16 @@ function planView(plan: SalePlan) {
       withVat: plan.header["УчитыватьНДС"] === true,
       vatIncluded: plan.header["СуммаВключаетНДС"] === true,
     },
+    ...(plan.header["ВалютаДокумента_Key"]
+      ? {
+          currency: {
+            ref: plan.header["ВалютаДокумента_Key"],
+            rate: plan.header["КурсВзаиморасчетов"],
+            multiplier: plan.header["КратностьВзаиморасчетов"],
+          },
+        }
+      : {}),
+    ...(plan.warnings.length ? { warnings: plan.warnings } : {}),
     filledFrom: plan.filled,
     ...(plan.sample ? { accountsSample: plan.sample } : {}),
     ...(plan.buyer ? { possibleDuplicates: plan.duplicates } : {}),
@@ -1168,7 +1222,9 @@ export function registerQuickSaleTool(server: McpServer, ctx: ServerContext): vo
       description:
         "Реализация товаров и услуг за один-два вызова. С basis (счёт на оплату — ref или номер) — «на основании», как в " +
         "1С: организация, покупатель, договор, ответственный, валюта, флаги НДС, банковский счёт, строки товаров и услуг " +
-        "копируются из счёта, ДокументОснование = счёт. Без basis — buyer + lines, как quick_invoice (buyer — БИН/ИИН или " +
+        "копируются из счёта, ДокументОснование = счёт; валюта — договора, курс (не тенге) — из регистра «Курсы валют» " +
+        "на дату реализации; валюта счёта ≠ валюте договора — предупреждение в warnings (показать до подтверждения). " +
+        "Без basis — buyer + lines, как quick_invoice (buyer — БИН/ИИН или " +
         "ref из read.counterparty.find_counterparty; contract — ref/номер/название, «Без договора»/«б/н» — договор без " +
         "номера; не указан или не найден — основной договор, иначе последний подходящий, с пометкой contractAutoSelected). Это и есть путь для актов услуг в базе РК " +
         "(АктОбОказанииПроизводственныхУслуг там нет). Счета учёта, вид " +

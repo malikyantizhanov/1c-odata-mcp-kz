@@ -1,0 +1,77 @@
+{
+  "tool": "write.sales.tax_invoice_from_sale",
+  "args": {
+    "sale": "00000000-0000-4000-8000-000000000240",
+    "date": "2026-10-09"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "ready": true,
+    "database": "default",
+    "operationId": "7157cdbf-e635-4ddb-807c-709cc159d593",
+    "sale": {
+      "ref": "00000000-0000-4000-8000-000000000240",
+      "number": "18",
+      "date": "2026-10-08",
+      "posted": true,
+      "total": 116,
+      "rate": 1,
+      "multiplier": 1
+    },
+    "date": "2026-10-09",
+    "turnoverDate": "2026-10-08",
+    "organization": {
+      "ref": "00000000-0000-4000-8000-000000000001",
+      "name": "Aru Market ИП"
+    },
+    "buyer": {
+      "ref": "00000000-0000-4000-8000-000000000002",
+      "name": "ТОО \"TRADESPACE\"",
+      "bin": "240440007327"
+    },
+    "contract": {
+      "ref": "00000000-0000-4000-8000-000000000003",
+      "name": "Договор б/н"
+    },
+    "bankAccount": {
+      "ref": "00000000-0000-4000-8000-000000000005"
+    },
+    "lines": [
+      {
+        "kind": "услуга",
+        "nomenclatureRef": "00000000-0000-4000-8000-000000000004",
+        "content": "Разработка программного обеспечения",
+        "quantity": 1,
+        "price": 100,
+        "sum": 100,
+        "vat": 16,
+        "turnover": 100
+      }
+    ],
+    "totals": {
+      "total": 116,
+      "vat": 16,
+      "withVat": true,
+      "vatIncluded": false
+    },
+    "possibleDuplicates": [],
+    "willCreate": [
+      "Счёт-фактура выданный (без проведения)"
+    ],
+    "note": "Ничего не создано. Покажите план пользователю; после его согласия — confirm=true с этим operationId и теми же аргументами."
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "operationId": "7157cdbf-e635-4ddb-807c-709cc159d593",
+    "taxInvoice": {
+      "ref": "f6e04850-d201-11f1-8a81-61a3cb12617e",
+      "number": "1",
+      "number1C": "00000000001",
+      "date": "2026-10-09",
+      "total": 116,
+      "posted": false
+    },
+    "note": "Счёт-фактура создан без проведения: проверьте и проведите его (write.document.post_document). ЭСФ — отдельно (write.esf.create_draft или модуль ЭСФ в 1С), отправка в ИС ЭСФ — только из 1С с ЭЦП."
+  }
+}

@@ -602,6 +602,14 @@ function saleBuild() {
   });
 }
 
+/** Проведённая реализация — основание счёта-фактуры для tax_invoice_from_sale. */
+function postedSaleBuild() {
+  const store = saleStore();
+  store["Document_РеализацияТоваровУслуг"]![0]!["Posted"] = true;
+  store["Document_СчетФактураВыданный"] = [];
+  return fake1C({ store });
+}
+
 // ─── Акт сверки: копия store() из quick-reconciliation.test.ts ───
 
 const R_T_CP = id(500);
@@ -1226,6 +1234,12 @@ const writeCases: WriteCase[] = [
     tool: "write.sales.quick_sale",
     args: { basis: QS_INV, date: "2026-10-09" },
     build: saleBuild,
+  },
+  {
+    kind: "write",
+    tool: "write.sales.tax_invoice_from_sale",
+    args: { sale: QS_SALE, date: "2026-10-09" },
+    build: postedSaleBuild,
   },
   {
     kind: "write",

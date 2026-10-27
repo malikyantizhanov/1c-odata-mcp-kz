@@ -41,6 +41,7 @@ import { registerPowerOfAttorneyPrintTools } from "../tools/print-power-of-attor
 import { registerQuickReconciliationTool } from "../tools/quick-reconciliation.js";
 import { registerQuickInvoiceTool } from "../tools/quick-invoice.js";
 import { registerQuickSaleTool } from "../tools/quick-sale.js";
+import { registerTaxInvoiceFromSaleTool } from "../tools/tax-invoice-from-sale.js";
 import { META_LIST, registerGatewayTools, registerKnownWriteTool } from "../tools/gateway.js";
 import { serverVersion as readVersion } from "../version.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
@@ -249,6 +250,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerDocumentWriteTools(server, ctx);
   registerQuickInvoiceTool(server, ctx);
   registerQuickSaleTool(server, ctx);
+  registerTaxInvoiceFromSaleTool(server, ctx);
   registerServicesReceiptTool(server, ctx);
   registerPoaKittingTools(server, ctx);
   // Шлюз — последним и в обход обёртки (без префлайта базы): целевой вызов идёт через tools/call целиком.

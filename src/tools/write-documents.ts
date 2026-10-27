@@ -10,7 +10,7 @@ import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { databaseField, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
-import { fillSubcontoTypes } from "./subconto.js";
+import { fillCompositeTypes, fillSubcontoTypes } from "./subconto.js";
 import { payrollSumNotes } from "./payroll-sums.js";
 import {
   enumNotes,
@@ -303,6 +303,10 @@ export async function prepareDocument(
   const subconto = await fillSubcontoTypes(conn, em, payload);
   payload = subconto.payload;
   notes.push(...subconto.notes);
+  // Прочие составные поля (СубконтоДоходовБУn, СубконтоРасходов…): _Type по субконто счёта или справочнику ссылки.
+  const composite = await fillCompositeTypes(conn, em, payload);
+  payload = composite.payload;
+  notes.push(...composite.notes);
   notes.push(...(await kzCreateNotes(conn, em, payload, { sampleUsed: !!sampleRef })));
   notes.push(...vatRateNotes(when, payload, em, await vatRateNames(conn)));
   return { payload, notes };
@@ -365,6 +369,9 @@ export async function prepareDocumentPatch(
   const subconto = await fillSubcontoTypes(conn, em, patch);
   Object.assign(patch, subconto.payload);
   notes.push(...subconto.notes);
+  const composite = await fillCompositeTypes(conn, em, patch);
+  Object.assign(patch, composite.payload);
+  notes.push(...composite.notes);
   if (patch["Оплачено"] === true && !patch["ДатаВыписки"]) {
     notes.push(
       "Оплачено=true ставят по факту списания/зачисления по выписке и с согласия пользователя; проверьте, что ДатаВыписки заполнена.",
@@ -391,6 +398,11 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         "удаление, не используйте. Документ создаётся непроведённым; провести — write.document.post_document. " +
         "Субконто затрат в строках (СубконтоЗатратБУ1..3 / НУ1..3) — составные ссылки: значение + <поле>_Type " +
         "('StandardODATA.Catalog_СтатьиЗатрат'); _Type сервер допишет по субконто счёта затрат и покажет итог в notes. " +
+        "Так же для прочих составных полей (СубконтоДоходовБУn, СубконтоРасходов…): по субконто счёта строки или по " +
+        "справочнику, где найден Ref_Key. Контрагент_Key — read.counterparty.find_counterparty; ДоговорКонтрагента_Key — " +
+        "read.catalog.list_catalog (Catalog_ДоговорыКонтрагентов, owner=<Ref_Key контрагента>) или текстом («б/н», «Без " +
+        "договора», «№ 12»); пустой договор: один подходящий — подставится, несколько — варианты в notes. Вида нет в " +
+        "базе РК — ошибка подскажет путь (акт услуг → write.sales.quick_sale). " +
         'Пример «Услуги»: {"Номенклатура_Key":"<GUID>","Количество":1,"Цена":1000,"Сумма":1000,"СчетЗатратБУ_Key":"7210",' +
         '"СубконтоЗатратБУ1":"<Ref_Key статьи затрат>","СубконтоЗатратБУ2":"<Ref_Key подразделения>"}; статью найдите ' +
         "read.catalog.list_catalog, для поступления услуг удобнее write.purchase.create_services_receipt. " +
@@ -461,7 +473,9 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
     {
       title: "Изменить документ (шапка и табличные части)",
       description:
-        "Меняет реквизиты шапки и/или табличные части документа из write.document.create_document. Табличная часть " +
+        "Меняет реквизиты шапки и/или табличные части документа из write.document.create_document. Обязательно: " +
+        "entitySet и ref (Ref_Key — read.document.search_documents по номеру и дате). Составные поля (Субконто…): " +
+        "_Type допишется по субконто счёта строки или справочнику ссылки; не определился — ошибка со списком типов. Табличная часть " +
         "заменяется целиком: прочитайте документ (read.document.get_document), измените строки и передайте все. " +
         "Проведённый документ не меняется — сначала отмените проведение (write.document.post_document post=false), " +
         "затем измените и проведите снова. Субконто затрат в строках (СубконтоЗатратБУn/НУn): _Type допишется по субконто " +

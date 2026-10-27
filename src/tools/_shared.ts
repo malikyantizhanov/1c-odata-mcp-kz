@@ -108,3 +108,10 @@ export function withTruncationNote<T>(
     ...(truncated ? { note: `Результат усечён до ${maxRows} строк. Уточните фильтр или период.` } : {}),
   };
 }
+
+/** Короткий список для сообщения: первые limit элементов и «и ещё N» — вместо простыни на 50 строк. */
+export function shortList(items: readonly string[], limit = 10, sep = "; "): string {
+  return items.length > limit
+    ? `${items.slice(0, limit).join(sep)} и ещё ${items.length - limit}`
+    : items.join(sep);
+}

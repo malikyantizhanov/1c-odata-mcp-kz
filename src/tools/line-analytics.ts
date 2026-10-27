@@ -3,7 +3,15 @@ import type { Connection } from "../context.js";
 import { InputError } from "../errors.js";
 import { resolveCatalogItem } from "./catalog-lookup.js";
 import { resolveAccountCodes } from "./kz-flow.js";
-import { accountLayout, fillSubcontoTypes, isGuid, placeAnalytics, STAGES, type Stage } from "./subconto.js";
+import {
+  accountLayout,
+  fillCompositeTypes,
+  fillSubcontoTypes,
+  isGuid,
+  placeAnalytics,
+  STAGES,
+  type Stage,
+} from "./subconto.js";
 
 /**
  * Аналитика затрат в строках УЖЕ существующего документа (поступление услуг и др.): счёт затрат БУ/НУ, статья затрат,
@@ -16,7 +24,9 @@ const DEPARTMENTS = "Catalog_ПодразделенияОрганизаций";
 const GROUPS = "Catalog_НоменклатурныеГруппы";
 const COUNTERPARTIES = "Catalog_Контрагенты";
 
-export const SUBCONTO_FIELD_RE = /^СубконтоЗатрат(БУ|НУ)[1-3]$/;
+/** Явные слоты субконто строки: СубконтоЗатратБУ1..3/НУ1..3, СубконтоДоходовБУn, СубконтоРасходов…n и т.п. */
+export const SUBCONTO_FIELD_RE = /^Субконто\p{L}*[1-3]$/u;
+const COST_SUBCONTO_RE = /^СубконтоЗатрат(БУ|НУ)[1-3]$/;
 
 export const analyticsFields = {
   costAccount: z
@@ -48,13 +58,19 @@ export const analyticsFields = {
     .describe("Контрагент для слота «Контрагенты» субконто: название, код или Ref_Key (Catalog_Контрагенты)"),
   subconto: z
     .record(
-      z.string().regex(SUBCONTO_FIELD_RE, "ключ — СубконтоЗатратБУ1..3 или СубконтоЗатратНУ1..3"),
+      z
+        .string()
+        .regex(
+          SUBCONTO_FIELD_RE,
+          "ключ — поле субконто строки: СубконтоЗатратБУ1..3, СубконтоДоходовБУ1..3 и т.п.",
+        ),
       z.string(),
     )
     .optional()
     .describe(
-      'Явные значения слотов: {"СубконтоЗатратБУ1":"<Ref_Key>","СубконтоЗатратНУ2":"<Ref_Key>"}. Перекрывают то, что ' +
-        "подобрано по названиям; _Type сервер допишет по виду субконто счёта",
+      'Явные значения слотов: {"СубконтоЗатратБУ1":"<Ref_Key>","СубконтоДоходовБУ1":"<Ref_Key>"}. Перекрывают то, что ' +
+        "подобрано по названиям; <поле>_Type сервер допишет сам — по виду субконто счёта строки (СчетЗатрат…/СчетДоходов…) " +
+        "или по справочнику, где найден Ref_Key",
     ),
 };
 
@@ -86,8 +102,7 @@ type Row = Record<string, unknown>;
 const EMPTY = "00000000-0000-0000-0000-000000000000";
 const isFilled = (v: unknown): boolean =>
   typeof v === "string" && v.trim() !== "" && v.replace(/[{}']/g, "") !== EMPTY;
-const watched = (k: string) =>
-  /^СчетЗатрат(БУ|НУ)_Key$/.test(k) || /^СубконтоЗатрат(БУ|НУ)[1-3](_Type)?$/.test(k);
+const watched = (k: string) => /^СчетЗатрат(БУ|НУ)_Key$/.test(k) || /^Субконто\p{L}*[1-3](_Type)?$/u.test(k);
 
 /**
  * Применяет аналитику к строкам табличной части: specs[i] относится к rows[i] (undefined — строку не трогаем).
@@ -109,7 +124,15 @@ export async function applyLineAnalytics(
   const rowMeta = meta.entities.get(`${p.entitySet}_${p.section}`);
   if (!em || !rowMeta)
     throw new InputError(`${p.entitySet}: табличной части «${p.section}» нет в $metadata.`);
-  if (!rowMeta.properties.some((x) => x.name.startsWith("СубконтоЗатрат")))
+  // Без субконто затрат в строках — можно задать только явные слоты других субконто (доходов и т.п.).
+  const costOnly = (sp: LineAnalytics) =>
+    !!(sp.costAccount || sp.taxCostAccount || sp.costArticle || sp.department || sp.nomenclatureGroup) ||
+    !!sp.subcontoCounterparty ||
+    Object.keys(sp.subconto ?? {}).some((k) => COST_SUBCONTO_RE.test(k));
+  if (
+    !rowMeta.properties.some((x) => x.name.startsWith("СубконтоЗатрат")) &&
+    p.specs.some((sp) => sp && costOnly(sp))
+  )
     throw new InputError(
       `В табличной части «${p.section}» документа ${p.entitySet} нет субконто затрат (СубконтоЗатратБУn/НУn) — ` +
         "аналитика затрат здесь не задаётся.",
@@ -203,6 +226,15 @@ export async function applyLineAnalytics(
     }
     for (const [field, value] of Object.entries(spec.subconto ?? {})) {
       if (!SUBCONTO_FIELD_RE.test(field)) throw new InputError(`${where}: недопустимое поле ${field}.`);
+      if (!rowMeta.properties.some((x) => x.name === field))
+        throw new InputError(
+          `${where}: в строках «${p.section}» нет поля ${field}; есть: ` +
+            (rowMeta.properties
+              .map((x) => x.name)
+              .filter((n) => SUBCONTO_FIELD_RE.test(n))
+              .join(", ") || "полей субконто нет") +
+            ".",
+        );
       if (!isGuid(value))
         throw new InputError(`${where}: ${field} — ожидается Ref_Key (GUID), получено «${value}».`);
       row[field] = value.replace(/[{}']/g, "");
@@ -212,8 +244,14 @@ export async function applyLineAnalytics(
   }
 
   // _Type по виду субконто счёта, проверка типов и предупреждения о пустых слотах — только по тронутым строкам.
-  const filledTypes = await fillSubcontoTypes(conn, em, { [p.section]: rows });
-  const typed = filledTypes.payload[p.section] as Row[];
+  const costTypes = await fillSubcontoTypes(conn, em, { [p.section]: rows });
+  // Прочие составные слоты (СубконтоДоходовБУn и т.п.): _Type по счёту строки или справочнику ссылки.
+  // Нетронутые строки не проверяем (пустые объекты вместо них — номера строк в notes сохраняются).
+  const otherTypes = await fillCompositeTypes(conn, em, {
+    [p.section]: (costTypes.payload[p.section] as Row[]).map((r, i) => (touched[i] ? r : {})),
+  });
+  const filledTypes = { notes: [...costTypes.notes, ...otherTypes.notes] };
+  const typed = otherTypes.payload[p.section] as Row[];
   rows = rows.map((r, i) => (touched[i] ? typed[i]! : r));
   const touchedNo = new Set(touched.flatMap((t, i) => (t ? [i + 1] : [])));
   for (const n of filledTypes.notes) {

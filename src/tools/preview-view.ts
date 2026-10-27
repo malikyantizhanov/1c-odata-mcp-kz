@@ -214,11 +214,14 @@ export async function buildPreviewView(
   for (const [target, guids] of wanted) {
     try {
       const props = new Set((meta?.entities.get(target)?.properties ?? []).map((p) => p.name));
-      const select = [
-        "Ref_Key",
-        ...NAME_FIELDS.filter((f) => f !== "Ref_Key" && (!props.size || props.has(f))),
-        "Date",
-      ].filter((f, i, a) => a.indexOf(f) === i);
+      // Только поля, которые у объекта есть: 1С отвергает весь запрос (400), если в $select чужое поле, — у
+      // справочника нет Date. Метаданных нет — по виду объекта: у документа номер и дата, у справочника — название.
+      const doc = target.startsWith("Document_");
+      const has = (f: string) =>
+        props.size ? props.has(f) : (doc ? ["Number", "Date"] : ["Description", "Code"]).includes(f);
+      const select = ["Ref_Key", ...[...NAME_FIELDS, "Date"].filter((f) => f !== "Ref_Key" && has(f))].filter(
+        (f, i, a) => a.indexOf(f) === i,
+      );
       const { rows } = await fetchAll(
         conn.client,
         target,

@@ -11,6 +11,8 @@ import { and, buildQuery, cmp, contains, odataGuid, or } from "../odata/query.js
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
 import { ODataError } from "../odata/errors.js";
 import type { ODataEntity } from "../types/odata.js";
+import type { ContractAutoSelected } from "../odata/contracts.js";
+import type { CounterpartyMatch } from "../odata/fuzzy.js";
 import { databaseField, dateField, guard, ok, organizationField } from "./_shared.js";
 import { isKazakhstan } from "./write-kz.js";
 import {
@@ -186,7 +188,11 @@ export interface SalePlan {
   basis?: { ref: string; number: string; date: string; total: number; posted: boolean } | undefined;
   org: { ref: string; name: string };
   buyer?: { ref: string; name: string; bin?: string | undefined } | undefined;
-  contract?: { ref?: string | undefined; name: string; action: "use" | "create" } | undefined;
+  contract?:
+    | { ref?: string | undefined; name: string; action: "use" | "create"; auto?: boolean | undefined }
+    | undefined;
+  counterpartyMatch?: CounterpartyMatch | undefined;
+  contractAutoSelected?: ContractAutoSelected | undefined;
   date: string;
   dateTime: string;
   operationKind: string;
@@ -666,6 +672,7 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
           ref: invoicePlan.contract.ref,
           name: invoicePlan.contract.name,
           action: invoicePlan.contract.action,
+          ...(invoicePlan.contract.auto ? { auto: true } : {}),
         }
       : undefined;
     const p = invoicePlan;
@@ -833,6 +840,8 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
     org,
     buyer,
     contract,
+    counterpartyMatch: invoicePlan?.counterpartyMatch,
+    contractAutoSelected: invoicePlan?.contractAutoSelected,
     date,
     dateTime,
     operationKind: kind,
@@ -940,9 +949,15 @@ function planView(plan: SalePlan) {
           contract:
             plan.contract.action === "create"
               ? { action: "создать", name: plan.contract.name }
-              : { action: "найден", ref: plan.contract.ref, name: plan.contract.name },
+              : {
+                  action: plan.contract.auto ? "подставлен автоматически" : "найден",
+                  ref: plan.contract.ref,
+                  name: plan.contract.name,
+                },
         }
       : {}),
+    ...(plan.counterpartyMatch ? { counterpartyMatch: plan.counterpartyMatch } : {}),
+    ...(plan.contractAutoSelected ? { contractAutoSelected: plan.contractAutoSelected } : {}),
     operationKind: plan.operationKind,
     ...(plan.header["Склад_Key"] ? { warehouse: plan.header["Склад_Key"] } : {}),
     ...(plan.header["БанковскийСчетОрганизации_Key"]
@@ -1209,7 +1224,10 @@ export function registerQuickSaleTool(server: McpServer, ctx: ServerContext): vo
         "1С: организация, покупатель, договор, ответственный, валюта, флаги НДС, банковский счёт, строки товаров и услуг " +
         "копируются из счёта, ДокументОснование = счёт; валюта — договора, курс (не тенге) — из регистра «Курсы валют» " +
         "на дату реализации; валюта счёта ≠ валюте договора — предупреждение в warnings (показать до подтверждения). " +
-        "Без basis — buyer + lines, как quick_invoice. Счета учёта, вид " +
+        "Без basis — buyer + lines, как quick_invoice (buyer — БИН/ИИН или " +
+        "ref из read.counterparty.find_counterparty; contract — ref/номер/название, «Без договора»/«б/н» — договор без " +
+        "номера; не указан или не найден — основной договор, иначе последний подходящий, с пометкой contractAutoSelected). Это и есть путь для актов услуг в базе РК " +
+        "(АктОбОказанииПроизводственныхУслуг там нет). Счета учёта, вид " +
         "учёта НУ и субконто — из последней реализации той же организации с такими строками (1С через OData их не " +
         "подставляет). confirm=false (по умолчанию) — план: что заполнено и откуда, итоги, notes, operationId; ничего " +
         "не пишет. План проверяет дубли: реализации на основании того же счёта и реализации того же покупателя за тот же " +

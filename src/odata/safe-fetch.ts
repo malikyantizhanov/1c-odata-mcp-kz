@@ -83,6 +83,32 @@ export function guardedLookup(hostname: string, options: { all?: boolean }, call
 
 let agent: Agent | undefined;
 
+/**
+ * Ответ 1С перенаправлением: куда (хост — если другой, и путь, без параметров) и что делать. На чтение — обычно
+ * неточный адрес публикации; на запись и действие (проведение) адрес верный — 1С не выполнила запрос, повтор не поможет.
+ */
+export function redirectMessage(
+  url: string,
+  status: number,
+  location: string | null,
+  method?: string,
+): string {
+  let where = "";
+  if (location) {
+    try {
+      const from = new URL(url);
+      const to = new URL(location, url);
+      where = ` → ${to.host === from.host ? "" : to.host}${to.pathname}`;
+    } catch {
+      where = "";
+    }
+  }
+  const code = `HTTP ${status}${where}`;
+  if (method && method.toUpperCase() !== "GET")
+    return `1С ответила перенаправлением (${code}) вместо результата — действие не выполнено. Повтор того же запроса не поможет: проверьте документ в 1С.`;
+  return `Публикация 1С перенаправляет запрос на другой адрес (${code}). Укажите точный адрес стандартного интерфейса OData (…/odata/standard.odata/).`;
+}
+
 /** fetch для запросов к 1С в общем режиме: проверка адреса при соединении, без перенаправлений. */
 export async function safeFetch(url: string, init: RequestInit): Promise<Response> {
   const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
@@ -112,9 +138,7 @@ export async function safeFetch(url: string, init: RequestInit): Promise<Respons
       status: res.status,
       url,
       retryable: false,
-      message:
-        "Публикация 1С перенаправляет запрос на другой адрес. Укажите точный адрес стандартного интерфейса OData " +
-        "(…/odata/standard.odata/).",
+      message: redirectMessage(url, res.status, res.headers.get("location"), init.method),
     });
   }
   return res as unknown as Response;

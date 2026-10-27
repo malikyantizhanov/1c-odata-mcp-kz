@@ -27,6 +27,8 @@
   этого же отфильтрованного реестра — обойти `ODATA_HTTP_WRITE_TOOLS`, `READ_ONLY` и `writable` через него нельзя;
   для неопубликованного `write.*` — объяснение, как его включить.
 
+## [0.7.15] — 2026-10-27
+
 ### Исправлено — частые ошибки агентов (журнал прода, претензии бухгалтеров)
 
 - `read.catalog.list_catalog`, `owner`: владелец составного типа (`Owner`/`Владелец` + `_Type` — банковские счета, договоры части баз РК) отбирается `cast(guid'…', 'Catalog_…')` по справочнику, где найден Ref_Key владельца; раньше результат был пуст. Пустой список по владельцу — «у владельца нет элементов», а не «по запросу «» ничего не найдено»; `Владелец_Key` в `select` — подсказка про `owner`.
@@ -1132,7 +1134,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.14...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.15...HEAD
+[0.7.15]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...v0.7.14
 [0.7.13]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.12...v0.7.13
 [0.7.12]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.11...v0.7.12

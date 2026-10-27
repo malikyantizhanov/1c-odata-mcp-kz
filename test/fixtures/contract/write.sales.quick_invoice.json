@@ -16,7 +16,7 @@
     "dryRun": true,
     "ready": true,
     "database": "default",
-    "operationId": "fc9ccddd-8a9d-4a1f-b2f8-0d2c6ff84c4b",
+    "operationId": "7cd1b7ca-39e4-4746-b03f-60988996fa84",
     "date": "2026-10-08",
     "organization": {
       "ref": "00000000-0000-4000-8000-000000000001",
@@ -34,6 +34,12 @@
       "name": "Договор б/н",
       "number": "б/н",
       "date": "2026-10-08"
+    },
+    "currency": {
+      "code": "398",
+      "name": "KZT",
+      "rate": 1,
+      "multiplier": 1
     },
     "bankAccount": {
       "ref": "00000000-0000-4000-8000-000000000005",
@@ -63,18 +69,19 @@
       "Счёт на оплату покупателю (без проведения) + PDF"
     ],
     "notes": [
+      "У организации нет действующего банковского счёта в KZT.",
       "КНП не указан — поле «Код назначения платежа» в счёте будет пустым."
     ],
     "note": "План. Ничего не создано. Чтобы создать, повторите вызов с теми же аргументами, confirm=true и этим operationId.",
-    "elapsedMs": 13
+    "elapsedMs": 22
   },
   "confirm": {
     "created": true,
     "database": "default",
-    "operationId": "fc9ccddd-8a9d-4a1f-b2f8-0d2c6ff84c4b",
+    "operationId": "7cd1b7ca-39e4-4746-b03f-60988996fa84",
     "possibleDuplicates": [],
     "invoice": {
-      "ref": "b27b81b0-cebf-11f1-8f41-fd4d89210bc7",
+      "ref": "31d07740-d1fe-11f1-8b52-6d2f8ee81eaa",
       "number": "1",
       "number1C": "00000000001",
       "date": "2026-10-08",
@@ -82,9 +89,9 @@
       "posted": false
     },
     "pdf": {
-      "path": "/private<tmp>/1c-quick-test-M3zmRl/Счет на оплату покупателю № 1 от 08.10.2026.pdf",
+      "path": "<tmp>/1c-quick-test-MGOY7Y/Счет на оплату покупателю № 1 от 08.10.2026.pdf",
       "fileName": "Счет на оплату покупателю № 1 от 08.10.2026.pdf",
-      "size": 16109
+      "size": 15992
     },
     "notes": [
       "Счёт создан без проведения (счёт на оплату проводок не делает)."

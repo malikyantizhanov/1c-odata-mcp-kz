@@ -669,6 +669,20 @@ export function fake1C(
         });
       return { Recorder: recorder, RecordSet: rows.map((r) => ({ ...r })) };
     }
+    // Срез последних регистра сведений: если набор среза не задан в store явно — считаем его по записям регистра
+    // (Period ≤ даты среза, отбор Condition, по каждой валюте — последняя запись), как 1С.
+    if (set.endsWith("/SliceLast") && !store[set]) {
+      const at = /Period=datetime'([^']+)'/.exec(p)?.[1] ?? "9999-12-31T23:59:59";
+      const cond = /Condition='((?:[^']|'')*)'/.exec(p)?.[1]?.replace(/''/g, "'");
+      const latest = new Map<string, Row>();
+      for (const r of store[set.replace(/\/SliceLast$/, "")] ?? []) {
+        if (String(r["Period"]) > at || !matches(r, cond)) continue;
+        const k = String(r["Валюта_Key"]);
+        const prev = latest.get(k);
+        if (!prev || String(prev["Period"]) < String(r["Period"])) latest.set(k, r);
+      }
+      return { value: [...latest.values()].map((r) => ({ ...r })) };
+    }
     const key = /\(guid'([^']+)'\)/.exec(p)?.[1];
     if (key) {
       const row = (store[set] ?? []).find((r) => r["Ref_Key"] === key);

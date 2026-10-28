@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.17] — 2026-10-28
+
 ### Добавлено — чтение регламентированных отчётов (ФНО)
 
 - `read.reports.regulated_report`: без `ref`/`number` — список документов «Регламентированный отчет» (новые сверху,
@@ -1156,7 +1158,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.16...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.17...HEAD
+[0.7.17]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.16...v0.7.17
 [0.7.16]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.15...v0.7.16
 [0.7.15]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.14...v0.7.15
 [0.7.14]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.13...v0.7.14

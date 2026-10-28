@@ -1,0 +1,76 @@
+<Structure xmlns="http://v8.1c.ru/8.1/data/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<Property name="СтруктураДополнительныхРеквизитовФормы">
+		<Value xsi:type="Structure">
+			<Property name="Комментарий">
+				<Value xsi:type="xs:string">Синтетический пример</Value>
+			</Property>
+			<Property name="Форма200_01ПолеТабличногоДокументаСтраница1">
+				<Value xmlns:d5p1="http://v8.1c.ru/8.2/data/spreadsheet" xsi:type="mxl:SpreadsheetDocument">
+					<d5p1:rowsItem>
+						<d5p1:index>0</d5p1:index>
+						<d5p1:row>
+							<d5p1:c><d5p1:c><d5p1:f>1</d5p1:f><d5p1:tl><d5p1:item><lang>ru</lang><content>Код строки</content></d5p1:item></d5p1:tl></d5p1:c></d5p1:c>
+						</d5p1:row>
+					</d5p1:rowsItem>
+					<d5p1:rowsItem>
+						<d5p1:index>1</d5p1:index>
+						<d5p1:row>
+							<d5p1:c><d5p1:c><d5p1:tl><d5p1:item><lang>kk</lang><content>200.01.001</content></d5p1:item><d5p1:item><lang>ru</lang><content>200.01.001</content></d5p1:item></d5p1:tl></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:i>5</d5p1:i><d5p1:c><d5p1:tl><d5p1:item><lang>ru</lang><content>Начисленные
+ доходы</content></d5p1:item></d5p1:tl></d5p1:c></d5p1:c>
+						</d5p1:row>
+					</d5p1:rowsItem>
+					<d5p1:rowsItem>
+						<d5p1:index>2</d5p1:index>
+						<d5p1:row>
+							<d5p1:c><d5p1:i>6</d5p1:i><d5p1:c><d5p1:v xsi:type="xs:decimal">100</d5p1:v></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:c><d5p1:v xsi:type="xs:decimal">200</d5p1:v></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:c><d5p1:v xsi:type="xs:decimal">300.5</d5p1:v></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:c><d5p1:v xsi:type="xs:decimal">600.5</d5p1:v></d5p1:c></d5p1:c>
+						</d5p1:row>
+					</d5p1:rowsItem>
+					<d5p1:rowsItem>
+						<d5p1:index>3</d5p1:index>
+						<d5p1:row>
+							<d5p1:c><d5p1:i>2</d5p1:i><d5p1:c><d5p1:tl><d5p1:item><lang>ru</lang><content>А</content></d5p1:item></d5p1:tl></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:c><d5p1:tl><d5p1:item><lang>ru</lang><content>доходы работников</content></d5p1:item></d5p1:tl></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:i>9</d5p1:i><d5p1:c><d5p1:v xsi:type="xs:decimal">550</d5p1:v></d5p1:c></d5p1:c>
+							<d5p1:c><d5p1:c><d5p1:v xsi:type="xs:string">000123456789</d5p1:v></d5p1:c></d5p1:c>
+						</d5p1:row>
+					</d5p1:rowsItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_001_1</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>2</d5p1:beginRow><d5p1:endRow>2</d5p1:endRow><d5p1:beginColumn>6</d5p1:beginColumn><d5p1:endColumn>6</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_001_2</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>2</d5p1:beginRow><d5p1:endRow>2</d5p1:endRow><d5p1:beginColumn>7</d5p1:beginColumn><d5p1:endColumn>7</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_001_3</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>2</d5p1:beginRow><d5p1:endRow>2</d5p1:endRow><d5p1:beginColumn>8</d5p1:beginColumn><d5p1:endColumn>8</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_001_4</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>2</d5p1:beginRow><d5p1:endRow>2</d5p1:endRow><d5p1:beginColumn>9</d5p1:beginColumn><d5p1:endColumn>9</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_001_A</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>3</d5p1:beginRow><d5p1:endRow>3</d5p1:endRow><d5p1:beginColumn>9</d5p1:beginColumn><d5p1:endColumn>9</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>ИИН_БИН</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>3</d5p1:beginRow><d5p1:endRow>3</d5p1:endRow><d5p1:beginColumn>10</d5p1:beginColumn><d5p1:endColumn>10</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>s_200_01_002_1</d5p1:name><d5p1:area><d5p1:type>Rectangle</d5p1:type><d5p1:beginRow>9</d5p1:beginRow><d5p1:endRow>9</d5p1:endRow><d5p1:beginColumn>1</d5p1:beginColumn><d5p1:endColumn>1</d5p1:endColumn></d5p1:area></d5p1:namedItem>
+					<d5p1:namedItem xsi:type="mxl:NamedItemCells"><d5p1:name>ВсяСтрока</d5p1:name><d5p1:area><d5p1:type>Rows</d5p1:type><d5p1:beginRow>1</d5p1:beginRow><d5p1:endRow>1</d5p1:endRow></d5p1:area></d5p1:namedItem>
+				</Value>
+			</Property>
+			<Property name="Форма200_05ПолеТабличногоДокументаСтраница1">
+				<Value xmlns:d5p1="http://v8.1c.ru/8.2/data/spreadsheet" xsi:type="mxl:SpreadsheetDocument">
+					<d5p1:columns><d5p1:size>0</d5p1:size></d5p1:columns>
+					<d5p1:rowsItem><d5p1:index>0</d5p1:index><d5p1:row><d5p1:empty>true</d5p1:empty></d5p1:row></d5p1:rowsItem>
+				</Value>
+			</Property>
+			<Property name="мМакет">
+				<Value xmlns:d5p1="http://v8.1c.ru/8.2/data/spreadsheet" xsi:type="mxl:SpreadsheetDocument"/>
+			</Property>
+			<Property name="мСтруктураЗначений">
+				<Value xsi:type="Structure">
+					<Property name="ЧисленностьРаботников1"><Value xsi:type="xs:decimal">3</Value></Property>
+					<Property name="Пусто"><Value xsi:nil="true"/></Property>
+				</Value>
+			</Property>
+			<Property name="ТаблицаСтрокГруппыФорма200_05Страница1">
+				<Value xsi:type="ValueTable">
+					<column><Name xsi:type="xs:string">Ф200_05ИИН</Name></column>
+					<column><Name xsi:type="xs:string">Ф200_05ИИН_Расшифровка</Name></column>
+					<column><Name xsi:type="xs:string">Ф200_05_F</Name></column>
+					<row><Value xsi:type="xs:string">000000000001</Value><Value xsi:type="xs:string">служебное</Value><Value xsi:type="xs:decimal">42</Value></row>
+				</Value>
+			</Property>
+		</Value>
+	</Property>
+</Structure>

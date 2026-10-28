@@ -24,6 +24,7 @@ import { registerPayrollTools } from "../tools/payroll.js";
 import { registerPayrollMonthTools } from "../tools/payroll-month.js";
 import { registerPayrollWriteTools } from "../tools/payroll-write.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
+import { registerRegulatedReportTools } from "../tools/regulated-report.js";
 import { registerEsfAvrTools } from "../tools/esf-avr.js";
 import { registerVatNoticeTools } from "../tools/vat-notices.js";
 import { registerVatNoticeDraftTools } from "../tools/vat-notice-draft.js";
@@ -231,6 +232,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerPayrollMonthTools(server, ctx);
   registerPayrollWriteTools(server, ctx);
   registerKzRecordTools(server, ctx);
+  registerRegulatedReportTools(server, ctx);
   registerEsfAvrTools(server, ctx);
   registerVatNoticeTools(server, ctx);
   registerEsfWriteTools(server, ctx);

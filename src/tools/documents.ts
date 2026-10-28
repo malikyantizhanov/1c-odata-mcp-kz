@@ -175,7 +175,29 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
         ensurePublished(await conn.available(), entitySet);
         const path = `${entitySet}(guid'${ref.replace(/[{}']/g, "")}')${buildQuery({})}`;
         const entity = await conn.client.getEntity(path);
-        return ok(entity);
+        return ok(omitLargeBinary(entity, entitySet));
       }),
   );
+}
+
+/** Порог, после которого двоичное поле (…_Base64Data) не отдаётся в get_document: клиент MCP всё равно обрежет ответ. */
+export const BINARY_INLINE_LIMIT = 64 * 1024;
+
+/**
+ * Двоичные поля больше BINARY_INLINE_LIMIT заменяются пометкой с размером и подсказкой, чем их читать
+ * (ФНО — read.reports.regulated_report, файлы — read.files.get_attachment). Остальные поля — как есть.
+ */
+export function omitLargeBinary<T extends Record<string, unknown>>(entity: T, entitySet: string): T {
+  const out: Record<string, unknown> = { ...entity };
+  for (const [k, v] of Object.entries(entity)) {
+    if (!k.endsWith("_Base64Data") || typeof v !== "string" || v.length <= BINARY_INLINE_LIMIT) continue;
+    const bytes = Math.floor((v.replace(/\s/g, "").length * 3) / 4);
+    const hint = /РегламентированныйОтчет$/.test(entitySet)
+      ? "показатели отчёта — read.reports.regulated_report"
+      : /ПрисоединенныеФайлы$/.test(entitySet)
+        ? "содержимое файла — read.files.get_attachment"
+        : "поле слишком большое для ответа инструмента";
+    out[k] = `<двоичные данные ~${bytes} байт не показаны: ${hint}>`;
+  }
+  return out as T;
 }

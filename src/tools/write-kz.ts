@@ -45,6 +45,7 @@ export const KZ_WRITE_TOOLS = [
   "write.warehouse.update_kitting",
   "write.payroll.create_payroll_statement",
   "write.payroll.create_fund_transfer",
+  "write.payroll.create_vacation_accrual",
   "write.document.create_document",
   "write.document.update_document",
   "write.document.update_document_lines",

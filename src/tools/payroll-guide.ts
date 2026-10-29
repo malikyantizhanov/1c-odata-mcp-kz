@@ -16,11 +16,14 @@ export const KZ_PAYROLL_GUIDE = {
       "write.payroll.create_payroll_statement — ведомость «Зарплата к выплате», суммы — остаток к выплате в 1С",
     transfer:
       "write.payroll.create_fund_transfer — перечисление в фонды (opv | so | ep), суммы — остаток или строки проведённого расчёта",
+    vacation:
+      "write.payroll.create_vacation_accrual — отпускные: «Начисление зарплаты» с видом «Оплата отпуска» и периодом отпуска, сумму считает 1С; read.payroll.get_vacations — просмотр",
     payment:
       "write.document.create_document Document_ПлатежноеПоручениеИсходящее — платёжка, которая гасит долг перед фондом",
   },
   scenario: [
     "1. Бухгалтер в 1С: Начисление зарплаты → «Заполнить»/«Рассчитать» → «Провести»; затем удержания и СН/СО (или расчёт ЕП) и отражение в учёте — так же в форме. Через OData 1С суммы не считает: пустой документ проводится с нулями (проверено), post_document такой документ проводить откажется.",
+    "1а. Отпуск: write.payroll.create_vacation_accrual (сотрудник, даты отпуска) — предпросмотр, confirm=true после согласия; затем в 1С «Рассчитать» и «Провести»; read.payroll.get_vacations — что начислено и рассчитано.",
     "2. read.payroll.check_month period=YYYY-MM — проверка месяца; ошибки и предупреждения — в issues.",
     "3. write.payroll.create_payroll_statement period=YYYY-MM — предпросмотр ведомости из остатка к выплате; после согласия — confirm=true с operationId; провести — write.document.post_document; выплатить — РКО/ПП.",
     "4. write.payroll.create_fund_transfer fund=opv|so|ep period=YYYY-MM (или basisRef — проведённый расчёт) — предпросмотр перечисления; confirm=true после согласия.",

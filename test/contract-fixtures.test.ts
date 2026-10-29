@@ -1350,6 +1350,12 @@ const writeCases: WriteCase[] = [
   },
   {
     kind: "write",
+    tool: "write.payroll.create_vacation_accrual",
+    args: { employees: [{ employee: id(511), startDate: "2026-11-02", endDate: "2026-11-15" }] },
+    build: () => fake1C({ store: vacationStore(), entities: vacEntities }),
+  },
+  {
+    kind: "write",
     tool: "write.document.create_document",
     args: {
       entitySet: INVOICE_SET,
@@ -1631,6 +1637,12 @@ const readCases: ReadCase[] = [
     tool: "read.payroll.get_fund_debts",
     args: {},
     build: () => fake1C({ store: payrollStore(), entities: pmEntities }),
+  },
+  {
+    kind: "read",
+    tool: "read.payroll.get_vacations",
+    args: { from: "2026-09-01", to: "2026-09-30" },
+    build: () => fake1C({ store: vacationStore(), entities: vacEntities }),
   },
   { kind: "read", tool: "read.esf.list_esf", args: {}, build: () => fake1C({ store: richStore() }) },
   {
@@ -2129,6 +2141,63 @@ const pmEntities = {
     ],
   ),
 };
+
+const PM_VAC_KIND = id(622);
+const vacEntities = {
+  ...pmEntities,
+  ...pmDoc(PM_ACCRUAL, ["ПериодРегистрации", "ВидРасчета_Key", "Комментарий"], "Начисления", [
+    "Сотрудник_Key",
+    "Физлицо_Key",
+    "ВидРасчета_Key",
+    "Результат",
+    "ПодразделениеОрганизации_Key",
+    "ДатаНачала",
+    "ДатаОкончания",
+  ]),
+};
+
+/** payrollStore + вид «Оплата отпуска» и проведённый отпуск 07–20.09.2026 (Результат 150 000). */
+function vacationStore(): Store {
+  const store = payrollStore();
+  store["ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций"] = [
+    {
+      Ref_Key: PM_KIND,
+      Description: "Оклад по дням",
+      PredefinedDataName: "ОкладПоДням",
+      СпособРасчета: "ПоМесячнойТарифнойСтавкеПоДням",
+      DeletionMark: false,
+    },
+    {
+      Ref_Key: PM_VAC_KIND,
+      Description: "Оплата отпуска",
+      PredefinedDataName: "ОплатаПоСреднемуОтп",
+      СпособРасчета: "ПоСреднемуЗаработкуДляОтпуска",
+      DeletionMark: false,
+    },
+  ];
+  (store[PM_ACCRUAL] as Row[]).push({
+    Ref_Key: id(612),
+    Number: "00000000012",
+    Date: "2026-09-01T00:00:00",
+    Posted: true,
+    DeletionMark: false,
+    Организация_Key: ORG,
+    ПериодРегистрации: PM_M,
+    ВидРасчета_Key: PM_VAC_KIND,
+    Начисления: [
+      {
+        LineNumber: "1",
+        Сотрудник_Key: PM_EMP1,
+        Физлицо_Key: PM_P1,
+        ВидРасчета_Key: PM_VAC_KIND,
+        Результат: 150000,
+        ДатаНачала: "2026-09-07T00:00:00",
+        ДатаОкончания: "2026-09-20T00:00:00",
+      },
+    ],
+  });
+  return store;
+}
 
 function payrollStore(): Store {
   const store = baseStore();

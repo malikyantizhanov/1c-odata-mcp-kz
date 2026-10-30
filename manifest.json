@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.17",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 113 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 115 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -4588,6 +4588,276 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.payroll.create_vacation_accrual",
+      "title": "Начисление отпускных (документ без расчёта)",
+      "description": "Казахстан. Создаёт НЕПРОВЕДЁННОЕ «Начисление зарплаты работникам организаций» с видом расчёта «Оплата отпуска» (kind=vacation; compensation — «Компенсация отпуска», dismissal — «Компенсация отпуска при увольнении»; свой вид — calculationTypeRef): шапка (организация, месяц начисления, вид расчёта), строки — сотрудник, физлицо, подразделение, период отпуска ДатаНачала–ДатаОкончания. Отдельного документа «Отпуск» в БК для РК нет. Сумму по среднему заработку MCP НЕ считает и «Результат» не пишет: бухгалтер открывает документ в 1С → «Рассчитать», проверяет и проводит (post_document пустой документ проводить откажется). Удержания ИПН, ОПВ, ВОСМС и СН/СО/ОПВР/ООСМС (или ЕП) — расчётные документы месяца в 1С. Отпуск, пересекающийся с уже начисленным тому же сотруднику, — отказ (allowDuplicate=true — всё равно). По умолчанию предпросмотр; создание — confirm=true с operationId после согласия. Посмотреть — read.payroll.get_vacations. Пример: {\"employees\":[{\"employee\":\"Касымова\",\"startDate\":\"2026-12-01\",\"endDate\":\"2026-12-24\"}]}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "employees": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "employee": {
+                  "type": "string",
+                  "description": "Ref_Key сотрудника (Catalog_СотрудникиОрганизаций) или часть ФИО"
+                },
+                "startDate": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+                  "description": "Первый день отпуска (YYYY-MM-DD)"
+                },
+                "endDate": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+                  "description": "Последний день отпуска (YYYY-MM-DD)"
+                }
+              },
+              "required": [
+                "employee",
+                "startDate",
+                "endDate"
+              ]
+            },
+            "description": "Сотрудники и периоды отпуска"
+          },
+          "kind": {
+            "default": "vacation",
+            "description": "vacation — оплата отпуска, compensation — компенсация отпуска, dismissal — компенсация при увольнении",
+            "type": "string",
+            "enum": [
+              "vacation",
+              "compensation",
+              "dismissal"
+            ]
+          },
+          "calculationTypeRef": {
+            "description": "Ref_Key своего вида расчёта по среднему для отпуска (ChartOfCalculationTypes_ОсновныеНачисленияОрганизаций)",
+            "type": "string"
+          },
+          "period": {
+            "description": "Месяц начисления (ПериодРегистрации) YYYY-MM; по умолчанию — месяц начала первого отпуска",
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата документа (по умолчанию — сейчас) (YYYY-MM-DD)"
+          },
+          "responsibleRef": {
+            "description": "Ref_Key пользователя-ответственного (Catalog_Пользователи)",
+            "type": "string"
+          },
+          "comment": {
+            "description": "Комментарий",
+            "type": "string",
+            "maxLength": 500
+          },
+          "allowDuplicate": {
+            "description": "true — создать, даже если у сотрудника уже есть отпуск на эти даты",
+            "type": "boolean"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "employees"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.payroll.get_vacations",
+      "title": "Начисленные отпуска",
+      "description": "Казахстан. Отпуска и компенсации отпуска по документам «Начисление зарплаты работникам организаций» (строки с видом расчёта по среднему для отпуска): сотрудник, период отпуска, календарные дни, сумма (Результат, её посчитала 1С), документ и статус — posted (проведён), draft (рассчитан, не проведён), not_calculated (сумма 0 — в 1С не нажали «Рассчитать»). Фильтр: даты отпуска пересекаются с from..to; employee — Ref_Key или часть ФИО. Ищет в документах с месяцем начисления от from−3 до to+3 месяцев. Помеченные на удаление не показываются.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Начало периода (даты отпуска) (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Конец периода (даты отпуска) (YYYY-MM-DD)"
+          },
+          "employee": {
+            "description": "Ref_Key сотрудника или часть ФИО",
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "count": {
+            "type": "number"
+          },
+          "totalPosted": {
+            "type": "number"
+          },
+          "vacations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "employee": {
+                  "type": "string"
+                },
+                "document": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "employee",
+                "document",
+                "amount",
+                "status"
+              ],
+              "additionalProperties": {}
+            }
+          }
+        },
+        "required": [
+          "database",
+          "period",
+          "count",
+          "totalPosted",
+          "vacations"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
         "openWorldHint": true
       }
     },

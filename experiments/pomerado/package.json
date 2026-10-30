@@ -1,0 +1,13 @@
+{
+  "name": "onec-pomerado-experiment",
+  "private": true,
+  "type": "module",
+  "description": "Проба Pomerado: начисление отпускных в веб-клиенте 1С Fresh (см. docs/WEB-AUTOMATION-VACATION.md)",
+  "scripts": {
+    "mint": "node mint-vacation.mjs"
+  },
+  "dependencies": {
+    "node": "24.22.2",
+    "pomerado": "0.4.0-canary.480"
+  }
+}

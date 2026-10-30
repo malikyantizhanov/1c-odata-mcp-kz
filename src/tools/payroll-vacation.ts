@@ -196,7 +196,7 @@ async function resolveEmployee(conn: Connection, orgRef: string, employee: strin
   );
 }
 
-async function responsibleFields(
+export async function responsibleFields(
   conn: Connection,
   responsibleRef: string | undefined,
   notes: string[],
@@ -300,7 +300,7 @@ export function registerPayrollVacationTools(server: McpServer, ctx: ServerConte
         "сотрудник, физлицо, подразделение, период отпуска ДатаНачала–ДатаОкончания. Отдельного документа «Отпуск» в " +
         "БК для РК нет. Сумму по среднему заработку MCP НЕ считает и «Результат» не пишет: бухгалтер открывает документ " +
         "в 1С → «Рассчитать», проверяет и проводит (post_document пустой документ проводить откажется). Удержания ИПН, " +
-        "ОПВ, ВОСМС и СН/СО/ОПВР/ООСМС (или ЕП) — расчётные документы месяца в 1С. Отпуск, пересекающийся с уже " +
+        "ОПВ, ВОСМС и СН/СО/ОПВР/ООСМС — расчётные документы месяца: write.payroll.create_vacation_taxes (суммы считает 1С; при ЕП — расчёт ЕП в 1С). Отпуск, пересекающийся с уже " +
         "начисленным тому же сотруднику, — отказ (allowDuplicate=true — всё равно). По умолчанию предпросмотр; " +
         "создание — confirm=true с operationId после согласия. Посмотреть — read.payroll.get_vacations. " +
         'Пример: {"employees":[{"employee":"Касымова","startDate":"2026-12-01","endDate":"2026-12-24"}]}.',
@@ -419,8 +419,8 @@ export function registerPayrollVacationTools(server: McpServer, ctx: ServerConte
             ".",
           "Сумму (средний заработок × оплачиваемые дни) MCP не считает и «Результат» не заполняет: откройте документ " +
             "в 1С → «Рассчитать», проверьте сумму и проведите. Пока «Результат» = 0, write.document.post_document " +
-            "проводить откажется. Удержания и взносы с отпускных 1С считает расчётными документами месяца (облагаемость — по настройкам вида расчёта); " +
-            "проверка — read.payroll.check_month.",
+            "проводить откажется. Удержания и взносы с отпускных 1С считает расчётными документами месяца (облагаемость — по настройкам вида расчёта): " +
+            "после «Рассчитать» — write.payroll.create_vacation_taxes (удержания, затем СН и СО); проверка — read.payroll.check_month.",
         );
         const responsible = await responsibleFields(conn, a.responsibleRef, notes);
         const prepared = await prepareDocument(conn, {

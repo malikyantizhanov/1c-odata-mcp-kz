@@ -1736,7 +1736,7 @@
     {
       "name": "read.analytics.get_debtors",
       "title": "Дебиторская задолженность",
-      "description": "Кто и сколько должен компании: сальдо счёта расчётов с покупателями (62; в Казахстане 1210) из регистра бухгалтерии Хозрасчетный, сгруппированное по контрагентам. Дебетовое сальдо = долг клиента, кредитовое = полученные авансы (вычитается). Можно ограничить организацией. По умолчанию берётся текущее сальдо; параметром asOf=YYYY-MM-DD можно получить дебиторку на конец указанной даты (для аудита/исторических отчётов). Возвращает только долг > 0.",
+      "description": "Кто и сколько должен компании: сальдо счёта расчётов с покупателями (62; в Казахстане 1210) из регистра бухгалтерии Хозрасчетный, сгруппированное по контрагентам. В Казахстане из долга по 1210 вычитается полученный аванс по 3510 по тому же контрагенту: по каждому выдаются receivable (долг 1210), advance (аванс 3510) и amount — итог с учётом аванса (receivable − advance). В 1С аванс не зачитывается — зачёт (Дт 3510 Кт 1210) решает бухгалтер. debtors — итог > 0; advancesOverDebt — аванс не меньше долга или аванс без долга (status advance_exceeds_debt / advance_equals_debt / advance_only, итог ≤ 0). В российском плане счетов авансы (62.02) уже входят в сальдо 62. Можно ограничить организацией. По умолчанию берётся текущее сальдо; параметром asOf=YYYY-MM-DD можно получить дебиторку на конец указанной даты (для аудита/исторических отчётов).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1781,7 +1781,22 @@
               "type": "string"
             }
           },
+          "advanceAccounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "totalReceivable": {
+            "type": "number"
+          },
+          "totalDebt": {
+            "type": "number"
+          },
+          "totalAdvances": {
+            "type": "number"
+          },
+          "totalAdvancesOverDebt": {
             "type": "number"
           },
           "count": {
@@ -1798,17 +1813,95 @@
                 "ref": {
                   "type": "string"
                 },
+                "receivable": {
+                  "type": "number"
+                },
+                "advance": {
+                  "type": "number"
+                },
                 "amount": {
                   "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "debt",
+                    "debt_with_advance",
+                    "advance_equals_debt",
+                    "advance_exceeds_debt",
+                    "advance_only"
+                  ]
+                },
+                "advanceExceedsDebt": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string"
                 }
               },
               "required": [
                 "counterparty",
                 "ref",
-                "amount"
+                "receivable",
+                "advance",
+                "amount",
+                "status",
+                "advanceExceedsDebt"
               ],
               "additionalProperties": {}
             }
+          },
+          "advancesOverDebt": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "counterparty": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "receivable": {
+                  "type": "number"
+                },
+                "advance": {
+                  "type": "number"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "debt",
+                    "debt_with_advance",
+                    "advance_equals_debt",
+                    "advance_exceeds_debt",
+                    "advance_only"
+                  ]
+                },
+                "advanceExceedsDebt": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "counterparty",
+                "ref",
+                "receivable",
+                "advance",
+                "amount",
+                "status",
+                "advanceExceedsDebt"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "advanceNote": {
+            "type": "string"
           },
           "scan": {
             "type": "object",
@@ -1835,9 +1928,14 @@
         "required": [
           "database",
           "accounts",
+          "advanceAccounts",
           "totalReceivable",
+          "totalDebt",
+          "totalAdvances",
+          "totalAdvancesOverDebt",
           "count",
           "debtors",
+          "advancesOverDebt",
           "scan"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",

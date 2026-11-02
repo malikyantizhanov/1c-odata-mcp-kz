@@ -8,6 +8,7 @@ import {
   balanceByAccounts,
   resolveAccounts,
   receivablePrefixes,
+  advanceReceivedPrefixes,
   inventoryPrefixes,
   resolveNames,
   num,
@@ -37,6 +38,7 @@ import {
 import { InputError } from "../errors.js";
 import { fetchAll } from "../odata/pagination.js";
 import { getDocumentMovements } from "../odata/movements.js";
+import { computeDebtors, centsToAmount } from "../odata/debtors.js";
 import type { ODataEntity } from "../types/odata.js";
 
 // Деньги копим в целых копейках (float-сложение тысяч сумм даёт дрейф).
@@ -597,10 +599,14 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
       title: "Дебиторская задолженность",
       description:
         "Кто и сколько должен компании: сальдо счёта расчётов с покупателями (62; в Казахстане 1210) из регистра " +
-        "бухгалтерии Хозрасчетный, сгруппированное по контрагентам. Дебетовое сальдо = долг клиента, " +
-        "кредитовое = полученные авансы (вычитается). Можно ограничить организацией. По умолчанию " +
-        "берётся текущее сальдо; параметром asOf=YYYY-MM-DD можно получить дебиторку на конец " +
-        "указанной даты (для аудита/исторических отчётов). Возвращает только долг > 0.",
+        "бухгалтерии Хозрасчетный, сгруппированное по контрагентам. В Казахстане из долга по 1210 вычитается " +
+        "полученный аванс по 3510 по тому же контрагенту: по каждому выдаются receivable (долг 1210), advance " +
+        "(аванс 3510) и amount — итог с учётом аванса (receivable − advance). В 1С аванс не зачитывается — " +
+        "зачёт (Дт 3510 Кт 1210) решает бухгалтер. debtors — итог > 0; advancesOverDebt — аванс не меньше долга " +
+        "или аванс без долга (status advance_exceeds_debt / advance_equals_debt / advance_only, итог ≤ 0). " +
+        "В российском плане счетов авансы (62.02) уже входят в сальдо 62. Можно ограничить организацией. " +
+        "По умолчанию берётся текущее сальдо; параметром asOf=YYYY-MM-DD можно получить дебиторку на конец " +
+        "указанной даты (для аудита/исторических отчётов).",
       inputSchema: {
         database: databaseField,
         organization: organizationField,
@@ -615,44 +621,61 @@ export function registerRegisterTools(server: McpServer, ctx: ServerContext): vo
         const conn = ctx.db(database);
         const org = await orgKeyOf(conn, organization);
         const accounts = await resolveAccounts(conn, await receivablePrefixes(conn));
-        const rows = await balanceByAccounts(
-          conn,
-          accounts.map((a) => a.key),
-          org.key,
-          asOf,
-        );
-
-        // Сальдо копим в копейках (целые) — без float-дрейфа на тысячах строк.
-        const byCp = new Map<string, number>();
-        for (const r of rows) {
-          const cp = String(r["ExtDimension1"] ?? "");
-          if (!cp) continue;
-          byCp.set(cp, (byCp.get(cp) ?? 0) + toCents(r["СуммаBalanceDr"]) - toCents(r["СуммаBalanceCr"]));
-        }
+        // Счета авансов — отдельным запросом на каждый префикс: 1С не всегда разбирает OR из startswith.
+        const advanceAccounts: Account[] = [];
+        for (const p of await advanceReceivedPrefixes(conn))
+          advanceAccounts.push(...(await resolveAccounts(conn, [p])));
+        const [rows, advanceRows] = await Promise.all([
+          balanceByAccounts(
+            conn,
+            accounts.map((a) => a.key),
+            org.key,
+            asOf,
+          ),
+          balanceByAccounts(
+            conn,
+            advanceAccounts.map((a) => a.key),
+            org.key,
+            asOf,
+          ),
+        ]);
 
         const cpSet = resolveEntity(CATALOGS.counterparties, await conn.available());
-        const names = cpSet ? await resolveNames(conn, cpSet, byCp.keys()) : new Map<string, string>();
+        const refs = new Set<string>();
+        for (const r of [...rows, ...advanceRows]) {
+          const cp = String(r["ExtDimension1"] ?? "");
+          if (cp) refs.add(cp);
+        }
+        const names = cpSet ? await resolveNames(conn, cpSet, refs) : new Map<string, string>();
+        const result = computeDebtors(rows, advanceRows, {
+          receivableCode: accounts[0]?.code,
+          advanceCode: advanceAccounts[0]?.code,
+          counterpartyTypes: CATALOGS.counterparties,
+          names,
+          limit,
+        });
 
-        const debtors = [...byCp.entries()]
-          .filter(([, cents]) => cents > 0)
-          .map(([ref, cents]) => ({
-            counterparty: names.get(ref) ?? ref,
-            ref,
-            amount: fromCents(cents),
-          }))
-          .sort((a, b) => b.amount - a.amount)
-          .slice(0, limit);
-
-        const totalCents = [...byCp.values()].filter((c) => c > 0).reduce((s, c) => s + c, 0);
         return ok({
           database: conn.cfg.name,
           organization: org.name,
           ...(asOf ? { asOf } : {}),
           accounts: accounts.map((a) => `${a.code} ${a.description}`),
-          totalReceivable: fromCents(totalCents),
-          count: debtors.length,
-          debtors,
-          scan: { rowsScanned: rows.length, elapsedMs: Date.now() - t0 },
+          advanceAccounts: advanceAccounts.map((a) => `${a.code} ${a.description}`),
+          totalReceivable: centsToAmount(result.totals.netCents),
+          totalDebt: centsToAmount(result.totals.debtCents),
+          totalAdvances: centsToAmount(result.totals.advanceCents),
+          totalAdvancesOverDebt: centsToAmount(result.totals.advanceOverDebtCents),
+          count: result.debtors.length,
+          debtors: result.debtors,
+          advancesOverDebt: result.advancesOverDebt,
+          ...(advanceAccounts.length > 0
+            ? {
+                advanceNote:
+                  "Авансы не зачтены автоматически: итог amount = долг − аванс показан для анализа, " +
+                  "проводку зачёта аванса делает бухгалтер.",
+              }
+            : {}),
+          scan: { rowsScanned: rows.length + advanceRows.length, elapsedMs: Date.now() - t0 },
         });
       }),
   );

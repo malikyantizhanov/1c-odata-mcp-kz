@@ -4,9 +4,14 @@
   "result": {
     "database": "default",
     "accounts": [],
+    "advanceAccounts": [],
     "totalReceivable": 0,
+    "totalDebt": 0,
+    "totalAdvances": 0,
+    "totalAdvancesOverDebt": 0,
     "count": 0,
     "debtors": [],
+    "advancesOverDebt": [],
     "scan": {
       "rowsScanned": 0,
       "elapsedMs": 0

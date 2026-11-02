@@ -24,6 +24,7 @@ import { registerPayrollTools } from "../tools/payroll.js";
 import { registerPayrollMonthTools } from "../tools/payroll-month.js";
 import { registerPayrollWriteTools } from "../tools/payroll-write.js";
 import { registerPayrollVacationTools } from "../tools/payroll-vacation.js";
+import { registerPayrollVacationTaxTools } from "../tools/payroll-vacation-taxes.js";
 import { registerKzRecordTools } from "../tools/kz-records.js";
 import { registerRegulatedReportTools } from "../tools/regulated-report.js";
 import { registerEsfAvrTools } from "../tools/esf-avr.js";
@@ -233,6 +234,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerPayrollMonthTools(server, ctx);
   registerPayrollWriteTools(server, ctx);
   registerPayrollVacationTools(server, ctx);
+  registerPayrollVacationTaxTools(server, ctx);
   registerKzRecordTools(server, ctx);
   registerRegulatedReportTools(server, ctx);
   registerEsfAvrTools(server, ctx);

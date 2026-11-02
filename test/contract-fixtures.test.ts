@@ -1356,6 +1356,12 @@ const writeCases: WriteCase[] = [
   },
   {
     kind: "write",
+    tool: "write.payroll.create_vacation_taxes",
+    args: { accrual: id(612), document: "withholding" },
+    build: () => fake1C({ store: vacationStore(), entities: vacEntities }),
+  },
+  {
+    kind: "write",
     tool: "write.document.create_document",
     args: {
       entitySet: INVOICE_SET,
@@ -2154,6 +2160,12 @@ const vacEntities = {
     "ДатаНачала",
     "ДатаОкончания",
   ]),
+  ...pmDoc(
+    "Document_РасчетУдержанийРаботниковОрганизаций",
+    ["ПериодРегистрации", "Комментарий"],
+    "ФизическиеЛица",
+    ["ФизическоеЛицо_Key"],
+  ),
 };
 
 /** payrollStore + вид «Оплата отпуска» и проведённый отпуск 07–20.09.2026 (Результат 150 000). */

@@ -289,17 +289,40 @@ export const getCashflowResultSchema = z
   })
   .passthrough();
 
+const debtorLineSchema = z
+  .object({
+    counterparty: z.string(),
+    ref: z.string(),
+    receivable: z.number(),
+    advance: z.number(),
+    amount: z.number(),
+    status: z.enum([
+      "debt",
+      "debt_with_advance",
+      "advance_equals_debt",
+      "advance_exceeds_debt",
+      "advance_only",
+    ]),
+    advanceExceedsDebt: z.boolean(),
+    note: z.string().optional(),
+  })
+  .passthrough();
+
 export const getDebtorsResultSchema = z
   .object({
     database: z.string(),
     organization: z.string().optional(),
     asOf: z.string().optional(),
     accounts: z.array(z.string()),
+    advanceAccounts: z.array(z.string()),
     totalReceivable: z.number(),
+    totalDebt: z.number(),
+    totalAdvances: z.number(),
+    totalAdvancesOverDebt: z.number(),
     count: z.number(),
-    debtors: z.array(
-      z.object({ counterparty: z.string(), ref: z.string(), amount: z.number() }).passthrough(),
-    ),
+    debtors: z.array(debtorLineSchema),
+    advancesOverDebt: z.array(debtorLineSchema),
+    advanceNote: z.string().optional(),
     scan: scanSchema,
   })
   .passthrough();

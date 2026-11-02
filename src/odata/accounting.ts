@@ -30,6 +30,17 @@ export async function receivablePrefixes(conn: Connection): Promise<readonly str
   return chart === "ChartOfAccounts_Типовой" ? ["1210"] : ACCOUNT_PREFIX.receivables;
 }
 
+/**
+ * Счета полученных авансов, которые вычитаются из дебиторки по тому же контрагенту.
+ * Казахстанский «Типовой» — 3510 «Краткосрочные авансы полученные» (авансы там учитываются отдельно от 1210).
+ * В российском плане счетов авансы — субсчёт 62.02, он уже входит в префикс «62» и сворачивается
+ * в сальдо счёта покупателей, поэтому отдельный счёт не нужен.
+ */
+export async function advanceReceivedPrefixes(conn: Connection): Promise<readonly string[]> {
+  const chart = await requireEntity(conn, CHART_CANDIDATES, "План счетов");
+  return chart === "ChartOfAccounts_Типовой" ? ["3510"] : [];
+}
+
 /** Счета запасов: 41/10/43 в российском плане счетов; в «Типовом» — 1310 сырьё, 1320 продукция, 1330 товары, 1350 прочие. */
 export async function inventoryPrefixes(conn: Connection): Promise<readonly string[]> {
   const chart = await requireEntity(conn, CHART_CANDIDATES, "План счетов");

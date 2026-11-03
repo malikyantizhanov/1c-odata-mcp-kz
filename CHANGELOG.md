@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.19] — 2026-11-04
+
 ### Добавлено
 
 - `write.catalog.create_bank`: банк по проверенным наименованию и БИК, с предпросмотром, подтверждением и
@@ -1184,7 +1186,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.18...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.19...HEAD
+[0.7.19]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.18...v0.7.19
 [0.7.18]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.17...v0.7.18
 [0.7.17]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.16...v0.7.17
 [0.7.16]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.15...v0.7.16

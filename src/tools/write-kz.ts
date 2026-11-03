@@ -26,6 +26,7 @@ export async function isKazakhstan(conn: Connection): Promise<boolean> {
 
 /** Инструменты записи, которые умеют казахстанскую базу; остальные в ней отвечают отказом. */
 export const KZ_WRITE_TOOLS = [
+  "write.catalog.create_bank",
   "write.counterparty.create_counterparty",
   "write.counterparty.create_bank_account",
   "write.catalog.create_nomenclature",

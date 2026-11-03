@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.18",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 115 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 116 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -13117,6 +13117,110 @@
             "type": "string"
           },
           "ref": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "write.catalog.create_bank",
+      "title": "Создать банк в справочнике",
+      "description": "Создаёт банк в справочнике «Банки» по проверенным наименованию и БИК. Используйте, если create_bank_account не нашёл банк. Реквизиты передаёт пользователь или проверенный источник — инструмент не угадывает их и не проверяет банк во внешнем реестре. В базе с реквизитом БИК заполняет его, не подменяя порядковый Code; иначе БИК записывается в Code. Существующий БИК, включая помеченный на удаление банк, блокирует создание дубля. Предпросмотр по умолчанию; после согласия повторите те же аргументы с confirm=true и operationId. После создания используйте write.counterparty.create_bank_account для счёта владельца.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150,
+            "description": "Проверенное наименование банка"
+          },
+          "bik": {
+            "type": "string",
+            "pattern": "^(?:[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?|[0-9]{9})$",
+            "description": "Проверенный БИК банка (например IRTYKZKA); пробелы по краям и регистр нормализуются"
+          },
+          "confirm": {
+            "default": false,
+            "description": "false (по умолчанию) — только предпросмотр (dry-run), запись НЕ выполняется. true — выполнить создание. Сначала всегда показывайте dry-run и получайте согласие пользователя; при подтверждении передавайте operationId из результата предпросмотра и те же аргументы. После таймаута повторяйте подтверждение с тем же id, не создавая новый предпросмотр.",
+            "type": "boolean"
+          },
+          "operationId": {
+            "description": "UUID из предпросмотра. Передайте его при confirm=true, чтобы повтор не создал дубликат.",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "name",
+          "bik"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "database": {
+            "type": "string"
+          },
+          "writableBase": {
+            "type": "boolean"
+          },
+          "willCreate": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "entitySet": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "code": {
             "type": "string"
           },
           "description": {

@@ -107,7 +107,10 @@ export async function resolveBankByBik(
       first = byBik.rows[0];
     }
   }
-  if (!first) throw new InputError(`Банк с БИК ${bik} не найден в справочнике «Банки».`);
+  if (!first)
+    throw new InputError(
+      `Банк с БИК ${bik} не найден в справочнике «Банки». Подготовьте его создание через write.catalog.create_bank с проверенными наименованием и БИК, затем повторите создание счёта.`,
+    );
   return { ref: String(first["Ref_Key"]), name: String(first["Description"] ?? "") };
 }
 

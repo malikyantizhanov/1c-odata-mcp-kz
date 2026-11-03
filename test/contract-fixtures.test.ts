@@ -1181,6 +1181,12 @@ const servicesArgs = {
 const writeCases: WriteCase[] = [
   {
     kind: "write",
+    tool: "write.catalog.create_bank",
+    args: { name: "Банк Фикстура", bik: "TESTKZKX" },
+    build: () => fake1C({ store: baseStore() }),
+  },
+  {
+    kind: "write",
     tool: "write.counterparty.create_counterparty",
     args: { name: "ТОО Фикстура", inn: "990140000001", legalType: "ЮридическоеЛицо", kbe: "17" },
     build: () => fake1C({ store: baseStore() }),

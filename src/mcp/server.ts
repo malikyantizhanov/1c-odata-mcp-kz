@@ -17,6 +17,7 @@ import { registerRegisterTools } from "../tools/registers.js";
 import { registerCashflowTools } from "../tools/cashflow.js";
 import { registerSalesTools } from "../tools/sales.js";
 import { registerOrganizationTools } from "../tools/organization.js";
+import { registerBankTools } from "../tools/banks.js";
 import { registerWriteTools } from "../tools/write.js";
 import { registerDocumentWriteTools } from "../tools/write-documents.js";
 import { registerAuditTools } from "../tools/audit.js";
@@ -251,6 +252,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerPowerOfAttorneyPrintTools(server, ctx);
   registerQuickReconciliationTool(server, ctx);
   registerWriteTools(server, ctx);
+  registerBankTools(server, ctx);
   registerDocumentWriteTools(server, ctx);
   registerQuickInvoiceTool(server, ctx);
   registerQuickSaleTool(server, ctx);

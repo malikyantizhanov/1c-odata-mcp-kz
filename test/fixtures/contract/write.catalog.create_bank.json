@@ -1,0 +1,44 @@
+{
+  "tool": "write.catalog.create_bank",
+  "args": {
+    "name": "Банк Фикстура",
+    "bik": "TESTKZKX"
+  },
+  "dryRun": {
+    "dryRun": true,
+    "database": "default",
+    "writableBase": true,
+    "willCreate": "Catalog_Банки",
+    "payload": {
+      "Description": "Банк Фикстура",
+      "БИК": "TESTKZKX"
+    },
+    "view": {
+      "title": "Банки",
+      "fields": [
+        {
+          "name": "Description",
+          "label": "Description",
+          "value": "Банк Фикстура"
+        },
+        {
+          "name": "БИК",
+          "label": "БИК",
+          "value": "TESTKZKX"
+        }
+      ],
+      "tables": []
+    },
+    "note": "Предпросмотр. Чтобы создать запись, повторите вызов с confirm=true.",
+    "operationId": "bc36d5b2-ccc1-4ba8-9469-820bc9af2d2d"
+  },
+  "confirm": {
+    "created": true,
+    "database": "default",
+    "entitySet": "Catalog_Банки",
+    "ref": "a638d810-d7bd-11f1-bb2c-273139066a35",
+    "code": "00000000001",
+    "description": "Банк Фикстура",
+    "operationId": "bc36d5b2-ccc1-4ba8-9469-820bc9af2d2d"
+  }
+}

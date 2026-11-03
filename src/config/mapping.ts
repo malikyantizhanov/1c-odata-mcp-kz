@@ -13,6 +13,7 @@ export const CATALOGS = {
   organizations: ["Catalog_Организации"],
   contracts: ["Catalog_ДоговорыКонтрагентов", "Catalog_Договоры"],
   warehouses: ["Catalog_Склады", "Catalog_СкладыМеста"],
+  banks: ["Catalog_Банки"],
   bankAccounts: ["Catalog_БанковскиеСчета"],
   currencies: ["Catalog_Валюты"],
   priceTypes: ["Catalog_ТипыЦенНоменклатуры", "Catalog_ТипыЦен"],

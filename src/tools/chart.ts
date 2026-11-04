@@ -83,7 +83,9 @@ export function subcontoKinds(conn: Connection): Promise<Map<string, SubcontoKin
     return out;
   })();
   kindsCache.set(conn, p);
-  p.catch(() => kindsCache.delete(conn));
+  void p.catch(() => {
+    if (kindsCache.get(conn) === p) kindsCache.delete(conn);
+  });
   return p;
 }
 
@@ -172,12 +174,36 @@ const ACCOUNT_SELECT = [
   "ExtDimensionTypes",
 ];
 
-/** Весь план счетов (кешируется на соединение — читается один раз, ~300–400 строк). */
-const chartCache = new WeakMap<object, Promise<{ chart: string; rows: ODataEntity[] }>>();
-export function loadChart(conn: Connection): Promise<{ chart: string; rows: ODataEntity[] }> {
+export const CHART_CACHE_TTL_MS = 60_000;
+interface ChartSnapshot {
+  chart: string;
+  rows: ODataEntity[];
+  loadedAt: string;
+}
+interface ChartEntry {
+  promise: Promise<ChartSnapshot>;
+  expiresAt: number;
+  pending: boolean;
+}
+const chartCache = new WeakMap<object, ChartEntry>();
+
+/** Explicit invalidation, including related subconto definitions; only this connection is affected. */
+export function invalidateChart(conn: Connection): void {
+  chartCache.delete(conn);
+  kindsCache.delete(conn);
+}
+
+/** Bounded snapshot; concurrent readers share an in-flight refresh. Failed refresh never serves stale rows. */
+export function loadChart(conn: Connection, refresh = false): Promise<ChartSnapshot> {
   const cached = chartCache.get(conn);
-  if (cached) return cached;
-  const p = (async () => {
+  if (cached && (cached.pending || (!refresh && Date.now() < cached.expiresAt))) return cached.promise;
+  kindsCache.delete(conn);
+  const entry: ChartEntry = {
+    promise: undefined as unknown as Promise<ChartSnapshot>,
+    expiresAt: 0,
+    pending: true,
+  };
+  entry.promise = (async () => {
     const chart = await requireEntity(conn, CHART_CANDIDATES, "План счетов");
     const props = new Set(
       ((await conn.getMetadata()).entities.get(chart)?.properties ?? []).map((x) => x.name),
@@ -185,24 +211,42 @@ export function loadChart(conn: Connection): Promise<{ chart: string; rows: ODat
     const select = props.size ? ACCOUNT_SELECT.filter((f) => props.has(f)) : ACCOUNT_SELECT;
     const { rows, truncated } = await fetchAll(conn.client, chart, { select, orderby: "Code" }, 500, 5000);
     if (truncated) throw new Error("План счетов больше 5000 счетов — чтение прервано.");
-    return { chart, rows };
+    entry.expiresAt = Date.now() + CHART_CACHE_TTL_MS;
+    entry.pending = false;
+    return { chart, rows, loadedAt: new Date().toISOString() };
   })();
-  chartCache.set(conn, p);
-  p.catch(() => chartCache.delete(conn));
-  return p;
+  chartCache.set(conn, entry);
+  void entry.promise.catch(() => {
+    // An older rejected request must not evict a newer refresh after invalidation.
+    if (chartCache.get(conn) === entry) chartCache.delete(conn);
+  });
+  return entry.promise;
 }
 
-/** Счёт по коду (точно) или Ref_Key, с видами субконто и признаками учёта. */
-export async function getAccount(conn: Connection, codeOrRef: string): Promise<AccountInfo> {
-  const { rows } = await loadChart(conn);
-  const kinds = await subcontoKinds(conn);
-  const codeByRef = new Map(rows.map((r) => [String(r["Ref_Key"]).toLowerCase(), String(r["Code"] ?? "")]));
+/** Exact code/ref lookup; a miss gets one fresh snapshot, never an endless retry loop. */
+export async function getAccount(conn: Connection, codeOrRef: string, refresh = false): Promise<AccountInfo> {
+  let snapshot = await loadChart(conn, refresh);
   const q = codeOrRef.trim().replace(/[{}']/g, "");
-  const row =
+  const find = (rows: ODataEntity[]) =>
     rows.find((r) => String(r["Code"] ?? "") === q) ??
     rows.find((r) => String(r["Ref_Key"]).toLowerCase() === q.toLowerCase());
+  let row = find(snapshot.rows);
+  if (!row && !refresh) {
+    // Another miss may already have started/completed the refresh while this call awaited its snapshot.
+    const current = chartCache.get(conn);
+    const latest = current ? await current.promise : undefined;
+    snapshot = latest && latest !== snapshot ? latest : await loadChart(conn, true);
+    row = find(snapshot.rows);
+  }
   if (!row)
-    throw new InputError(`Счёт «${codeOrRef}» не найден в плане счетов (укажите точный код, напр. 1030).`);
+    throw new InputError(
+      `Счёт «${codeOrRef}» не найден в плане счетов. План перечитан из 1С: ${snapshot.loadedAt} (UTC). ` +
+        "Проверьте точный код и выбранную базу. Если счёт добавлен после этого времени, повторите с refresh=true; " +
+        "повторять тот же поиск и обходить его через другие справочники без изменения данных не нужно.",
+    );
+  const { rows } = snapshot;
+  const kinds = await subcontoKinds(conn);
+  const codeByRef = new Map(rows.map((r) => [String(r["Ref_Key"]).toLowerCase(), String(r["Code"] ?? "")]));
   const info = accountInfo(row, kinds, codeByRef);
   const subs = rows
     .filter((r) => String(r["Parent_Key"] ?? "").toLowerCase() === info.ref.toLowerCase())
@@ -226,6 +270,7 @@ export function registerChartTools(server: McpServer, ctx: ServerContext): void 
         "по субконто. Фильтры: codePrefix (напр. 10, 12, 33), currencyOnly, quantityOnly. Только чтение.",
       inputSchema: {
         database: databaseField,
+        refresh: z.boolean().default(false).describe("Перечитать план из 1С, не используя готовый кеш"),
         codePrefix: z.string().trim().max(20).optional().describe("Префикс кода счёта, напр. 10 или 1210"),
         search: z.string().trim().max(100).optional().describe("Часть наименования счёта"),
         currencyOnly: z.boolean().default(false).describe("Только счета с валютным учётом"),
@@ -242,10 +287,10 @@ export function registerChartTools(server: McpServer, ctx: ServerContext): void 
         })
         .passthrough(),
     },
-    ({ database, codePrefix, search, currencyOnly, quantityOnly, includeDeleted, limit = 500 }) =>
+    ({ database, codePrefix, search, currencyOnly, quantityOnly, includeDeleted, refresh, limit = 500 }) =>
       guard("read.accounting.get_chart_of_accounts", async () => {
         const conn = ctx.db(database);
-        const { chart, rows } = await loadChart(conn);
+        const { chart, rows } = await loadChart(conn, refresh);
         const kinds = await subcontoKinds(conn);
         const codeByRef = new Map(
           rows.map((r) => [String(r["Ref_Key"]).toLowerCase(), String(r["Code"] ?? "")]),
@@ -292,13 +337,14 @@ export function registerChartTools(server: McpServer, ctx: ServerContext): void 
       inputSchema: {
         database: databaseField,
         account: z.string().trim().min(1).max(40).describe("Код счёта (напр. 1030) или Ref_Key"),
+        refresh: z.boolean().default(false).describe("Перечитать карточку счёта из 1С после изменений"),
       },
       outputSchema: z.object({ database: z.string(), account: accountSchema }).passthrough(),
     },
-    ({ database, account }) =>
+    ({ database, account, refresh }) =>
       guard("read.accounting.get_account", async () => {
         const conn = ctx.db(database);
-        return ok({ database: conn.cfg.name, account: await getAccount(conn, account) });
+        return ok({ database: conn.cfg.name, account: await getAccount(conn, account, refresh) });
       }),
   );
 

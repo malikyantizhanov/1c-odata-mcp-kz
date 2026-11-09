@@ -278,7 +278,8 @@ function fakeCtx(regRows: Array<Record<string, unknown>>) {
         const pfx = /startswith\(Code, '([^']*)'\)/.exec(dec)?.[1] ?? "";
         pool = chart.filter((a) => a.Code.startsWith(pfx));
       } else if (path.startsWith(ORGS)) {
-        pool = dec.includes("substringof('Ромашка', Description)")
+        // организацию коннектор сопоставляет сам по списку (название, БИН, Ref_Key)
+        pool = !dec.includes("$filter") || dec.includes("substringof('Ромашка', Description)")
           ? [{ Ref_Key: ORG, Description: "ООО Ромашка" }]
           : [];
       } else if (path.startsWith(REG)) {

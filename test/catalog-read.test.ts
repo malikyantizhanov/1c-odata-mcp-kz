@@ -261,3 +261,19 @@ describe("read.catalog.list_catalog — планы видов расчёта (в
     }
   });
 });
+
+describe("read.catalog.list_catalog: привычные имена полей", () => {
+  it("договоры: select Номер/Дата → НомерДоговора/ДатаДоговора (а не отказ «нет простых полей»)", async () => {
+    const store = baseStore();
+    store["Catalog_ДоговорыКонтрагентов"] = [
+      { Ref_Key: id(140), Code: "000000017", Description: "Договор поставки", IsFolder: false, DeletionMark: false,
+        НомерДоговора: "17/2026", ДатаДоговора: "2026-01-15T00:00:00" },
+    ];
+    const { call } = fake1C({ store });
+    const res = await call("read.catalog.list_catalog", {
+      entitySet: "Catalog_ДоговорыКонтрагентов", select: ["Номер", "Дата"],
+    });
+    expect(res.isError).toBeFalsy();
+    expect(rowsOf(res)[0]).toMatchObject({ fields: { НомерДоговора: "17/2026", ДатаДоговора: "2026-01-15T00:00:00" } });
+  });
+});

@@ -73,6 +73,9 @@ export function normalizeFields(
   const unknown: string[] = [];
   for (const [name, value] of Object.entries(fields)) {
     const prop = props.get(name);
+    // LineNumber строки проставляем сами по порядку (normalizeTables) — переданный не ошибка, просто не нужен
+    // (прод: «LineNumber — номер строки проставляется сам» отказывал 24 раза за 400 ч)
+    if (name === "LineNumber") continue;
     if (SERVICE_FIELDS[name]) problems.push(`${name} — ${SERVICE_FIELDS[name]}`);
     else if (!prop) unknown.push(name);
     else if (rowEntitySet(prop.type)) problems.push(`${name} — табличная часть, передайте её в tables`);

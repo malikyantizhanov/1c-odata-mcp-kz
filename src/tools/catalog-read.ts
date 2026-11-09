@@ -45,6 +45,11 @@ export function codeFilterValues(raw: string, length?: number): string[] {
   return [...out];
 }
 
+/** Привычные имена полей → реальные поля справочника (select). */
+const SELECT_ALIASES: Record<string, Record<string, string>> = {
+  Catalog_ДоговорыКонтрагентов: { Номер: "НомерДоговора", Дата: "ДатаДоговора" },
+};
+
 export function registerCatalogRead(server: McpServer, ctx: ServerContext): void {
   server.registerTool(
     "read.catalog.list_catalog",
@@ -153,6 +158,10 @@ export function registerCatalogRead(server: McpServer, ctx: ServerContext): void
         const fields = await catalogFields(conn, entitySet);
         const props = (await conn.getMetadata()).entities.get(entitySet)?.properties ?? [];
         const has = (n: string) => props.some((p) => p.name === n);
+        // привычные имена → реальные поля справочника (у договоров «Номер»/«Дата» — НомерДоговора/ДатаДоговора;
+        // прод: «нет простых полей: Номер, Дата» — 20 раз за 400 ч)
+        const alias = SELECT_ALIASES[entitySet] ?? {};
+        select = select?.map((n) => (!has(n) && alias[n] && has(alias[n]) ? alias[n] : n));
         const extra = [...new Set(select ?? [])].filter(
           (n) => ![fields.ref, fields.name, fields.code, fields.isFolder, "DeletionMark"].includes(n),
         );

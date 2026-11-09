@@ -35,27 +35,44 @@ export function ownerFieldOf(props: ReadonlyArray<{ name: string }>): OwnerField
   return undefined;
 }
 
-/** Справочник, в котором есть элемент с этим Ref_Key (из candidates, опубликованных в базе); нет — undefined. */
+/** Найденный справочник ссылки — на подключение: вид элемента по его Ref_Key не меняется. */
+const refCatalogs = new WeakMap<Connection, Map<string, string>>();
+
+/**
+ * Справочник, в котором есть элемент с этим Ref_Key (из candidates, опубликованных в базе); нет — undefined.
+ * Сначала самый частый (первый в candidates), остальные — только если там нет: раньше каждый отбор по владельцу
+ * спрашивал все шесть справочников сразу, и пять 404 на каждый вызов засоряли журнал (прод: по 99 на справочник).
+ * Найденный — в памяти подключения.
+ */
 export async function catalogOfRef(
   conn: Connection,
   ref: string,
   candidates: readonly string[] = OWNER_CATALOGS,
 ): Promise<string | undefined> {
+  const guid = ref.trim().replace(/[{}']/g, "").toLowerCase();
+  let known = refCatalogs.get(conn);
+  if (!known) refCatalogs.set(conn, (known = new Map()));
+  const cached = known.get(guid);
+  if (cached && candidates.includes(cached)) return cached;
   const available = await conn.available();
-  const guid = ref.trim().replace(/[{}']/g, "");
   const sets = candidates.filter((s) => available.has(s));
-  const found = await Promise.all(
-    sets.map((s) =>
-      conn.client
-        .getEntity(`${s}(guid'${guid}')${buildQuery({ select: ["Ref_Key"] })}`)
-        .then(() => true)
-        .catch((e: unknown) => {
-          if (e instanceof ODataError && e.kind !== "not_found" && e.kind !== "auth") throw e;
-          return false;
-        }),
-    ),
-  );
-  return sets.find((_, i) => found[i]);
+  const has = (s: string) =>
+    conn.client
+      .getEntity(`${s}(guid'${guid}')${buildQuery({ select: ["Ref_Key"] })}`)
+      .then(() => true)
+      .catch((e: unknown) => {
+        if (e instanceof ODataError && e.kind !== "not_found" && e.kind !== "auth") throw e;
+        return false;
+      });
+  const [first, ...rest] = sets;
+  let hit: string | undefined;
+  if (first && (await has(first))) hit = first;
+  else {
+    const found = await Promise.all(rest.map(has));
+    hit = rest.find((_, i) => found[i]);
+  }
+  if (hit) known.set(guid, hit);
+  return hit;
 }
 
 export interface OwnerFilter {

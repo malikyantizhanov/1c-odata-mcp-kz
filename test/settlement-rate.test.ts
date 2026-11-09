@@ -6,7 +6,8 @@ import { fillSettlementRates } from "../src/tools/settlement-rate.js";
 
 /**
  * Курс взаиморасчётов в строках документа (прод 09.11.2026: платёжки по выписке IGS Caspian — курс 0, кратность 0,
- * сумма взаиморасчётов 0; у бухгалтера — 1, 1, сумма платежа). Как в форме 1С: валюта договора, курс на дату.
+ * сумма взаиморасчётов 0; у бухгалтера — 1, 1, сумма платежа). Как в форме 1С: валюта договора, курс строго на дату
+ * документа (в регистре usdStore курс USD есть на 2026-10-07, на 2026-10-08 — нет).
  */
 
 const PP = "Document_ПлатежноеПоручениеИсходящее";
@@ -33,74 +34,76 @@ function setup(withUsdRate = true) {
       p("РасшифровкаПлатежа", `Collection(StandardODATA.${PP}_РасшифровкаПлатежа_RowType)`),
     ],
   };
-  return {
-    f,
-    em,
-    rowMeta: {
-      properties: [
-        p("ДоговорКонтрагента_Key"),
-        p("СуммаПлатежа", "Edm.Double"),
-        p("КурсВзаиморасчетов", "Edm.Double"),
-        p("КратностьВзаиморасчетов"),
-        p("СуммаВзаиморасчетов", "Edm.Double"),
-      ],
-      navigations: [
-        {
-          name: "ДоговорКонтрагента",
-          toType: "StandardODATA.Catalog_ДоговорыКонтрагентов",
-          collection: false,
-        },
-      ],
-    },
+  const rowMeta = {
+    properties: [
+      p("ДоговорКонтрагента_Key"),
+      p("СуммаПлатежа", "Edm.Double"),
+      p("КурсВзаиморасчетов", "Edm.Double"),
+      p("КратностьВзаиморасчетов"),
+      p("СуммаВзаиморасчетов", "Edm.Double"),
+    ],
+    navigations: [
+      { name: "ДоговорКонтрагента", toType: "StandardODATA.Catalog_ДоговорыКонтрагентов", collection: false },
+    ],
   };
+  return { f, em, rowMeta };
 }
 
-async function fill(withUsdRate: boolean, docCur: string, rows: Array<Record<string, unknown>>) {
+async function fill(
+  docCur: string,
+  rows: Array<Record<string, unknown>>,
+  { date = "2026-10-07", withUsdRate = true } = {},
+) {
   const { f, em, rowMeta } = setup(withUsdRate);
   const meta = await f.conn.getMetadata();
   (meta.entities as Map<string, unknown>).set(`${PP}_РасшифровкаПлатежа`, rowMeta);
   return fillSettlementRates(f.conn, em as any, {
-    Date: "2026-10-08T00:00:00",
+    Date: `${date}T00:00:00`,
     ВалютаДокумента_Key: docCur,
     РасшифровкаПлатежа: rows,
   });
 }
 
+const line = (r: { payload: Record<string, unknown> }) => (r.payload as any).РасшифровкаПлатежа[0];
+
 describe("курс взаиморасчётов в строках документа", () => {
   it("тенге по тенговому договору — 1 и 1, сумма взаиморасчётов = сумме платежа (как у бухгалтера)", async () => {
-    const { payload, notes } = await fill(true, KZT, [
-      { ДоговорКонтрагента_Key: KZT_CONTRACT, СуммаПлатежа: 20880 },
-    ]);
-    expect((payload as any).РасшифровкаПлатежа[0]).toMatchObject({
+    const r = await fill(KZT, [{ ДоговорКонтрагента_Key: KZT_CONTRACT, СуммаПлатежа: 20880 }]);
+    expect(line(r)).toMatchObject({
       КурсВзаиморасчетов: 1,
       КратностьВзаиморасчетов: "1",
       СуммаВзаиморасчетов: 20880,
     });
-    expect(notes).toEqual([]);
+    expect(r.notes).toEqual([]);
   });
 
-  it("доллары по долларовому договору — курс 1С на дату документа и заметка о нём", async () => {
-    const { payload, notes } = await fill(true, USD, [
-      { ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 1000 },
-    ]);
-    expect((payload as any).РасшифровкаПлатежа[0]).toMatchObject({
+  it("доллары по долларовому договору — курс из 1С на дату документа и заметка о нём", async () => {
+    const r = await fill(USD, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 1000 }]);
+    expect(line(r)).toMatchObject({
       КурсВзаиморасчетов: 453.65,
       КратностьВзаиморасчетов: "1",
       СуммаВзаиморасчетов: 1000,
     });
-    expect(notes.join(" ")).toMatch(/USD 453\.65 за 1 на 2026-10-08 — курс 1С от 2026-10-07/);
+    expect(r.notes.join(" ")).toMatch(/USD 453\.65 за 1 — курс из 1С на дату документа 2026-10-07/);
   });
 
   it("тенге по долларовому договору — сумма взаиморасчётов пересчитана в доллары", async () => {
-    const { payload } = await fill(true, KZT, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 453650 }]);
-    expect((payload as any).РасшифровкаПлатежа[0]).toMatchObject({
-      КурсВзаиморасчетов: 453.65,
-      СуммаВзаиморасчетов: 1000,
-    });
+    const r = await fill(KZT, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 453650 }]);
+    expect(line(r)).toMatchObject({ КурсВзаиморасчетов: 453.65, СуммаВзаиморасчетов: 1000 });
   });
 
-  it("явный курс не трогаем; курса валюты в 1С нет — поле пустое и заметка", async () => {
-    const own = await fill(true, USD, [
+  it("на дату документа курса нет — не подставляем прошлый, говорим, какой загружен последним", async () => {
+    const r = await fill(USD, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 1000 }], {
+      date: "2026-10-08",
+    });
+    expect(line(r).КурсВзаиморасчетов).toBeUndefined();
+    expect(r.notes.join(" ")).toMatch(
+      /нет курса USD на дату документа 2026-10-08 \(последний загруженный — 453\.65 от 2026-10-07\)/,
+    );
+  });
+
+  it("явный курс не трогаем; курсов валюты в 1С нет совсем — поле пустое и заметка", async () => {
+    const own = await fill(USD, [
       {
         ДоговорКонтрагента_Key: CONTRACT,
         СуммаПлатежа: 10,
@@ -108,9 +111,11 @@ describe("курс взаиморасчётов в строках докумен
         КратностьВзаиморасчетов: "1",
       },
     ]);
-    expect((own.payload as any).РасшифровкаПлатежа[0].КурсВзаиморасчетов).toBe(470);
-    const none = await fill(false, USD, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 10 }]);
-    expect((none.payload as any).РасшифровкаПлатежа[0].КурсВзаиморасчетов).toBeUndefined();
-    expect(none.notes.join(" ")).toMatch(/Курс взаиморасчётов не заполнен: в 1С нет курса USD на 2026-10-08/);
+    expect(line(own).КурсВзаиморасчетов).toBe(470);
+    const none = await fill(USD, [{ ДоговорКонтрагента_Key: CONTRACT, СуммаПлатежа: 10 }], {
+      withUsdRate: false,
+    });
+    expect(line(none).КурсВзаиморасчетов).toBeUndefined();
+    expect(none.notes.join(" ")).toMatch(/Курс взаиморасчётов не заполнен: в 1С нет курса USD на 2026-10-07/);
   });
 });

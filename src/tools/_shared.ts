@@ -47,9 +47,11 @@ export const DESTRUCTIVE_HINTS = {
  * для инструментов с outputSchema (SDK валидирует structuredContent против неё —
  * см. src/schemas/output.ts). Все вызовы ok() в кодовой базе передают объект.
  */
+/** Успешный ответ: structuredContent и тот же JSON текстом — компактным, без отступов: модели его читают целиком,
+ *  отступы — около пятой части токенов ответа (замер на проде 09.11.2026). */
 export function ok(data: unknown): CallToolResult {
   return {
-    content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(data) }],
     structuredContent: data as Record<string, unknown>,
   };
 }

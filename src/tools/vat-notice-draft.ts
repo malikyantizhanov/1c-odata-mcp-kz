@@ -362,7 +362,7 @@ function withPreview(res: CallToolResult, extra: Record<string, unknown>): CallT
     ...res,
     structuredContent,
     content: res.content.map((c) =>
-      c.type === "text" ? { ...c, text: JSON.stringify(structuredContent, null, 2) } : c,
+      c.type === "text" ? { ...c, text: JSON.stringify(structuredContent) } : c,
     ),
   };
 }

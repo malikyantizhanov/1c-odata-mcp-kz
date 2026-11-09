@@ -196,7 +196,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
           return result;
         const structuredContent = { ...result.structuredContent, operationId: token };
         const content = result.content.map((item) =>
-          item.type === "text" ? { ...item, text: JSON.stringify(structuredContent, null, 2) } : item,
+          item.type === "text" ? { ...item, text: JSON.stringify(structuredContent) } : item,
         );
         return { ...result, content, structuredContent };
       });

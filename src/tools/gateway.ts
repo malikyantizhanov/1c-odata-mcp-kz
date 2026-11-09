@@ -159,7 +159,7 @@ export function registerGatewayTools(
         }));
       const structuredContent = { version, total: all.length, count: tools.length, tools };
       return {
-        content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(structuredContent) }],
         structuredContent,
       };
     },

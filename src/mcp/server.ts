@@ -7,8 +7,8 @@ import type { ServerContext } from "../context.js";
 import { createResultSchema } from "../schemas/output.js";
 import { fingerprintWriteInput, withWriteOperation } from "../odata/write-operation-context.js";
 import { ANY_ENTITY_PARAMS, DOCUMENT_ENTITY_PARAMS, normalizeToolArgs } from "../odata/entity-name.js";
-import { buildQuery } from "../odata/query.js";
 import { registerMetaTools } from "../tools/meta.js";
+import { readDocumentCard } from "../tools/preview-view.js";
 import { registerCounterpartyTools } from "../tools/counterparties.js";
 import { registerDocumentTools } from "../tools/documents.js";
 import { registerServicesReceiptTool } from "../tools/services-receipt.js";
@@ -168,20 +168,9 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
             if (isCreateTool && settled.entitySet.startsWith("Document_")) {
               const ref = String(settled.result["Ref_Key"] ?? "").replace(/[{}]/g, "");
               if (ref) {
-                const doc = await conn.client
-                  .getEntity(
-                    `${settled.entitySet}(guid'${ref}')${buildQuery({ select: ["Number", "Date", "Posted", "СуммаДокумента"] })}`,
-                  )
-                  .catch(() => undefined);
-                if (doc) {
-                  const date = String(doc["Date"] ?? "").slice(0, 10);
-                  const total = Number(doc["СуммаДокумента"]);
-                  card = {
-                    ...(date ? { date } : {}),
-                    ...(Number.isFinite(total) ? { total } : {}),
-                    ...(typeof doc["Posted"] === "boolean" ? { posted: doc["Posted"] } : {}),
-                  };
-                }
+                // та же карточка, что после записи: поля — по составу документа (у ЭАВР нет Posted/СуммаДокумента)
+                const read = await readDocumentCard(conn, settled.entitySet, ref);
+                card = Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined));
               }
             }
             replay = ok({

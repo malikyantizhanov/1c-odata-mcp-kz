@@ -324,20 +324,29 @@ export async function buildPreviewView(
   return view;
 }
 
-/** Одна карточка документа после записи: дата, сумма и признак проведения. */
+/** Поле суммы документа: у большинства — СуммаДокумента, у ЭАВР/ЭСФ — итог с налогами, у операции — СуммаОперации. */
+const TOTAL_FIELDS = ["СуммаДокумента", "ИтогоСтоимостьСУчетомКосвенныхНалогов", "СуммаОперации"];
+
+/** Одна карточка документа после записи: дата, сумма и признак проведения.
+ *  $select — только поля, которые есть у документа: у ЭАВР нет Posted и СуммаДокумента, у ОперацияБух — СуммаДокумента;
+ *  с ними 1С отвечает 400, карточка оставалась пустой (прод, 5 раз). */
 export async function readDocumentCard(
   conn: Connection,
   entitySet: string,
   ref: string,
 ): Promise<{ date?: string | undefined; total?: number | undefined; posted?: boolean | undefined }> {
   try {
+    const props = new Set(((await conn.getMetadata()).entities.get(entitySet)?.properties ?? []).map((p) => p.name));
+    const totalField = TOTAL_FIELDS.find((f) => props.has(f)) ?? "СуммаДокумента";
+    const wanted = ["Number", "Date", "Posted", totalField];
+    const select = props.size ? wanted.filter((f) => props.has(f)) : wanted;
     const doc = await conn.client.getEntity(
-      `${entitySet}(guid'${ref.replace(/[{}]/g, "")}')${buildQuery({ select: ["Number", "Date", "Posted", "СуммаДокумента"] })}`,
+      `${entitySet}(guid'${ref.replace(/[{}]/g, "")}')${buildQuery({ select })}`,
     );
     const out: { date?: string | undefined; total?: number | undefined; posted?: boolean | undefined } = {};
     const date = str(doc["Date"]).slice(0, 10);
     if (date) out.date = date;
-    const total = Number(doc["СуммаДокумента"]);
+    const total = doc[totalField] == null ? NaN : Number(doc[totalField]);
     if (Number.isFinite(total)) out.total = total;
     if (typeof doc["Posted"] === "boolean") out.posted = doc["Posted"] as boolean;
     return out;

@@ -77,7 +77,7 @@ export function previewTitle(entitySet: string, shortName?: string): string {
 }
 
 /** Частые ссылки без навигации в метаданных (фейковая база, урезанный $metadata). */
-const COMMON_TARGETS: Record<string, string> = {
+export const COMMON_TARGETS: Record<string, string> = {
   Контрагент: "Catalog_Контрагенты",
   Грузополучатель: "Catalog_Контрагенты",
   ГоловнойКонтрагент: "Catalog_Контрагенты",

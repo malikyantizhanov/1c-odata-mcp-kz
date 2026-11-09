@@ -74,6 +74,7 @@
   "dependencies": {
     "@expo-google-fonts/arimo": "^0.4.3",
     "@modelcontextprotocol/sdk": "^1.32.0",
+    "@toon-format/toon": "^4.4.0",
     "fast-xml-parser": "^5.11.2",
     "pdfkit": "^0.20.2",
     "pino": "^10.4.0",

@@ -1,3 +1,4 @@
+import { readableDocument } from "./readable.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerContext } from "../context.js";
@@ -157,7 +158,9 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
       title: "Документ целиком",
       description:
         "Возвращает документ по типу и Ref_Key со всеми полями, включая табличные части. " +
-        "Ref_Key берётся из search_documents или истории взаиморасчётов.",
+        "Ref_Key берётся из search_documents или истории взаиморасчётов. Текст ответа — читаемый вид в TOON: понятные " +
+        "имена полей (counterparty, contract, services[].nomenclature …), у ссылок — {guid, name}, без служебных полей; " +
+        "structuredContent — документ 1С как есть. raw=true — и текст как есть (реквизиты 1С).",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -166,16 +169,23 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
             "Имя документа, напр. Document_РеализацияТоваровУслуг (префикс Document_ можно опустить)",
           ),
         ref: z.string().describe("Ref_Key документа (GUID)"),
+        raw: z
+          .boolean()
+          .optional()
+          .describe("true — текст как в 1С (реквизиты, guid без названий), без читаемого вида"),
       },
       outputSchema: odataEntitySchema,
     },
-    ({ database, entitySet, ref }) =>
+    ({ database, entitySet, ref, raw }) =>
       guard("read.document.get_document", async () => {
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
         const path = `${entitySet}(guid'${ref.replace(/[{}']/g, "")}')${buildQuery({})}`;
-        const entity = await conn.client.getEntity(path);
-        return ok(omitLargeBinary(entity, entitySet));
+        const entity = omitLargeBinary(await conn.client.getEntity(path), entitySet);
+        if (raw) return ok(entity);
+        // читаемый вид для модели и интеграций; structuredContent — как в 1С (его читают сценарии и формы)
+        const readable = await readableDocument(conn, entitySet, entity);
+        return { content: [{ type: "text", text: readable.text }], structuredContent: entity };
       }),
   );
 }

@@ -336,7 +336,9 @@ export async function readDocumentCard(
   ref: string,
 ): Promise<{ date?: string | undefined; total?: number | undefined; posted?: boolean | undefined }> {
   try {
-    const props = new Set(((await conn.getMetadata()).entities.get(entitySet)?.properties ?? []).map((p) => p.name));
+    const props = new Set(
+      ((await conn.getMetadata()).entities.get(entitySet)?.properties ?? []).map((p) => p.name),
+    );
     const totalField = TOTAL_FIELDS.find((f) => props.has(f)) ?? "СуммаДокумента";
     const wanted = ["Number", "Date", "Posted", totalField];
     const select = props.size ? wanted.filter((f) => props.has(f)) : wanted;

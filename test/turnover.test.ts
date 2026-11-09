@@ -279,9 +279,10 @@ function fakeCtx(regRows: Array<Record<string, unknown>>) {
         pool = chart.filter((a) => a.Code.startsWith(pfx));
       } else if (path.startsWith(ORGS)) {
         // организацию коннектор сопоставляет сам по списку (название, БИН, Ref_Key)
-        pool = !dec.includes("$filter") || dec.includes("substringof('Ромашка', Description)")
-          ? [{ Ref_Key: ORG, Description: "ООО Ромашка" }]
-          : [];
+        pool =
+          !dec.includes("$filter") || dec.includes("substringof('Ромашка', Description)")
+            ? [{ Ref_Key: ORG, Description: "ООО Ромашка" }]
+            : [];
       } else if (path.startsWith(REG)) {
         const keys = [...dec.matchAll(/Account_Key eq guid'([^']+)'/g)].map((m) => m[1]);
         pool = regRows.filter((r) => keys.includes(String(r["Account_Key"])));

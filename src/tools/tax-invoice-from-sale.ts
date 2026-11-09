@@ -474,7 +474,9 @@ export async function planTaxInvoiceFromSale(
         "Покажите possibleDuplicates пользователю до confirm=true.",
     );
   if (found.length > live.length)
-    notes.push(`Ещё ${found.length - live.length} СФ по этой реализации помечены на удаление — не учитывались.`);
+    notes.push(
+      `Ещё ${found.length - live.length} СФ по этой реализации помечены на удаление — не учитывались.`,
+    );
 
   const contractCurrency = refOf(contractCard["ВалютаВзаиморасчетов_Key"]);
   if (saleCurrency && contractCurrency && contractCurrency.toLowerCase() !== saleCurrency.ref.toLowerCase())

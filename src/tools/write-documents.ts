@@ -12,6 +12,7 @@ import { databaseField, guard, organizationField } from "./_shared.js";
 import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
 import { fillCompositeTypes, fillSubcontoTypes } from "./subconto.js";
+import { fillSettlementRates } from "./settlement-rate.js";
 import { payrollSumNotes } from "./payroll-sums.js";
 import {
   enumNotes,
@@ -316,6 +317,9 @@ export async function prepareDocument(
     if (sample["Posted"] !== true)
       notes.push("Образец не проведён — его счета 1С не проверяла; надёжнее взять проведённый документ.");
   }
+  const rates = await fillSettlementRates(conn, em, payload);
+  payload = rates.payload;
+  notes.push(...rates.notes);
   const subconto = await fillSubcontoTypes(conn, em, payload);
   payload = subconto.payload;
   notes.push(...subconto.notes);
@@ -381,6 +385,15 @@ export async function prepareDocumentPatch(
     }
   }
   notes.push(...enumNotes(entitySet, patch));
+  // Курс взаиморасчётов в заменяемых строках — как при создании: дата и валюта — из документа (patch их может не нести)
+  if (Object.keys(tables).length) {
+    const head = await conn.client.getEntity(
+      `${entitySet}(guid'${guid}')${buildQuery({ select: ["Date", ...(em.properties.some((p) => p.name === "ВалютаДокумента_Key") ? ["ВалютаДокумента_Key"] : []), ...(em.properties.some((p) => p.name === "ДоговорКонтрагента_Key") ? ["ДоговорКонтрагента_Key"] : [])] })}`,
+    );
+    const rates = await fillSettlementRates(conn, em, { ...head, ...patch });
+    for (const t of Object.keys(patch)) if (Array.isArray(patch[t])) patch[t] = rates.payload[t];
+    notes.push(...rates.notes);
+  }
   // Субконто затрат в строках: _Type по виду субконто счёта, проверка типов, пустые слоты — как в create_document.
   const subconto = await fillSubcontoTypes(conn, em, patch);
   Object.assign(patch, subconto.payload);

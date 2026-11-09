@@ -210,7 +210,12 @@ async function loadAvr(
         opts.to ? cmp("Date", "le", `datetime'${opts.to}T23:59:59'`) : undefined,
         opts.direction ? cmp("Направление", "eq", odataString(opts.direction)) : undefined,
         opts.status ? cmp("Статус", "eq", odataString(opts.status)) : undefined,
-        opts.counterpartyRef ? cmp("Контрагент", "eq", odataGuid(guidOf(opts.counterpartyRef))) : undefined,
+        // «Контрагент» у ЭАВР — поле составного типа: с голым guid'…' 1С падает с 500 «Нельзя сравнивать поля
+        // неограниченной длины и поля несовместимых типов» (прод 09.11.2026 — во всех базах, «Смотрю АВР» падал в 58%
+        // вызовов); с cast(guid'…', 'Catalog_Контрагенты') отбирает верно.
+        opts.counterpartyRef
+          ? cmp("Контрагент", "eq", `cast(${odataGuid(guidOf(opts.counterpartyRef))}, 'Catalog_Контрагенты')`)
+          : undefined,
       ),
       select: AVR_SELECT,
       orderby: "Date desc",

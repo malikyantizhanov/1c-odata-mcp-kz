@@ -303,14 +303,18 @@ export async function planTaxInvoiceFromSale(
       conn.client,
       INVOICE_OUT,
       {
-        filter: cmp("ДокументОснование", "eq", odataGuid(saleRef)),
+        // «ДокументОснование» — поле составного типа: с голым guid'…' 1С падает с 500 («Нельзя сравнивать поля
+        // неограниченной длины…»), а .catch ниже молча давал «СФ по реализации нет» — дубль не находился
+        // (прод 09.11.2026, 18 раз). cast(guid'…', '<вид реализации>') отбирает верно.
+        filter: cmp("ДокументОснование", "eq", `cast(${odataGuid(saleRef)}, '${saleSet}')`),
         select: ["Ref_Key", "Number", "Date", "Posted", "СуммаДокумента", "DeletionMark"],
       },
       20,
       20,
     )
-      .then((r) => r.rows)
-      .catch(() => [] as ODataEntity[]),
+      .then((r) => r.rows as ODataEntity[] | null)
+      // не прочитали — не «дублей нет», а «не проверено»: предупреждение ниже
+      .catch(() => null),
   ]);
 
   // Валюта и курс.
@@ -451,7 +455,12 @@ export async function planTaxInvoiceFromSale(
     );
 
   // Дубли: СФ на основании этой реализации.
-  const live = existing.filter((r) => r["DeletionMark"] !== true);
+  if (existing === null)
+    warnings.push(
+      "Не удалось проверить, есть ли уже счёт-фактура по этой реализации — проверьте в 1С до confirm=true.",
+    );
+  const found = existing ?? [];
+  const live = found.filter((r) => r["DeletionMark"] !== true);
   const duplicates = live.map((r) => ({
     ref: str(r["Ref_Key"]),
     number: docNumber(str(r["Number"])),
@@ -464,10 +473,8 @@ export async function planTaxInvoiceFromSale(
       `По этой реализации уже есть счёт-фактура: ${duplicates.map((d) => `№ ${d.number} от ${ru(d.date)}${d.posted ? " (проведён)" : ""}`).join("; ")}. ` +
         "Покажите possibleDuplicates пользователю до confirm=true.",
     );
-  if (existing.length > live.length)
-    notes.push(
-      `Ещё ${existing.length - live.length} СФ по этой реализации помечены на удаление — не учитывались.`,
-    );
+  if (found.length > live.length)
+    notes.push(`Ещё ${found.length - live.length} СФ по этой реализации помечены на удаление — не учитывались.`);
 
   const contractCurrency = refOf(contractCard["ВалютаВзаиморасчетов_Key"]);
   if (saleCurrency && contractCurrency && contractCurrency.toLowerCase() !== saleCurrency.ref.toLowerCase())

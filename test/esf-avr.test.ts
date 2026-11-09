@@ -171,6 +171,20 @@ describe("read.esf.list_avr / find_avr_basis", () => {
     expect(none["avr"].map((a: any) => a.ref).sort()).toEqual([AVR1, AVR2, AVR3]);
   });
 
+  it("list_avr: отбор по контрагенту — cast(guid, 'Catalog_Контрагенты'), голый guid по составному полю 1С отвергает", async () => {
+    const c = connection(rows());
+    const paths: string[] = [];
+    const get = c.client.getCollection;
+    c.client.getCollection = async (path: string) => {
+      paths.push(decodeURIComponent(path));
+      return await get(path);
+    };
+    await call(c, "read.esf.list_avr", { counterpartyRef: CP, from: "2026-09-01", to: "2026-09-30" });
+    const q = paths.find((p) => p.startsWith("Document_ЭлектронныйАктВыполненныхРабот")) ?? "";
+    expect(q).toContain(`Контрагент eq cast(guid'${CP}', 'Catalog_Контрагенты')`);
+    expect(q).not.toMatch(/Контрагент eq guid'/);
+  });
+
   it("find_avr_basis: ЭАВР с основанием пропускаются, занятый R4 не предлагается, ambiguous помечен", async () => {
     const r = sc(await call(connection(rows()), "read.esf.find_avr_basis"));
     expect(r["items"].map((i: any) => i.avrRef).sort()).toEqual([AVR1, AVR2, AVR3]);

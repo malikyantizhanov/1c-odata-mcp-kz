@@ -441,6 +441,14 @@ export function matches(row: Row, filter: string | undefined): boolean {
   const m = /^(\S+) (eq|ne|ge|le|gt|lt) (?:guid|datetime)?'?((?:[^']|'')*?)'?$/.exec(f);
   if (!m) throw new Error(`Фильтр не поддержан тестом: ${f}`);
   const [, field, op, raw] = m;
+  // Как настоящая 1С (прод 09.11.2026): составное поле (рядом есть «Поле_Type») с голым guid'…' не сравнивается —
+  // 500 «Нельзя сравнивать поля неограниченной длины и поля несовместимых типов»; нужно cast(guid'…', '<тип>').
+  if (/ guid'/.test(f) && `${field!}_Type` in row)
+    throw new ODataError({
+      kind: "server",
+      status: 500,
+      message: `Ошибка сервера 1С (500): Неверные параметры в операции сравнения. Нельзя сравнивать поля неограниченной длины и поля несовместимых типов (${field!}).`,
+    });
   const v = raw!.replace(/''/g, "'");
   const actual = row[field!];
   const a = typeof actual === "boolean" ? String(actual) : String(actual ?? "");

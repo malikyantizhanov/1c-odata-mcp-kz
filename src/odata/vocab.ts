@@ -6,8 +6,39 @@
  * словаре, остаётся под своим русским именем (ссылка — без _Key, со значением {guid, name}).
  */
 
+/** Счета учёта, склады и прочие реквизиты, общие для шапки и строк. */
+const SHARED: Readonly<Record<string, string>> = {
+  СчетУчетаРасчетовСКонтрагентом: "settlement_account",
+  СчетУчетаРасчетовПоАвансам: "advance_account",
+  СчетУчета: "account",
+  СчетУчетаБУ: "account",
+  СчетУчетаНУ: "tax_account",
+  СчетДоходов: "income_account",
+  СчетРасходов: "expense_account",
+  СчетЗатрат: "expense_account",
+  СчетКасса: "cash_account",
+  СчетУчетаНДС: "vat_account",
+  СчетУчетаНДСПоРеализации: "vat_sales_account",
+  ВидУчетаНУ: "tax_accounting_kind",
+  СкладОтправитель: "warehouse_from",
+  СкладПолучатель: "warehouse_to",
+  СпособПогашенияЗадолженности: "repayment_method",
+  НоменклатурнаяГруппа: "nomenclature_group",
+  ВидРасчета: "calculation_kind",
+  Валюта: "currency",
+  ДоговорПоставки: "supply_contract",
+  Плательщик: "payer",
+  Получатель: "recipient",
+  Грузополучатель: "consignee",
+  Грузоотправитель: "consignor",
+  Касса: "cash_desk",
+  ФизЛицо: "person",
+  Сотрудник: "employee",
+};
+
 /** Реквизиты шапки (общие для документов БП РК). */
 export const HEADER_FIELDS: Readonly<Record<string, string>> = {
+  ...SHARED,
   Number: "number",
   Date: "date",
   Posted: "is_posted",
@@ -60,6 +91,7 @@ export const TABLES: Readonly<Record<string, string>> = {
 
 /** Поля строк табличных частей. */
 export const ROW_FIELDS: Readonly<Record<string, string>> = {
+  ...SHARED,
   LineNumber: "line_number",
   Номенклатура: "nomenclature",
   Содержание: "description",
@@ -81,14 +113,14 @@ export const ROW_FIELDS: Readonly<Record<string, string>> = {
 /** Служебные поля OData, которых нет в читаемом виде. */
 export const SERVICE_FIELDS = new Set(["odata.metadata", "DataVersion", "Ref_Key"]);
 
-const invert = (m: Readonly<Record<string, string>>): Record<string, string> =>
-  Object.fromEntries(Object.entries(m).map(([k, v]) => [v, k]));
+/** Английское имя → реквизит 1С; у синонимов (account: СчетУчета/СчетУчетаБУ) — первое русское имя. */
+const invert = (m: Readonly<Record<string, string>>): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const [ru, en] of Object.entries(m)) if (!(en in out)) out[en] = ru;
+  return out;
+};
 
 /** Английское имя → реквизит 1С (для записи). Первое русское имя у синонимов (organization_bank_account). */
-export const HEADER_FROM: Readonly<Record<string, string>> = (() => {
-  const out: Record<string, string> = {};
-  for (const [ru, en] of Object.entries(HEADER_FIELDS)) if (!(en in out)) out[en] = ru;
-  return out;
-})();
+export const HEADER_FROM: Readonly<Record<string, string>> = invert(HEADER_FIELDS);
 export const TABLES_FROM: Readonly<Record<string, string>> = invert(TABLES);
 export const ROW_FROM: Readonly<Record<string, string>> = invert(ROW_FIELDS);

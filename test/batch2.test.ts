@@ -241,7 +241,11 @@ describe("регистры сведений и курсы валют", () => {
       }),
     );
     expect(r).toMatchObject({ register: "InformationRegister_КурсыВалют", periodic: true, count: 1 });
-    expect(decodeURIComponent(f.gets.at(-1)!)).toContain(`Валюта_Key eq guid'${USD}'`);
+    // после чтения регистра — подгрузка названий ссылок для читаемого текста; ищем сам запрос к регистру
+    const regGet = f.gets
+      .map((g) => decodeURIComponent(g))
+      .findLast((g) => g.includes("InformationRegister_"));
+    expect(regGet).toContain(`Валюта_Key eq guid'${USD}'`);
     expect(
       text(
         await f.call("read.register.get_information_register", {

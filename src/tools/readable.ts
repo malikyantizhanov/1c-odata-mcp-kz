@@ -42,7 +42,9 @@ function cacheOf(conn: Connection): Map<string, { name: string; at: number }> {
 }
 
 /** Название объекта: полное наименование, описание, «№ номер от дата» у документа, код. */
-function nameOf(r: ODataEntity): string {
+function nameOf(r: ODataEntity, set = ""): string {
+  if (set.startsWith("ChartOfAccounts_") && str(r["Code"]))
+    return [str(r["Code"]), str(r["Description"])].filter(Boolean).join(" "); // счёт: «1210 Краткосрочная …»
   for (const f of ["НаименованиеПолное", "Description"]) {
     const s = str(r[f]).trim();
     if (s) return s;
@@ -90,7 +92,7 @@ export async function resolveNames(
           part.length,
         );
         for (const r of rows as ODataEntity[]) {
-          const name = nameOf(r);
+          const name = nameOf(r, set);
           if (!name) continue;
           const g = norm(r["Ref_Key"]);
           out.set(g, name);

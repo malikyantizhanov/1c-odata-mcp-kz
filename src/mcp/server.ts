@@ -47,6 +47,8 @@ import { registerQuickSaleTool } from "../tools/quick-sale.js";
 import { registerTaxInvoiceFromSaleTool } from "../tools/tax-invoice-from-sale.js";
 import { META_LIST, registerGatewayTools, registerKnownWriteTool } from "../tools/gateway.js";
 import { serverVersion as readVersion } from "../version.js";
+import { readableResult } from "../tools/readable-result.js";
+import { unwrapRefs } from "../tools/readable-input.js";
 import { READ_HINTS, WRITE_HINTS, DESTRUCTIVE_HINTS, fail, guard, ok } from "../tools/_shared.js";
 
 const INSTRUCTIONS =
@@ -58,7 +60,10 @@ const INSTRUCTIONS =
   "(см. read.system.list_databases) и organization (см. read.system.list_organizations). " +
   "Для создания объекта при подтверждении передавайте operationId из предпросмотра; " +
   "при таймауте повторяйте подтверждение с тем же id и теми же аргументами, а не с новым предпросмотром. " +
-  "Это защищает от дубликата, если ответ 1С потерялся.";
+  "Это защищает от дубликата, если ответ 1С потерялся. " +
+  "Ответы — в читаемом виде (TOON, первой строкой «# <что это>»): понятные английские поля, у каждой ссылки " +
+  "{guid, name}. Такую ссылку можно передать в любой параметр-ссылку как есть — объектом, guid или названием. " +
+  "structuredContent — данные 1С как есть (для кода интеграций); raw=true — текст тоже как есть.";
 
 /**
  * Правки документа, которые нельзя слепо повторять: инструмент перечитывает документ, и повтор
@@ -136,9 +141,17 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
         });
         return checked.isError ? checked : handler(next, extra);
       };
+    // Ответ модели — читаемый вид (TOON, понятные поля, ссылки с названиями); structuredContent — как был.
+    const title = typeof config.title === "string" && config.title ? config.title : name;
+    const readable =
+      (handler: (args: Record<string, unknown>, extra: unknown) => Promise<CallToolResult>) =>
+      async (args: Record<string, unknown>, extra: unknown): Promise<CallToolResult> => {
+        const result = await handler(args, extra);
+        return asReadable(ctx, title, args, result);
+      };
     const isCreateTool = name.startsWith("write.") && config.outputSchema === createResultSchema;
     if (!isCreateTool && !LINE_OPERATION_TOOLS.has(name))
-      return original(name, annotatedConfig, normalized(cb));
+      return original(name, annotatedConfig, readable(normalized(cb)));
 
     const inputSchema = {
       ...(config.inputSchema as Record<string, unknown>),
@@ -201,8 +214,17 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
         return { ...result, content, structuredContent };
       });
     };
-    return original(name, { ...annotatedConfig, inputSchema }, normalized(wrapped));
+    return original(name, { ...annotatedConfig, inputSchema }, readable(normalized(wrapped)));
   };
+  // Ссылка из читаемого ответа ({guid, name}) — в любой параметр-ссылку как есть: до проверки по схеме → guid.
+  const validate = Reflect.get(server, "validateToolInput") as (
+    tool: unknown,
+    args: unknown,
+    toolName: string,
+  ) => Promise<unknown>;
+  Reflect.set(server, "validateToolInput", (tool: unknown, args: unknown, toolName: string) =>
+    validate.call(server, tool, unwrapRefs(toolName, args), toolName),
+  );
   Reflect.set(server, "registerTool", (name: string, config: unknown, cb: unknown) =>
     registerTool(
       name,
@@ -253,4 +275,35 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
     registerGatewayTools(server, original, readVersion(), ctx.shared);
 
   return server;
+}
+
+/**
+ * Текст ответа — читаемый вид, если инструмент отдал данные JSON-ом (текст = structuredContent). Свой текст
+ * (get_document — уже читаемый, печать, справки) и ошибки — как есть. Сбой оформления — исходный ответ.
+ */
+async function asReadable(
+  ctx: ServerContext,
+  title: string,
+  args: Record<string, unknown>,
+  result: CallToolResult,
+): Promise<CallToolResult> {
+  const data = result?.structuredContent;
+  if (result?.isError || !data || typeof data !== "object" || args.raw === true) return result;
+  const idx = result.content.findIndex((c) => c.type === "text");
+  const item = result.content[idx];
+  if (!item || item.type !== "text" || item.text !== JSON.stringify(data)) return result;
+  try {
+    let conn;
+    try {
+      conn = ctx.db(typeof args.database === "string" && args.database ? args.database : undefined);
+    } catch {
+      conn = undefined;
+    }
+    const { text } = await readableResult(conn, title, data);
+    const content = [...result.content];
+    content[idx] = { ...item, text };
+    return { ...result, content };
+  } catch {
+    return result;
+  }
 }

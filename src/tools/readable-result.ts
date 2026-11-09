@@ -139,6 +139,63 @@ const dateOnly = (v: string): string => {
 };
 const emptyDate = (v: unknown) => typeof v === "string" && v.startsWith("0001-01-01");
 
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const isFlat = (v: unknown) =>
+  !Array.isArray(v) && (!isObj(v) || Object.values(v).every((x) => !isObj(x) && !Array.isArray(x)));
+
+/**
+ * Строки списка — с общими колонками: пустое у одной строки — null, а не пропуск, иначе TOON уходит из таблицы
+ * («rows[N]{поля}:» — строка на запись) в список «- поле: значение» и ответ становится длиннее JSON. Пустые
+ * массивы в строках — прочь. Строки с вложенными списками остаются как есть.
+ */
+function uniformRows(rows: unknown[]): unknown[] {
+  if (rows.length < 2 || !rows.every(isObj)) return rows;
+  // пустой массив — прочь; список простых значений («types»: ["Catalog_Банки", "Catalog_Кассы"]) — строкой через
+  // запятую: иначе строки не ложатся в таблицу
+  const clean = (rows as Array<Record<string, unknown>>).map((r) =>
+    Object.fromEntries(
+      Object.entries(r)
+        .filter(([, v]) => !(Array.isArray(v) && !v.length))
+        .map(([k, v]) =>
+          Array.isArray(v) && v.every((x) => x === null || typeof x !== "object")
+            ? [k, v.join(", ")]
+            : [k, v],
+        ),
+    ),
+  );
+  if (!clean.every((r) => Object.values(r).every(isFlat))) return clean;
+  const cols = new Map<string, Set<string> | null>(); // колонка → поля вложенного объекта (null — простое значение)
+  for (const r of clean)
+    for (const [k, v] of Object.entries(r)) {
+      const prev = cols.get(k);
+      if (isObj(v)) {
+        if (prev === null && clean.some((x) => x[k] !== undefined && x[k] !== null && !isObj(x[k])))
+          return clean;
+        const sub = prev ?? new Set<string>();
+        for (const f of Object.keys(v)) sub.add(f);
+        cols.set(k, sub);
+      } else if (!cols.has(k)) cols.set(k, null);
+      else if (prev && v !== null) return clean; // в одной строке объект, в другой — значение
+    }
+  return clean.map((r) =>
+    Object.fromEntries(
+      [...cols].map(([k, sub]) => {
+        const v = r[k];
+        if (!sub) return [k, v ?? null];
+        if (!isObj(v)) return [k, Object.fromEntries([...sub].map((f) => [f, null]))];
+        return [k, Object.fromEntries([...sub].map((f) => [f, v[f] ?? null]))];
+      }),
+    ),
+  );
+}
+
+/** Списки на любой глубине — с общими колонками (после названий: ссылки дополняются на месте). */
+function uniformDeep(v: unknown): unknown {
+  if (Array.isArray(v)) return uniformRows(v.map(uniformDeep));
+  if (isObj(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, uniformDeep(x)]));
+  return v;
+}
+
 function shapeValue(v: unknown, ctx: Ctx, set: string | undefined): unknown {
   if (Array.isArray(v)) return v.map((x) => shapeValue(x, ctx, set));
   if (v && typeof v === "object") return shapeObject(v as Record<string, unknown>, ctx, set);
@@ -157,8 +214,13 @@ function shapeObject(
   const set = own ?? parentSet;
   const used = new Set<string>();
   const out: Record<string, unknown> = {};
-  const put = (k: string, v: unknown) => {
-    if (!(k in out)) out[k] = v;
+  // порядок полей — как в ответе 1С/инструмента: ссылка встаёт на место своего названия или ключа-ссылки
+  const index = new Map(Object.keys(o).map((k, i) => [k, i]));
+  const pos = new Map<string, number>();
+  const put = (k: string, v: unknown, ...src: string[]) => {
+    if (k in out) return;
+    out[k] = v;
+    pos.set(k, Math.min(...src.map((x) => index.get(x) ?? Infinity)));
   };
   const nameOf = (base: string): string | undefined => {
     for (const k of [base, `${base}Name`, `${base}_name`, `${base}Description`, `${base}Title`]) {
@@ -183,7 +245,7 @@ function shapeObject(
     used.add(k);
     if (norm(v) === EMPTY) continue;
     if (base === "") {
-      put("guid", norm(v));
+      put("guid", norm(v), k);
       continue;
     }
     const b = base ?? k;
@@ -192,7 +254,7 @@ function shapeObject(
     const name = nameOf(b);
     const ref: Record<string, unknown> = { guid: norm(v), ...(name ? { name } : {}) };
     if (typed && typed !== "Undefined") ref["type"] = typed;
-    put(keyName(b), ref);
+    put(keyName(b), ref, k, b);
     if (!name) {
       const target =
         (typed && typed !== "Undefined" ? typed : undefined) ??
@@ -211,20 +273,30 @@ function shapeObject(
     const name = keyName(k);
     if ((k === "КодНазначенияПлатежа" || k === "knp") && typeof v === "string") {
       const code = v.trim();
-      put(name, KNP_NAMES[code] ? { code, name: KNP_NAMES[code] } : { code });
+      put(name, KNP_NAMES[code] ? { code, name: KNP_NAMES[code] } : { code }, k);
       continue;
     }
     if (k === "type" && typeof v === "string" && v === o["entitySet"] && /^(Document|Catalog)_/.test(v)) {
-      put(name, previewTitle(v)); // вид объекта по-русски; техническое имя — в entity_set
+      put(name, previewTitle(v), k); // вид объекта по-русски; техническое имя — в entity_set
       continue;
     }
     const childSet = Array.isArray(v) && set && /[А-Яа-яЁё]/.test(k) ? `${set}_${k}` : set;
     const shaped = shapeValue(v, ctx, childSet);
     if (shaped && typeof shaped === "object" && !Array.isArray(shaped) && !Object.keys(shaped).length)
       continue;
-    put(name, shaped);
+    put(name, shaped, k);
   }
-  return out;
+  // ссылка с тем же названием, что у самой строки (сотрудник → физлицо), — без повтора названия
+  if (typeof out["name"] === "string")
+    for (const v of Object.values(out))
+      if (
+        isObj(v) &&
+        typeof v["guid"] === "string" &&
+        v["name"] === out["name"] &&
+        Object.keys(v).length === 2
+      )
+        delete v["name"];
+  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => (pos.get(a) ?? 0) - (pos.get(b) ?? 0)));
 }
 
 export interface ReadableResult {
@@ -265,7 +337,8 @@ export async function readableResult(
       }
     }
   }
-  return { view, text: `# ${title}\n${encode(view)}` };
+  const out = uniformDeep(view);
+  return { view: out, text: `# ${title}\n${encode(out)}` };
 }
 
 /** Сколько голых ссылок одного ответа догружаем названиями (дальше — guid как есть: длинные выборки). */

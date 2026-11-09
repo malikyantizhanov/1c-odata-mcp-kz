@@ -66,6 +66,8 @@ export async function resolveNames(
   const out = new Map<string, string>();
   const now = Date.now();
   const meta = await conn.getMetadata().catch(() => undefined);
+  // справочники — по очереди, не параллельно: 1cfresh держит запросы одного пользователя в очереди, и пачка
+  // одновременных упирается в тайм-аут (замер на проде 09.11.2026: 26 с вместо 0,4 с)
   for (const [set, guids] of wanted) {
     const missing: string[] = [];
     for (const g of guids) {

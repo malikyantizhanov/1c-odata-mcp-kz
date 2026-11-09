@@ -104,6 +104,31 @@ describe("читаемый ответ любого инструмента (TOON,
   });
 });
 
+describe("списки — таблицей TOON, даже когда у строк разные пустые поля", () => {
+  it("пропуск — null, пустой массив — прочь, вложенная ссылка — группой полей", async () => {
+    const { text: t } = await readableResult(undefined, "ЭСФ", {
+      esf: [
+        {
+          ref: id(1),
+          number: "1",
+          counterparty: "ТОО А",
+          counterpartyRef: id(5),
+          turnoverDate: "2026-11-05",
+          lines: [],
+        },
+        { ref: id(2), number: "2", counterparty: "ТОО Б", counterpartyRef: id(6) },
+      ],
+    });
+    expect(t).toContain("esf[2]{guid,number,counterparty{guid,name},turnover_date}:");
+    expect(body(t).esf[1]).toEqual({
+      guid: id(2),
+      number: "2",
+      counterparty: { guid: id(6), name: "ТОО Б" },
+      turnover_date: null,
+    });
+  });
+});
+
 describe("ссылка из ответа — во вход инструмента как есть", () => {
   it("{guid, name} → guid, КНП {code, name} → код; объекты-данные не трогаем", () => {
     expect(

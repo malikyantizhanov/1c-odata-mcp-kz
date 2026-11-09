@@ -1,3 +1,4 @@
+import { fromReadable, type Loose } from "./readable-write.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Connection, ServerContext } from "../context.js";
@@ -29,17 +30,29 @@ import {
 
 type Scalar = string | number | boolean | null;
 const scalar = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+/** Значение поля: как в 1С (скаляр) или ссылка в понятном виде {guid?, name?, code?, type?} — как в читаемом виде. */
+const loose = z.union([
+  scalar,
+  z.object({
+    guid: z.string().optional(),
+    name: z.string().optional(),
+    code: z.string().optional(),
+    type: z.string().optional(),
+  }),
+]);
 const fieldsShape = z
-  .record(z.string(), scalar)
+  .record(z.string(), loose)
   .describe(
-    'Реквизиты шапки: { техническоеИмя: значение }, напр. {"ПериодРегистрации":"2026-09-01","Организация_Key":"<GUID>"}. ' +
-      "Ссылки — поле <Имя>_Key с Ref_Key; даты — 'YYYY-MM-DD' или 'YYYY-MM-DDTHH:mm:ss'; перечисления — имя значения.",
+    "Реквизиты шапки — в понятных полях, как в read.document.get_document: " +
+      '{"counterparty":"ИП Алексеев","contract":{"name":"Договор №2"},"currency":"KZT","knp":"859","comment":"…"}; ' +
+      "ссылка — guid, {guid}, {name} или просто название (контрагент — и БИН/ИИН): найдётся в справочнике. " +
+      'Можно и реквизитами 1С: {"Контрагент_Key":"<GUID>"}. Даты — YYYY-MM-DD.',
   );
 const tablesShape = z
-  .record(z.string(), z.array(z.record(z.string(), scalar)))
+  .record(z.string(), z.array(z.record(z.string(), loose)))
   .describe(
-    'Табличные части: { ИмяТабличнойЧасти: [строки] }, напр. {"Начисления":[{"Сотрудник_Key":"…","Результат":600000}]}. ' +
-      "LineNumber проставляется сам. Поля строки — describe_entity по '<Документ>_<ТабличнаяЧасть>'.",
+    'Табличные части: {"services":[{"nomenclature":"Стирка белья","quantity":1,"price":170050,"sum":170050}]} ' +
+      "(goods, services, fixed_assets …) или реквизитами 1С. Номер строки проставляется сам.",
   );
 
 /** Служебные поля: их заполняет 1С или отдельные инструменты. */
@@ -457,12 +470,13 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
     }) =>
       guard("write.document.create_document", async () => {
         const conn = ctx.db(database);
+        const plain = await plainFields(conn, entitySet, fields, tables);
         const { payload, notes } = await prepareDocument(conn, {
           organization,
           entitySet,
           date,
-          fields,
-          tables,
+          fields: plain.fields,
+          tables: plain.tables,
           sampleRef,
           sampleEntitySet,
         });
@@ -502,7 +516,13 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
     ({ database, entitySet, ref, fields = {}, tables = {}, confirm }) =>
       guard("write.document.update_document", async () => {
         const conn = ctx.db(database);
-        const { guid, patch, notes } = await prepareDocumentPatch(conn, { entitySet, ref, fields, tables });
+        const plain = await plainFields(conn, entitySet, fields, tables);
+        const { guid, patch, notes } = await prepareDocumentPatch(conn, {
+          entitySet,
+          ref,
+          fields: plain.fields,
+          tables: plain.tables,
+        });
         notes.push(...payrollSumNotes(entitySet, patch, true));
         if (!confirm) {
           notes.push(
@@ -512,6 +532,22 @@ export function registerDocumentWriteTools(server: McpServer, ctx: ServerContext
         return patchOrPreview(conn, entitySet, guid, patch, confirm, notes);
       }),
   );
+}
+
+/** Понятные поля (как в читаемом виде) → реквизиты 1С; документа нет в $metadata — как есть (ошибку даст запись). */
+async function plainFields(
+  conn: Connection,
+  entitySet: string,
+  fields: Record<string, Loose>,
+  tables: Record<string, Array<Record<string, Loose>>>,
+): Promise<{ fields: Record<string, Scalar>; tables: Record<string, Array<Record<string, Scalar>>> }> {
+  const em = (await conn.getMetadata()).entities.get(entitySet);
+  if (!em)
+    return {
+      fields: fields as Record<string, Scalar>,
+      tables: tables as Record<string, Array<Record<string, Scalar>>>,
+    };
+  return fromReadable(conn, em as never, fields, tables);
 }
 
 /** Наименования ставок НДС по Ref_Key (для проверки ставки по дате). Нет справочника — пустая карта. */

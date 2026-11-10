@@ -488,8 +488,13 @@ export function fake1C(
      * файл не копируем — путь приходит из переменной окружения (ONEC_METADATA_FILE).
      */
     metadataFile?: string | undefined;
-    /** PUT набора записей: 1С «молча» не сохраняет субконто (ExtDimension…) — для проверки отката. */
-    dropSubcontoOnPut?: boolean;
+    /**
+     * Набор записей регистра: настоящая 1С субконто (ExtDimension…) в строках набора молча отбрасывает. true —
+     * «платформа их хранит» (такой мы не видели; ветка кода под неё остаётся).
+     */
+    keepSubconto?: boolean;
+    /** Методы записи набора, на которые подставная 1С отвечает 405 (проверка перехода к следующему способу). */
+    refuseSetMethods?: Array<"POST" | "PATCH">;
     /** false — общий HTTP-режим: при создании PDF не печатается. */
     printOnCreate?: boolean;
     /** false — общий HTTP-режим: на диск не пишем, PDF/файлы идут только ресурсом. */
@@ -608,7 +613,7 @@ export function fake1C(
   const posts: Array<{ set: string; body: Row }> = [];
   const patches: Array<{ set: string; ref: string; body: Row }> = [];
   const gets: string[] = [];
-  const puts: Array<{ path: string; body: Row }> = [];
+  const sets: Array<{ method: string; path: string; body: Row }> = [];
   const actions: string[] = [];
   let failNext: ((set: string) => Error | undefined) | undefined;
   let failGet: ((path: string) => Error | undefined) | undefined;
@@ -618,17 +623,40 @@ export function fake1C(
     const set = /^[^(?]+/.exec(p)![0];
     // Набор записей регистра по регистратору: AccountingRegister_X(Recorder=guid'…',Recorder_Type='…').
     const recorder = /\(Recorder=guid'([^']+)'/.exec(p)?.[1];
-    if (method === "PUT") {
-      const err = failNext?.(`${set}/PUT`);
+    // Запись набора записей регистра — как стандартный OData 1С (проверено на 1cfresh.kz 10.11.2026):
+    //  • PUT не поддерживается: 405, код 19 «Использованный HTTP метод запрещен в данном контексте»;
+    //  • POST в регистр создаёт набор (у документа без проводок набора нет: GET по ключу — 404), PATCH по ключу — заменяет;
+    //  • коллекция RecordSet в JSON разбирается только с явным типом ("RecordSet@odata.type"), иначе 400 «код 4: RecordSet»;
+    //  • субконто (ExtDimension…) в строках набора молча отбрасываются.
+    const notAllowed = () =>
+      new ODataError({
+        kind: "unknown",
+        status: 405,
+        message: "Неожиданный ответ OData (405): Использованный HTTP метод запрещен в данном контексте",
+      });
+    if (recorder && method === "PUT") throw notAllowed();
+    const setWrite =
+      (recorder !== undefined && method === "PATCH") ||
+      (method === "POST" && !p.includes("(") && body !== undefined && "RecordSet" in body);
+    if (setWrite) {
+      const err = failNext?.(`${set}/${method}`);
       if (err) throw err;
-      puts.push({ path: p, body: body ?? {} });
+      if (opts.refuseSetMethods?.includes(method as "POST" | "PATCH")) throw notAllowed();
+      if (body?.["RecordSet@odata.type"] !== `Collection(StandardODATA.${set}_RowType)`)
+        throw new ODataError({
+          kind: "bad_request",
+          status: 400,
+          message: "Некорректный запрос к 1С (400): RecordSet",
+        });
+      const owner = recorder ?? String(body?.["Recorder"]);
+      sets.push({ method, path: p, body: body ?? {} });
       const rows = ((body?.["RecordSet"] as Row[] | undefined) ?? []).map((r) =>
-        opts.dropSubcontoOnPut
-          ? Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith("ExtDimension")))
-          : { ...r },
+        opts.keepSubconto
+          ? { ...r }
+          : Object.fromEntries(Object.entries(r).filter(([k]) => !k.startsWith("ExtDimension"))),
       );
       const ext = `${set}/RecordsWithExtDimensions`;
-      store[ext] = [...(store[ext] ?? []).filter((r) => r["Recorder"] !== recorder), ...rows];
+      store[ext] = [...(store[ext] ?? []).filter((r) => r["Recorder"] !== owner), ...rows];
       return {};
     }
     const act = /\(guid'([^']+)'\)\/(Post|Unpost)/.exec(p);
@@ -725,7 +753,7 @@ export function fake1C(
     posts,
     patches,
     gets,
-    puts,
+    sets,
     actions,
     call,
     quick: (args: Row) => call("write.sales.quick_invoice", args),

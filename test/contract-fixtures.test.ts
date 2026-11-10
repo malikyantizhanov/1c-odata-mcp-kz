@@ -1428,7 +1428,7 @@ const writeCases: WriteCase[] = [
         },
       ],
     },
-    build: () => fake1C({ store: richStore() }),
+    build: () => fake1C({ store: richStore(), keepSubconto: true }),
   },
   {
     kind: "write",

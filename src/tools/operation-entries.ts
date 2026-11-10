@@ -17,16 +17,27 @@ import { writeBlockedMessage, notWritableMessage } from "../write-status.js";
 
 /**
  * Проводки ручной операции (Document_ОперацияБух) — набор записей регистра бухгалтерии
- * (AccountingRegister_Типовой / _Хозрасчетный) с регистратором = документ. Стандартный OData 1С отдаёт набор
- * записей подчинённого регистра по ключу Recorder + Recorder_Type (свойство RecordSet) и позволяет записать
- * его целиком (PUT по тому же ключу) — так же, как это делает форма ручной операции. Строка набора
- * (_RecordType) сама по себе только для чтения.
+ * (AccountingRegister_Типовой / _Хозрасчетный) с регистратором = документ. Табличной части с проводками у документа
+ * нет: проводки — только записи регистра. Стандартный OData 1С отдаёт набор по ключу Recorder + Recorder_Type
+ * (свойство RecordSet) и принимает его целиком.
  *
- * Субконто в строке набора — динамические поля ExtDimensionDr1..3 / ExtDimensionCr1..3 (+ _Type) и
- * ExtDimensionTypeDr1..3_Key / ExtDimensionTypeCr1..3_Key (как их отдаёт RecordsWithExtDimensions). В $metadata
- * строки набора их нет, а неизвестные свойства 1С может молча проигнорировать, поэтому после записи набор
- * перечитывается с субконто; если субконто не сохранились, а набор до записи был пуст — запись откатывается
- * (пустой набор), инструмент сообщает об ошибке.
+ * Как 1С принимает набор (проверено на живой базе 1cfresh.kz, «Бухгалтерия для Казахстана», 10.11.2026):
+ *  • PUT не поддерживается: «405, код 19: Использованный HTTP метод запрещен в данном контексте» — так инструмент
+ *    писал раньше и на проде не сработал ни разу;
+ *  • у документа без проводок набора нет (GET по ключу — «404, код 9»): он создаётся POST-запросом в регистр;
+ *    существующий заменяется PATCH-запросом по ключу;
+ *  • коллекцию RecordSet в JSON 1С разбирает только с явным типом ("RecordSet@odata.type":
+ *    "Collection(StandardODATA.<регистр>_RowType)"); без него — «400, код 4: RecordSet», даже для пустого набора;
+ *    с типом принимает и пустой набор — им набор очищается при откате.
+ *
+ * Субконто. В стандартном OData у строки набора (_RowType) и у записи регистра (_RecordType) полей субконто НЕТ:
+ * 1С отвечает «код 6: Сегмент пути ExtDimensionDr1 не найден», а отправленные в строке ExtDimension… молча
+ * отбрасывает (проводка записалась без аналитики). Субконто видны только в виртуальных таблицах
+ * (RecordsWithExtDimensions) — на чтение. Поэтому, когда метаданные строки прочитаны и субконто в них нет, аналитика
+ * не отправляется: проводки пишутся без неё, а что заполнить в 1С вручную — инструмент перечисляет в предпросмотре и
+ * в ответе. По той же причине нельзя заменять проводки, у которых аналитика уже заполнена: она была бы потеряна.
+ * Метаданные строки неизвестны либо субконто в них есть — субконто отправляются, после записи набор перечитывается;
+ * не сохранились — откат.
  */
 
 const DOC = "Document_ОперацияБух";
@@ -120,6 +131,52 @@ const findCurrency = (list: Currency[], q: string) => {
 export const recordSetPath = (reg: string, ref: string) =>
   `${reg}(Recorder=${odataGuid(ref)},Recorder_Type=${odataString(`StandardODATA.${DOC}`)})`;
 
+type SetMethod = "POST" | "PATCH";
+const SUBCONTO_FIELD_RE = /^ExtDimension(Dr|Cr)\d$/;
+const hasSubconto = (row: ODataEntity) =>
+  Object.entries(row).some(([k, v]) => SUBCONTO_FIELD_RE.test(k) && isRef(v));
+
+/**
+ * Записывает набор проводок документа целиком; возвращает метод, который приняла 1С.
+ *
+ * Набора ещё нет — POST в регистр (создание), есть — PATCH по ключу (замена). К другому методу переходим только после
+ * отказа, при котором 1С ничего не записала: метод не разрешён (405) или набор не найден (404). Тип коллекции
+ * обязателен — без него 1С не разбирает RecordSet (см. шапку файла).
+ */
+async function writeRecordSet(
+  conn: Connection,
+  reg: string,
+  ref: string,
+  rows: Array<Record<string, unknown>>,
+  exists: boolean,
+): Promise<SetMethod> {
+  const body = {
+    Recorder: ref,
+    Recorder_Type: `StandardODATA.${DOC}`,
+    "RecordSet@odata.type": `Collection(StandardODATA.${reg}_RowType)`,
+    RecordSet: rows,
+  };
+  const ways: Array<[SetMethod, string]> = [
+    ["POST", `${reg}?$format=json`],
+    ["PATCH", `${recordSetPath(reg, ref)}?$format=json`],
+  ];
+  if (exists) ways.reverse();
+  const refused: string[] = [];
+  for (const [method, path] of ways) {
+    try {
+      await conn.client.request(path, method, body);
+      return method;
+    } catch (e) {
+      if (!(e instanceof ODataError) || (e.status !== 404 && e.status !== 405)) throw e;
+      refused.push(`${method} — ${e.message}`);
+    }
+  }
+  throw new ODataError({
+    kind: "unknown",
+    message: `1С не приняла набор проводок ни одним способом: ${refused.join("; ")}`,
+  });
+}
+
 async function readRecordSet(conn: Connection, reg: string, ref: string): Promise<ODataEntity[]> {
   try {
     const e = await conn.client.getEntity(`${recordSetPath(reg, ref)}${buildQuery({})}`);
@@ -173,13 +230,17 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
       description:
         "Записывает проводки (Дт/Кт, субконто 1–3, сумма в тенге, валюта и валютная сумма, количество, содержание) " +
         "в ручную операцию «Операция (бухгалтерский учёт)» (Document_ОперацияБух) — набор записей регистра " +
-        "бухгалтерии с регистратором = документ (PUT набора целиком; шапку создаёт write.document.create_document). " +
+        "бухгалтерии с регистратором = документ (набор пишется целиком; шапку создаёт write.document.create_document, " +
+        "проводить документ для этого не нужно). " +
         "Проверки по плану счетов: счёт существует и не группа (запрет проводок), субконто по видам счёта и их типам, " +
         "значения существуют, валюта/валютная сумма — только для валютного счёта (для тенге на валютном счёте " +
         "подставляются KZT и сумма), количество — только для количественного, одна сторона — только для забалансового; " +
         "валютная сумма сверяется с курсом на дату. Набор уже есть — отказ без replaceExisting. Предпросмотр (таблица " +
-        "проводок) по умолчанию; запись — confirm=true после согласия бухгалтера. После записи набор перечитывается с " +
-        "субконто; не сохранились — откат (если набор был пуст). СуммаОперации шапки приводится к сумме проводок.",
+        "проводок) по умолчанию; запись — confirm=true после согласия бухгалтера. ВАЖНО: аналитику (субконто) проводок " +
+        "стандартный OData 1С не записывает — проводки пишутся без неё, а что заполнить в 1С вручную, перечислено в " +
+        "subcontoToFill (в предпросмотре и после записи): скажи это бухгалтеру до записи и после неё. Проводки, у " +
+        "которых аналитика уже заполнена, заменить нельзя. После записи набор перечитывается; не совпал — откат. " +
+        "СуммаОперации шапки приводится к сумме проводок.",
       inputSchema: {
         database: databaseField,
         documentRef: z
@@ -257,7 +318,40 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
         const periodValue = period ? `${period}T12:00:00` : String(doc["Date"] ?? "");
         if (!/^\d{4}-\d{2}-\d{2}/.test(day)) refuse.push("У документа нет даты — задайте period.");
 
+        // Строка набора в метаданных прочитана и полей субконто в ней нет — 1С их не хранит (см. шапку файла).
+        const meta = await conn.getMetadata();
+        const rowProps = new Set(
+          (meta.entities.get(`${reg}_RecordType`)?.properties ?? []).map((p) => p.name),
+        );
+        const has = (f: string) => rowProps.size === 0 || rowProps.has(f);
+        const subcontoStored = rowProps.size === 0 || [...rowProps].some((n) => SUBCONTO_FIELD_RE.test(n));
+
         const existing = await readRecordSet(conn, reg, ref);
+        // Прежние проводки с субконто: вернуть при откате и понять, есть ли у них аналитика, которую замена потеряла бы.
+        let previous: ODataEntity[] | undefined = [];
+        if (existing.length) {
+          const days = existing
+            .map((r) => String(r["Period"] ?? "").slice(0, 10))
+            .filter(Boolean)
+            .sort();
+          previous = await recordsWithSubconto(
+            conn,
+            reg,
+            ref,
+            days[0] ?? day,
+            days[days.length - 1] ?? day,
+          ).catch(() => undefined);
+        }
+        if (existing.length && replaceExisting && !subcontoStored) {
+          if (!previous || previous.length !== existing.length)
+            refuse.push(
+              "Не удалось прочитать аналитику существующих проводок документа — заменять их не будем (при замене аналитика была бы потеряна). Измените проводки в 1С.",
+            );
+          else if (previous.some(hasSubconto))
+            refuse.push(
+              "У существующих проводок документа заполнена аналитика (субконто), а через подключение 1С её не принимает: при замене она была бы потеряна. Измените проводки в 1С.",
+            );
+        }
         if (existing.length && !replaceExisting)
           refuse.push(
             `У документа уже ${existing.length} проводок — для замены передайте replaceExisting=true (набор пишется целиком).`,
@@ -486,12 +580,24 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
           for (const [k, v] of await resolveNames(conn, es, refs).catch(() => new Map<string, string>()))
             names.set(k.toLowerCase(), v);
 
-        const meta = await conn.getMetadata();
-        const rowProps = new Set(
-          (meta.entities.get(`${reg}_RecordType`)?.properties ?? []).map((p) => p.name),
-        );
-        const has = (f: string) => rowProps.size === 0 || rowProps.has(f);
         const recorderType = `StandardODATA.${DOC}`;
+        // Аналитика, которую 1С не примет: её не отправляем, а перечисляем бухгалтеру — заполнить в 1С вручную.
+        const subcontoToFill: string[] = subcontoStored
+          ? []
+          : planned.flatMap((p, i) =>
+              (["Dr", "Cr"] as const).flatMap((side) => {
+                const s = side === "Dr" ? p.dr : p.cr;
+                return s.subconto.map(
+                  (sc) =>
+                    `Проводка ${i + 1}, ${side === "Dr" ? "Дт" : "Кт"} ${s.account?.code ?? ""} — ${sc.kind || `субконто ${sc.index}`}: ${names.get(sc.value.toLowerCase()) ?? sc.value}`,
+                );
+              }),
+            );
+        if (subcontoToFill.length)
+          warnings.push(
+            "Аналитику (субконто) проводок 1С через подключение не принимает: проводки будут записаны без неё. " +
+              `После записи заполните в 1С в этом документе: ${subcontoToFill.join("; ")}.`,
+          );
         const rows: Array<Record<string, unknown>> = planned.map((p, i) => {
           const row: Record<string, unknown> = {
             Recorder: ref,
@@ -510,7 +616,7 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
             if (s.currencyAmount !== undefined && has(`ВалютнаяСумма${side}`))
               row[`ВалютнаяСумма${side}`] = s.currencyAmount;
             if (s.quantity !== undefined && has(`Количество${side}`)) row[`Количество${side}`] = s.quantity;
-            for (const sc of s.subconto) {
+            for (const sc of subcontoStored ? s.subconto : []) {
               row[`ExtDimension${side}${sc.index}`] = sc.value;
               row[`ExtDimension${side}${sc.index}_Type`] = `StandardODATA.${sc.type}`;
               row[`ExtDimensionType${side}${sc.index}_Key`] = sc.kindRef;
@@ -554,13 +660,14 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
           existingEntries: existing.length,
           checks,
           warnings,
+          ...(subcontoToFill.length ? { subcontoToFill } : {}),
         };
-        const willPut = recordSetPath(reg, ref);
+        const willWrite = recordSetPath(reg, ref);
         if (!confirm)
           return ok({
             dryRun: true,
             ...info,
-            willPut,
+            willWrite,
             ...(updateOperationAmount && Math.abs(docTotal - total) > 0.005
               ? { willPatch: { [`${set}(${ref})`]: { СуммаОперации: total } } }
               : {}),
@@ -570,26 +677,7 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
           });
         if (writeBlockedMessage(conn)) return fail(writeBlockedMessage(conn)!);
 
-        // Прежние проводки с субконто — чтобы вернуть их, если 1С не сохранит новый набор как задано.
-        let previous: ODataEntity[] = [];
-        if (existing.length) {
-          const days = existing
-            .map((r) => String(r["Period"] ?? "").slice(0, 10))
-            .filter(Boolean)
-            .sort();
-          previous = await recordsWithSubconto(
-            conn,
-            reg,
-            ref,
-            days[0] ?? day,
-            days[days.length - 1] ?? day,
-          ).catch(() => []);
-        }
-        await conn.client.put(`${willPut}?$format=json`, {
-          Recorder: ref,
-          Recorder_Type: recorderType,
-          RecordSet: rows,
-        });
+        const method = await writeRecordSet(conn, reg, ref, rows, existing.length > 0);
 
         // Проверка: перечитываем с субконто.
         const after = await recordsWithSubconto(conn, reg, ref, day);
@@ -619,20 +707,23 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
           const restore =
             existing.length === 0
               ? []
-              : previous.length === existing.length
+              : previous && previous.length === existing.length
                 ? previous.map((r) =>
-                    Object.fromEntries(Object.entries(r).filter(([k]) => RESTORE_FIELD_RE.test(k))),
+                    Object.fromEntries(
+                      Object.entries(r).filter(
+                        ([k]) =>
+                          RESTORE_FIELD_RE.test(k) && (subcontoStored || !k.startsWith("ExtDimension")),
+                      ),
+                    ),
                   )
                 : undefined;
           let rolledBack = false;
           if (restore) {
             try {
-              await conn.client.put(`${willPut}?$format=json`, {
-                Recorder: ref,
-                Recorder_Type: recorderType,
-                RecordSet: restore,
-              });
-              rolledBack = true;
+              // набор после нашей записи существует — заменяем его прежним (пустой — тоже с типом коллекции)
+              await writeRecordSet(conn, reg, ref, restore, true);
+              // откат считаем состоявшимся только по повторному чтению
+              rolledBack = (await recordsWithSubconto(conn, reg, ref, day)).length === restore.length;
             } catch {
               /* сообщим ниже */
             }
@@ -655,8 +746,12 @@ export function registerOperationEntriesTools(server: McpServer, ctx: ServerCont
           updated: true,
           ...info,
           verified: true,
+          method,
           ...(amountUpdated ? { operationAmountUpdated: total } : {}),
-          note: "Проводки записаны и проверены повторным чтением (с субконто).",
+          note: subcontoToFill.length
+            ? "Проводки записаны и проверены повторным чтением, но без аналитики: 1С через подключение субконто не принимает. " +
+              `Заполните в 1С в этом документе: ${subcontoToFill.join("; ")}.`
+            : "Проводки записаны и проверены повторным чтением (с субконто).",
         });
       }),
   );

@@ -143,8 +143,41 @@ function store(): Record<string, Row[]> {
   };
 }
 
+// Строка набора записей регистра бухгалтерии — как в $metadata настоящей базы (1cfresh.kz, 10.11.2026): субконто нет.
+const ROW_PROPS = [
+  "Recorder",
+  "Period",
+  "LineNumber",
+  "Active",
+  "AccountDr_Key",
+  "AccountCr_Key",
+  "Организация_Key",
+  "ВалютаDr_Key",
+  "ВалютаCr_Key",
+  "СтруктурноеПодразделениеDr_Key",
+  "СтруктурноеПодразделениеCr_Key",
+  "Сумма",
+  "ВалютнаяСуммаDr",
+  "ВалютнаяСуммаCr",
+  "КоличествоDr",
+  "КоличествоCr",
+  "Содержание",
+  "НомерЖурнала",
+  "ВидРегламентнойОперации",
+  "Recorder_Type",
+];
+const SUBCONTO_PROPS = ["Dr", "Cr"].flatMap((s) =>
+  [1, 2, 3].flatMap((n) => [
+    `ExtDimension${s}${n}`,
+    `ExtDimension${s}${n}_Type`,
+    `ExtDimensionType${s}${n}_Key`,
+  ]),
+);
+const rowMeta = (names: string[]) => ({ properties: names.map((name) => ({ name })) });
+
 const entities = {
   ChartOfAccounts_Типовой: { properties: [] },
+  AccountingRegister_Типовой_RecordType: rowMeta(ROW_PROPS),
   InformationRegister_КурсыВалют: {
     properties: [
       { name: "Period", type: "Edm.DateTime" },
@@ -164,12 +197,25 @@ const entities = {
   InformationRegister_АвторизацияВСервисе: { properties: [{ name: "Логин", type: "Edm.String" }] },
 };
 
-const make = (o: { writable?: boolean; dropSubcontoOnPut?: boolean; extra?: Record<string, Row[]> } = {}) =>
+const make = (
+  o: {
+    writable?: boolean;
+    /** Метаданные строки набора объявляют субконто (такой платформы мы не видели — ветка «субконто отправляются»). */
+    subcontoInMeta?: boolean;
+    /** Платформа действительно хранит субконто строк набора. */
+    keepSubconto?: boolean;
+    refuseSetMethods?: Array<"POST" | "PATCH">;
+    extra?: Record<string, Row[]>;
+  } = {},
+) =>
   fake1C({
     store: { ...store(), ...(o.extra ?? {}) },
-    entities,
+    entities: o.subcontoInMeta
+      ? { ...entities, AccountingRegister_Типовой_RecordType: rowMeta([...ROW_PROPS, ...SUBCONTO_PROPS]) }
+      : entities,
     ...(o.writable !== undefined ? { writable: o.writable } : {}),
-    ...(o.dropSubcontoOnPut ? { dropSubcontoOnPut: true } : {}),
+    ...(o.keepSubconto ? { keepSubconto: true } : {}),
+    ...(o.refuseSetMethods ? { refuseSetMethods: o.refuseSetMethods } : {}),
   });
 const text = (r: { content: Array<{ type: string; text?: string }> }) =>
   r.content.map((c) => c.text ?? "").join("\n");
@@ -311,10 +357,11 @@ describe("write.accounting.set_operation_entries", () => {
     debitCurrencyAmount: 100,
     content: "Поступление USD",
   };
+  const SET_TYPE = "Collection(StandardODATA.AccountingRegister_Типовой_RowType)";
   const set = (f: ReturnType<typeof make>, args: Row) =>
     f.call("write.accounting.set_operation_entries", { documentRef: OP, ...args });
 
-  it("предпросмотр: таблица проводок, курс сверен, ничего не пишется", async () => {
+  it("предпросмотр: таблица проводок, курс сверен, аналитика перечислена к ручному заполнению, ничего не пишется", async () => {
     const f = make();
     const r = await set(f, { entries: [usdEntry] });
     expect(r.isError).toBeFalsy();
@@ -330,34 +377,86 @@ describe("write.accounting.set_operation_entries", () => {
       name: 'ТОО "TRADESPACE"',
     });
     expect(d["checks"].join(" ")).toMatch(/согласуется с курсом USD 450/);
-    expect(d["willPut"]).toContain(`Recorder=guid'${OP}'`);
-    expect(f.puts).toHaveLength(0);
+    expect(d["willWrite"]).toContain(`Recorder=guid'${OP}'`);
+    // субконто в строке набора стандартного OData нет: бухгалтер узнаёт об этом ДО записи и видит, что заполнить
+    expect(d["subcontoToFill"]).toEqual([
+      expect.stringMatching(/^Проводка 1, Дт 1030 — Денежные средства: /),
+      'Проводка 1, Кт 3310 — Контрагенты: ТОО "TRADESPACE"',
+    ]);
+    expect(d["warnings"].join(" ")).toMatch(
+      /через подключение не принимает: проводки будут записаны без неё/,
+    );
+    expect(f.sets).toHaveLength(0);
     expect(f.patches).toHaveLength(0);
   });
 
-  it("confirm=true: PUT всего набора с субконто и валютой, перечитывание, СуммаОперации", async () => {
+  it("confirm=true: POST набора с типом коллекции (PUT 1С не принимает), без субконто; что заполнить — в ответе", async () => {
     const f = make();
     const r = await set(f, { entries: [usdEntry], confirm: true });
     expect(r.isError).toBeFalsy();
-    expect(sc(r)).toMatchObject({ updated: true, verified: true, operationAmountUpdated: 45000 });
-    expect(f.puts).toHaveLength(1);
-    const body = f.puts[0]!.body as any;
+    expect(sc(r)).toMatchObject({
+      updated: true,
+      verified: true,
+      method: "POST",
+      operationAmountUpdated: 45000,
+    });
+    expect(f.sets).toHaveLength(1);
+    expect(f.sets[0]).toMatchObject({ method: "POST", path: "AccountingRegister_Типовой?$format=json" });
+    const body = f.sets[0]!.body as any;
+    // без типа коллекции 1С отвечает «400, код 4: RecordSet» (прод 10.11.2026)
+    expect(body["RecordSet@odata.type"]).toBe(SET_TYPE);
     expect(body.Recorder_Type).toBe("StandardODATA.Document_ОперацияБух");
     expect(body.RecordSet[0]).toMatchObject({
       LineNumber: "1",
       AccountDr_Key: A1030,
       AccountCr_Key: A3310,
       Сумма: 45000,
-      ExtDimensionDr1: BANK_ACC,
-      ExtDimensionDr1_Type: "StandardODATA.Catalog_БанковскиеСчета",
-      ExtDimensionTypeDr1_Key: K_BANK,
-      ExtDimensionCr1: BUYER,
       ВалютаDr_Key: USD,
       ВалютнаяСуммаDr: 100,
       Организация_Key: ORG,
       Содержание: "Поступление USD",
     });
+    expect(Object.keys(body.RecordSet[0]).filter((k) => k.startsWith("ExtDimension"))).toEqual([]);
+    expect(sc(r)["subcontoToFill"]).toHaveLength(2);
+    expect(sc(r)["note"]).toMatch(/без аналитики.*Заполните в 1С.*Кт 3310 — Контрагенты: ТОО "TRADESPACE"/s);
     expect(f.patches[0]!.body).toEqual({ СуммаОперации: 45000 });
+  });
+
+  it("проводка без аналитики записывается целиком и заполнять вручную нечего", async () => {
+    const f = make();
+    const r = await set(f, { entries: [{ debit: "3381", credit: "3381", amount: 10 }], confirm: true });
+    expect(r.isError).toBeFalsy();
+    expect(sc(r)).toMatchObject({ updated: true, verified: true, method: "POST" });
+    expect(sc(r)).not.toHaveProperty("subcontoToFill");
+    expect(sc(r)["note"]).toMatch(/записаны и проверены/);
+  });
+
+  it("POST отклонён как метод — набор пишется PATCH по ключу; отклонены оба — ошибка с обоими отказами", async () => {
+    const f = make({ refuseSetMethods: ["POST"] });
+    const r = await set(f, { entries: [usdEntry], confirm: true });
+    expect(r.isError).toBeFalsy();
+    expect(sc(r)).toMatchObject({ updated: true, method: "PATCH" });
+    expect(f.sets).toHaveLength(1);
+    expect(f.sets[0]!.path).toContain(`(Recorder=guid'${OP}'`);
+    const none = make({ refuseSetMethods: ["POST", "PATCH"] });
+    const bad = await set(none, { entries: [usdEntry], confirm: true });
+    expect(bad.isError).toBe(true);
+    expect(text(bad)).toMatch(/ни одним способом: POST — .*405.*PATCH — .*405/s);
+    expect(none.sets).toHaveLength(0);
+  });
+
+  it("платформа объявляет и хранит субконто строк — они отправляются и сверяются", async () => {
+    const f = make({ subcontoInMeta: true, keepSubconto: true });
+    const r = await set(f, { entries: [usdEntry], confirm: true });
+    expect(r.isError).toBeFalsy();
+    expect(sc(r)).toMatchObject({ updated: true, verified: true, method: "POST" });
+    expect(sc(r)).not.toHaveProperty("subcontoToFill");
+    expect((f.sets[0]!.body as any).RecordSet[0]).toMatchObject({
+      ExtDimensionDr1: BANK_ACC,
+      ExtDimensionDr1_Type: "StandardODATA.Catalog_БанковскиеСчета",
+      ExtDimensionTypeDr1_Key: K_BANK,
+      ExtDimensionCr1: BUYER,
+    });
   });
 
   it("тенге на валютном счёте — подставляются KZT и валютная сумма = сумме; курс расходится — предупреждение", async () => {
@@ -448,7 +547,7 @@ describe("write.accounting.set_operation_entries", () => {
     }
     const off = sc(await set(f, { entries: [{ debit: "001", amount: 5 }] }));
     expect(off["dryRun"]).toBe(true);
-    expect(f.puts).toHaveLength(0);
+    expect(f.sets).toHaveLength(0);
   });
 
   it("отказ: документ помечен на удаление; не «Вручную»; уже есть проводки без replaceExisting", async () => {
@@ -467,18 +566,57 @@ describe("write.accounting.set_operation_entries", () => {
     expect(d["warnings"].join(" ")).toMatch(/Будут заменены 1/);
   });
 
-  it("1С не сохранила субконто: набор был пуст — откат пустым набором и ошибка", async () => {
-    const f = make({ dropSubcontoOnPut: true });
+  it("замена: проводки без аналитики заменяются PATCH по ключу; с аналитикой — отказ, иначе она была бы потеряна", async () => {
+    const f = make();
+    f.store[EXT] = [
+      {
+        Recorder: OP,
+        LineNumber: "1",
+        Period: "2026-10-12T12:00:00",
+        Сумма: 5,
+        AccountDr_Key: A3381,
+        AccountCr_Key: A3381,
+      },
+    ];
+    const r = await set(f, { entries: [usdEntry], replaceExisting: true, confirm: true });
+    expect(r.isError).toBeFalsy();
+    expect(sc(r)).toMatchObject({ updated: true, method: "PATCH", existingEntries: 1 });
+    expect(f.sets[0]!.method).toBe("PATCH");
+    expect(f.store[EXT]!.filter((x) => x["Recorder"] === OP)).toHaveLength(1);
+
+    const g = make();
+    g.store[EXT] = [
+      {
+        Recorder: OP,
+        LineNumber: "1",
+        Period: "2026-10-12T12:00:00",
+        Сумма: 5,
+        AccountDr_Key: A3310,
+        AccountCr_Key: A3381,
+        ExtDimensionDr1: BUYER,
+      },
+    ];
+    for (const confirm of [false, true]) {
+      const refused = await set(g, { entries: [usdEntry], replaceExisting: true, confirm });
+      expect(refused.isError).toBe(true);
+      expect(text(refused)).toMatch(/заполнена аналитика \(субконто\).*при замене она была бы потеряна/s);
+    }
+    expect(g.sets).toHaveLength(0);
+  });
+
+  it("1С не сохранила объявленные субконто: набор был пуст — откат пустым набором и ошибка", async () => {
+    const f = make({ subcontoInMeta: true });
     const r = await set(f, { entries: [usdEntry], confirm: true });
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/ExtDimensionDr1.*откатана \(набор проводок документа снова пуст\)/s);
-    expect(f.puts).toHaveLength(2);
-    expect((f.puts[1]!.body as any).RecordSet).toEqual([]);
+    expect(f.sets.map((x) => x.method)).toEqual(["POST", "PATCH"]);
+    expect((f.sets[1]!.body as any).RecordSet).toEqual([]);
+    expect((f.sets[1]!.body as any)["RecordSet@odata.type"]).toBe(SET_TYPE); // пустой набор — тоже с типом
     expect(f.patches).toHaveLength(0);
   });
 
-  it("1С не сохранила субконто при замене: прежние проводки записываются обратно", async () => {
-    const f = make({ dropSubcontoOnPut: true });
+  it("1С не сохранила объявленные субконто при замене: прежние проводки записываются обратно", async () => {
+    const f = make({ subcontoInMeta: true });
     const old = {
       Recorder: OP,
       Recorder_Type: "StandardODATA.Document_ОперацияБух",
@@ -494,7 +632,7 @@ describe("write.accounting.set_operation_entries", () => {
     const r = await set(f, { entries: [usdEntry], replaceExisting: true, confirm: true });
     expect(r.isError).toBe(true);
     expect(text(r)).toMatch(/возвращены прежние 1 проводок/);
-    const restored = (f.puts[1]!.body as any).RecordSet[0];
+    const restored = (f.sets[1]!.body as any).RecordSet[0];
     expect(restored).toMatchObject({ Сумма: 5, AccountDr_Key: A3310, ExtDimensionDr1: BUYER });
     expect(restored).not.toHaveProperty("AccountDr");
   });
@@ -503,7 +641,7 @@ describe("write.accounting.set_operation_entries", () => {
     const f = make({ writable: false });
     const r = await set(f, { entries: [usdEntry], confirm: true });
     expect(r.isError).toBe(true);
-    expect(f.puts).toHaveLength(0);
+    expect(f.sets).toHaveLength(0);
   });
 });
 

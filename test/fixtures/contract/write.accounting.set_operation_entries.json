@@ -67,7 +67,7 @@
       "счета, субконто, валюта и количество проверены по плану счетов"
     ],
     "warnings": [],
-    "willPut": "AccountingRegister_Типовой(Recorder=guid'00000000-0000-4000-8000-000000000227',Recorder_Type='StandardODATA.Document_ОперацияБух')",
+    "willWrite": "AccountingRegister_Типовой(Recorder=guid'00000000-0000-4000-8000-000000000227',Recorder_Type='StandardODATA.Document_ОперацияБух')",
     "willPatch": {
       "Document_ОперацияБух(00000000-0000-4000-8000-000000000227)": {
         "СуммаОперации": 1000
@@ -126,6 +126,7 @@
     ],
     "warnings": [],
     "verified": true,
+    "method": "POST",
     "operationAmountUpdated": 1000,
     "note": "Проводки записаны и проверены повторным чтением (с субконто)."
   }

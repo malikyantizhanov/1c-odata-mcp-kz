@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.27] — 2026-11-10
+
 ### Исправлено
 
 - `write.accounting.set_operation_entries`: проводки ручной операции теперь записываются. Раньше набор записей отправлялся методом PUT, который 1С не поддерживает («405: Использованный HTTP метод запрещен в данном контексте») — на живых базах инструмент не сработал ни разу. Набор создаётся POST-запросом в регистр и заменяется PATCH-запросом по ключу, коллекция `RecordSet` передаётся с явным типом (без него 1С отвечает «400, код 4: RecordSet»). Создание набора через POST проверено записью в базу 1cfresh.kz 10.11.2026; замена существующего набора через PATCH на живой базе не проверялась.
@@ -1212,7 +1214,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.26...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.27...HEAD
+[0.7.27]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.26...v0.7.27
 [0.7.26]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.25...v0.7.26
 [0.7.25]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.24...v0.7.25
 [0.7.24]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.23...v0.7.24

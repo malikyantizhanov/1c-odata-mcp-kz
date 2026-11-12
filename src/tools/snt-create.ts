@@ -38,8 +38,6 @@ const day = (v: unknown) => str(v).slice(0, 10);
 const DEAD_STATUSES = new Set(["Отозван", "Аннулирован", "Ошибочный"]);
 /** Образец — исходящая СНТ, принятая ИС или черновик: её реквизиты проверены (ошибочная — нет). */
 const SAMPLE_STATUSES = new Set(["Подтвержден", "НеПросмотрен", "Доставленный", "Черновик"]);
-/** Сколько свежих СНТ покупателя просмотреть в поиске образца со всеми товарами реализации. */
-const SAMPLE_SCAN = 10;
 /** Поля обмена с ИС ЭСФ и прошлого состояния — в новый черновик не переносим. */
 export const SNT_EXCHANGE_FIELDS = [
   "Идентификатор",
@@ -133,7 +131,7 @@ export function registerSntCreateTools(server: McpServer, ctx: ServerContext): v
               cmp("DeletionMark", "eq", "false"),
               cmp("Контрагент_Key", "eq", odataGuid(guidOf(cp!))),
             ),
-            select: ["Ref_Key", "Number", "Date", "ДокументОснование", "Статус", "Направление"],
+            // Без $select: строки ТоварыВС нужны, чтобы выбрать образец со всеми товарами реализации.
           },
           conn.behavior.pageSize,
           conn.behavior.maxRows,
@@ -157,23 +155,20 @@ export function registerSntCreateTools(server: McpServer, ctx: ServerContext): v
         if (sampleRef) sample = await getDoc(conn, set, sampleRef, "СНТ-образец");
         else {
           // Образец — самая свежая подходящая СНТ покупателя, где есть строки на все товары реализации; иначе
-          // самая свежая (отказ ниже назовёт недостающие товары). Прод 12.11.2026, Ю-Агро: товар был только в СНТ № 3.
+          // самая свежая (отказ ниже назовёт недостающие товары). Прод 12.11.2026, Ю-Агро: товар был только в СНТ № 3
+          // от 2025-06-24 — 23-й по свежести из 25 СНТ покупателя, поэтому смотрим все, а не первые N.
           const picks = ofBuyer
             .filter((r) => str(r["Направление"]) === "Исходящий" && SAMPLE_STATUSES.has(str(r["Статус"])))
-            .sort((a, b) => str(b["Date"]).localeCompare(str(a["Date"])))
-            .slice(0, SAMPLE_SCAN);
+            .sort((a, b) => str(b["Date"]).localeCompare(str(a["Date"])));
           const need = goods.map((g) => guidOf(str(g["Номенклатура_Key"])));
-          for (const pick of picks) {
-            const doc = await getDoc(conn, set, str(pick["Ref_Key"]), "СНТ-образец");
-            sample ??= doc;
+          const covers = (r: ODataEntity): boolean => {
             const has = new Set(
-              ((doc["ТоварыВС"] as ODataEntity[] | undefined) ?? []).map((r) => guidOf(str(r["Товар"]))),
+              ((r["ТоварыВС"] as ODataEntity[] | undefined) ?? []).map((x) => guidOf(str(x["Товар"]))),
             );
-            if (need.every((n) => has.has(n))) {
-              sample = doc;
-              break;
-            }
-          }
+            return need.every((n) => has.has(n));
+          };
+          const pick = picks.find(covers) ?? picks[0];
+          if (pick) sample = await getDoc(conn, set, str(pick["Ref_Key"]), "СНТ-образец");
         }
         if (!sample)
           throw new InputError(

@@ -176,7 +176,16 @@ describe("write.snt.create_draft", () => {
         { LineNumber: "1", Номенклатура_Key: OTHER, Количество: 160, Цена: 280, Сумма: 44800, СуммаНДС: 0 },
       ],
     });
-    const r = await make([other], [snt(), older]).call("write.snt.create_draft", {
+    // Как на проде: нужная СНТ далеко не в первой десятке свежих — перед ней 12 СНТ (2025) без этого товара.
+    const newer = Array.from({ length: 12 }, (_, i) =>
+      snt({
+        Ref_Key: id(220 + i),
+        Number: `-И-0000000000000000000000001${String(i).padStart(2, "0")}`,
+        Date: `2025-07-${String(i + 1).padStart(2, "0")}T10:00:00`,
+        ДокументОснование: id(240 + i),
+      }),
+    );
+    const r = await make([other], [snt(), ...newer, older]).call("write.snt.create_draft", {
       basisRef: SALE,
       date: "2026-11-12",
     });

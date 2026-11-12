@@ -1060,6 +1060,77 @@ const eDraft = (): Row => ({
   Услуги: [],
 });
 
+const S_SALE = id(301);
+const S_SAMPLE = id(302);
+const S_WHEAT = id(303);
+/** СНТ: реализация пшеницы и прошлая СНТ этому покупателю — образец (write.snt.create_draft). */
+function sntStore(): Store {
+  return {
+    ...baseStore(),
+    Document_РеализацияТоваровУслуг: [
+      {
+        Ref_Key: S_SALE,
+        Number: "00000000016",
+        Date: "2026-11-12T00:00:00",
+        Posted: true,
+        DeletionMark: false,
+        Организация_Key: ORG,
+        Контрагент_Key: BUYER,
+        СуммаВключаетНДС: false,
+        КурсВзаиморасчетов: 1,
+        СуммаДокумента: 30600,
+        Товары: [
+          {
+            LineNumber: "1",
+            Номенклатура_Key: S_WHEAT,
+            Количество: 136,
+            Цена: 225,
+            Сумма: 30600,
+            СуммаНДС: 0,
+          },
+        ],
+      },
+    ],
+    Document_СНТ: [
+      {
+        Ref_Key: S_SAMPLE,
+        Number: "-И-000000000000000000000000015",
+        Date: "2026-11-11T14:47:52",
+        Posted: true,
+        DeletionMark: false,
+        Направление: "Исходящий",
+        Статус: "Подтвержден",
+        Состояние: "ПодтвержденПолучателем",
+        ТипСНТ: "Первичная",
+        Организация_Key: ORG,
+        Контрагент_Key: BUYER,
+        ДокументОснование: id(304),
+        ДокументОснование_Type: "StandardODATA.Document_РеализацияТоваровУслуг",
+        ДатаОтгрузкиТовара: "2026-11-11T00:00:00",
+        НомерСНТ: "000000000000000000000000015",
+        КурсВалюты: 1,
+        СуммаДокумента: 31050,
+        Ошибки: [],
+        ТоварыВС: [
+          {
+            LineNumber: "1",
+            Товар: S_WHEAT,
+            КодТНВЭД: "1001990000",
+            ЕдиницаИзмеренияКод: "168",
+            ПризнакПроисхождения: "4",
+            НомерСтрокиСНТ: 1,
+            Количество: 138,
+            Цена: 225,
+            Сумма: 31050,
+            СуммаБезНалогов: 31050,
+            ОборотПоРеализации: 31050,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function esfStore(esf: Row[]): Store {
   const store = baseStore();
   store["Catalog_Контрагенты"]![0]!["СтранаРезидентства_Key"] = E_KZ;
@@ -1448,6 +1519,12 @@ const writeCases: WriteCase[] = [
     tool: "write.avr.create_draft",
     args: { basisRef: E_SALE },
     build: () => fake1C({ store: esfStore([]) }),
+  },
+  {
+    kind: "write",
+    tool: "write.snt.create_draft",
+    args: { basisRef: S_SALE, date: "2026-11-12" },
+    build: () => fake1C({ store: sntStore() }),
   },
   {
     kind: "write",

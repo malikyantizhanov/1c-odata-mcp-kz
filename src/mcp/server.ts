@@ -32,6 +32,7 @@ import { registerVatNoticeTools } from "../tools/vat-notices.js";
 import { registerVatNoticeDraftTools } from "../tools/vat-notice-draft.js";
 import { registerEsfWriteTools } from "../tools/esf-write.js";
 import { registerEsfCreateTools } from "../tools/esf-create.js";
+import { registerSntCreateTools } from "../tools/snt-create.js";
 import { registerEsfUpdateTools } from "../tools/esf-update.js";
 import { registerChartTools } from "../tools/chart.js";
 import { registerInformationRegisterTools } from "../tools/registers-info.js";
@@ -251,6 +252,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerVatNoticeTools(server, ctx);
   registerEsfWriteTools(server, ctx);
   registerEsfCreateTools(server, ctx);
+  registerSntCreateTools(server, ctx);
   registerVatNoticeDraftTools(server, ctx);
   registerEsfUpdateTools(server, ctx);
   registerChartTools(server, ctx);

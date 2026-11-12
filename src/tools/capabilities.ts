@@ -51,6 +51,10 @@ const KZ_DOCUMENT_ALTERNATIVES: ReadonlyArray<[RegExp, string]> = [
     /ЭСФ|ЭлектронныйСчетФактура/,
     "ЭСФ — write.esf.create_draft (черновик по счёту-фактуре выданному или реализации).",
   ],
+  [
+    /СНТ|Сопроводительн/,
+    "СНТ — write.snt.create_draft (черновик по реализации по образцу прошлой СНТ покупателя).",
+  ],
   [/Доверенност/, "Доверенность — write.document.create_power_of_attorney."],
   [/Комплектаци/, "Комплектация — write.warehouse.create_kitting."],
 ];

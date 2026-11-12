@@ -114,6 +114,8 @@ export async function fitToMetadata(
   set: string,
   payload: Record<string, unknown>,
   warnings: string[],
+  /** Поля обмена, которые этому документу можно писать (СНТ: «Состояние = Сформирован», как у черновика 1С). */
+  allow: ReadonlySet<string> = new Set(),
 ): Promise<Record<string, unknown>> {
   const meta = await conn.getMetadata();
   const props = new Set((meta.entities.get(set)?.properties ?? []).map((p) => p.name));
@@ -142,7 +144,7 @@ export async function fitToMetadata(
   }
   if (dropped.length) warnings.push(`В этой базе нет полей ${[...new Set(dropped)].join(", ")} — пропущены.`);
   for (const k of Object.keys(out))
-    if (EXCHANGE_FIELDS.has(k) && !(k === "Статус" && out[k] === DRAFT_STATUS))
+    if (EXCHANGE_FIELDS.has(k) && !allow.has(k) && !(k === "Статус" && out[k] === DRAFT_STATUS))
       throw new Error(`Внутренняя ошибка: поле обмена ${k} в черновике.`);
   return out;
 }

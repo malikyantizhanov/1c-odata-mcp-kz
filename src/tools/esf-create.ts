@@ -585,7 +585,13 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
           warnings.push(
             `У контрагента «${buyer.name}» не заполнен БИН/ИИН${buyer.bin ? ` (${buyer.bin})` : ""} — проверьте в 1С.`,
           );
-        const bank = await bankDetails(conn, sale["БанковскийСчетОрганизации_Key"]);
+        // Банк исполнителя — счёт реализации, иначе основной счёт организации; заказчика — его основной счёт
+        // (прод 12.11.2026, ИП «AGENCY»: банковские реквизиты в черновике были пустыми, а в подтверждённых ЭАВР — есть).
+        const bank = {
+          ...(await bankDetails(conn, supplier.mainBankAccount)),
+          ...(await bankDetails(conn, sale["БанковскийСчетОрганизации_Key"])),
+        };
+        const buyerBank = await bankDetails(conn, buyer.mainBankAccount);
         const contractRef = isRef(sale["ДоговорКонтрагента_Key"])
           ? String(sale["ДоговорКонтрагента_Key"])
           : undefined;
@@ -631,7 +637,8 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
               СерияСвидетельстваПоНДС: supplier.vatSeries,
               НомерСвидетельстваПоНДС: supplier.vatNumber,
               КБе: supplier.kbe,
-              ТипРегистрации: "ЮридическоеЛицо",
+              // было всегда «ЮридическоеЛицо» — у ИП-исполнителя ЭАВР уходил с неверным типом
+              ТипРегистрации: supplier.registration ?? "ЮридическоеЛицо",
               ...bank,
             }),
           ],
@@ -642,6 +649,9 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
               Получатель_Type: buyer.type,
               ПолучательИдентификатор: buyer.bin,
               ПолучательНаименование: buyer.name,
+              КБе: buyer.kbe,
+              ТипРегистрации: buyer.registration,
+              ...buyerBank,
             }),
           ],
           Услуги: lines.map((l, i) =>

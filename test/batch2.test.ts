@@ -850,6 +850,31 @@ describe("ЭСФ и ЭАВР по основанию", () => {
     });
     expect(text(await f.call("write.avr.create_draft", { basisRef: SALE }))).toMatch(/уже есть ЭАВР/);
   });
+
+  it("ЭАВР: тип регистрации и банки исполнителя и заказчика — как в подтверждённых (прод 12.11.2026, ИП)", async () => {
+    // ИП «AGENCY»: черновик уходил с «ЮридическоеЛицо» у ИП-исполнителя, без банка исполнителя (в реализации не
+    // указан счёт) и без типа/банка заказчика; в подтверждённых ЭАВР — ИП, Kaspi у исполнителя, ТОО с банком у заказчика.
+    const BUYER_ACC = id(91);
+    const f = esfMake({ Document_РеализацияТоваровУслуг: [sale({ БанковскийСчетОрганизации_Key: undefined })] });
+    f.store["Catalog_Контрагенты"]![0]!["ОсновнойБанковскийСчет_Key"] = BUYER_ACC;
+    f.store["Catalog_Контрагенты"]![0]!["КБЕ"] = "17";
+    f.store["Catalog_БанковскиеСчета"]!.push({
+      Ref_Key: BUYER_ACC, Description: "Основной", НомерСчета: "KZ45914012203KZ005PJ", Банк_Key: f.store["Catalog_Банки"]![0]!["Ref_Key"],
+      Owner: BUYER, Owner_Type: "StandardODATA.Catalog_Контрагенты",
+    });
+    const r = await f.call("write.avr.create_draft", { basisRef: SALE });
+    expect(r.isError, text(r)).toBeFalsy();
+    const p = sc(r)["payload"];
+    expect(p.Поставщики[0]).toMatchObject({
+      ТипРегистрации: "ИндивидуальныйПредприниматель", ИИК: "KZ86125KZT1004100100", БИК: "KCJBKZKX",
+    });
+    expect(p.Получатели[0]).toMatchObject({ ТипРегистрации: "ЮридическоеЛицо", ИИК: "KZ45914012203KZ005PJ", КБе: "17" });
+    // организация — юрлицо: исполнитель «ЮридическоеЛицо»
+    const g = esfMake();
+    g.store["Catalog_Организации"]![0]!["ЮрФизЛицо"] = "ЮрЛицо";
+    const q = sc(await g.call("write.avr.create_draft", { basisRef: SALE }))["payload"];
+    expect(q.Поставщики[0].ТипРегистрации).toBe("ЮридическоеЛицо");
+  });
 });
 
 describe("ОСВ: валютные суммы", () => {

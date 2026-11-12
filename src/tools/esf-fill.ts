@@ -316,6 +316,8 @@ export interface EsfParty {
   gov: boolean;
   individual: boolean;
   mainBankAccount?: string | undefined;
+  /** ТипыРегистрацииНПАВР: ИндивидуальныйПредприниматель | ЮридическоеЛицо | ФизическоеЛицо (строки ЭАВР). */
+  registration?: string | undefined;
 }
 
 const ORG_ADDRESS = ["ЮрАдресОрганизации", "ФактАдресОрганизации", "АдресОрганизацииПочтовый"];
@@ -363,6 +365,11 @@ export async function supplierParty(conn: Connection, ref: string, ctx: FillCtx)
     nonResident: foreign || (!!country?.alpha2 && country.alpha2 !== "KZ"),
     gov: false,
     individual: false,
+    // ИП: «ЮрФизЛицо = ФизЛицо» и ссылка на физлицо-предпринимателя (подтверждённые ЭАВР ИП — «ИндивидуальныйПредприниматель»)
+    registration:
+      str(o["ЮрФизЛицо"]) === "ФизЛицо" || isRef(o["ИндивидуальныйПредприниматель_Key"])
+        ? "ИндивидуальныйПредприниматель"
+        : "ЮридическоеЛицо",
     mainBankAccount: isRef(o["ОсновнойБанковскийСчет_Key"])
       ? String(o["ОсновнойБанковскийСчет_Key"])
       : undefined,
@@ -393,6 +400,12 @@ export async function buyerParty(conn: Connection, ref: string, ctx: FillCtx): P
     gov: c["ГосударственноеУчреждение"] === true,
     individual:
       str(c["ЮрФизЛицо"]) === "ФизЛицо" && c["ИндивидуальныйПредпринимательАдвокатЧастныйНотариус"] !== true,
+    registration:
+      c["ИндивидуальныйПредпринимательАдвокатЧастныйНотариус"] === true
+        ? "ИндивидуальныйПредприниматель"
+        : str(c["ЮрФизЛицо"]) === "ФизЛицо"
+          ? "ФизическоеЛицо"
+          : "ЮридическоеЛицо",
     mainBankAccount: isRef(c["ОсновнойБанковскийСчет_Key"])
       ? String(c["ОсновнойБанковскийСчет_Key"])
       : undefined,

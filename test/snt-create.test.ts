@@ -163,6 +163,31 @@ describe("write.snt.create_draft", () => {
     expect((sc(r)["payload"] as Row)["Number"]).toBe("-И-000000000000000000000000017");
   });
 
+  it("товара нет в последней СНТ покупателя — образец берётся из более ранней, где он есть (прод, Ю-Агро № 2)", async () => {
+    const older = snt({
+      Ref_Key: id(211),
+      Number: "-И-000000000000000000000000003",
+      Date: "2025-06-24T10:00:00",
+      Статус: "НеПросмотрен",
+      ТоварыВС: [{ ...(snt()["ТоварыВС"] as Row[])[0], Товар: OTHER, КодТНВЭД: "1003900000" }],
+    });
+    const other = sale({
+      Товары: [
+        { LineNumber: "1", Номенклатура_Key: OTHER, Количество: 160, Цена: 280, Сумма: 44800, СуммаНДС: 0 },
+      ],
+    });
+    const r = await make([other], [snt(), older]).call("write.snt.create_draft", {
+      basisRef: SALE,
+      date: "2026-11-12",
+    });
+    expect(r.isError, text(r)).toBeFalsy();
+    expect(text(r)).toMatch(/образец — СНТ № -И-000000000000000000000000003/);
+    expect((sc(r)["payload"] as Row)["ТоварыВС"] as Row[]).toMatchObject([
+      { Товар: OTHER, КодТНВЭД: "1003900000", Количество: 160, Сумма: 44800 },
+    ]);
+    expect((sc(r)["payload"] as Row)["Number"]).toBe("-И-000000000000000000000000016");
+  });
+
   it("нет образца у покупателя или строки товара в образце — отказ с понятной причиной", async () => {
     expect(text(await make([sale()], []).call("write.snt.create_draft", { basisRef: SALE }))).toMatch(
       /нет прошлой СНТ-образца/,

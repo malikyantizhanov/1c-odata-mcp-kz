@@ -5,6 +5,8 @@
 
 ## [Не выпущено]
 
+## [0.7.32] — 2026-11-12
+
 ## [0.7.31] — 2026-11-12
 
 ## [0.7.30] — 2026-11-12
@@ -1222,7 +1224,8 @@ POST-тестом (create → read → mark) на реальной базе — 
   коды плана счетов); вежливый фоллбэк при отсутствии объекта в «Составе OData».
 - npm-пакет с запуском через `npx 1c-odata-mcp`.
 
-[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.31...HEAD
+[Не выпущено]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.32...HEAD
+[0.7.32]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.31...v0.7.32
 [0.7.31]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.30...v0.7.31
 [0.7.30]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.29...v0.7.30
 [0.7.29]: https://github.com/evilbruce666/1c-odata-mcp/compare/v0.7.28...v0.7.29

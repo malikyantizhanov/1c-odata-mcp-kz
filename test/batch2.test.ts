@@ -855,20 +855,32 @@ describe("ЭСФ и ЭАВР по основанию", () => {
     // ИП «AGENCY»: черновик уходил с «ЮридическоеЛицо» у ИП-исполнителя, без банка исполнителя (в реализации не
     // указан счёт) и без типа/банка заказчика; в подтверждённых ЭАВР — ИП, Kaspi у исполнителя, ТОО с банком у заказчика.
     const BUYER_ACC = id(91);
-    const f = esfMake({ Document_РеализацияТоваровУслуг: [sale({ БанковскийСчетОрганизации_Key: undefined })] });
+    const f = esfMake({
+      Document_РеализацияТоваровУслуг: [sale({ БанковскийСчетОрганизации_Key: undefined })],
+    });
     f.store["Catalog_Контрагенты"]![0]!["ОсновнойБанковскийСчет_Key"] = BUYER_ACC;
     f.store["Catalog_Контрагенты"]![0]!["КБЕ"] = "17";
     f.store["Catalog_БанковскиеСчета"]!.push({
-      Ref_Key: BUYER_ACC, Description: "Основной", НомерСчета: "KZ45914012203KZ005PJ", Банк_Key: f.store["Catalog_Банки"]![0]!["Ref_Key"],
-      Owner: BUYER, Owner_Type: "StandardODATA.Catalog_Контрагенты",
+      Ref_Key: BUYER_ACC,
+      Description: "Основной",
+      НомерСчета: "KZ45914012203KZ005PJ",
+      Банк_Key: f.store["Catalog_Банки"]![0]!["Ref_Key"],
+      Owner: BUYER,
+      Owner_Type: "StandardODATA.Catalog_Контрагенты",
     });
     const r = await f.call("write.avr.create_draft", { basisRef: SALE });
     expect(r.isError, text(r)).toBeFalsy();
     const p = sc(r)["payload"];
     expect(p.Поставщики[0]).toMatchObject({
-      ТипРегистрации: "ИндивидуальныйПредприниматель", ИИК: "KZ86125KZT1004100100", БИК: "KCJBKZKX",
+      ТипРегистрации: "ИндивидуальныйПредприниматель",
+      ИИК: "KZ86125KZT1004100100",
+      БИК: "KCJBKZKX",
     });
-    expect(p.Получатели[0]).toMatchObject({ ТипРегистрации: "ЮридическоеЛицо", ИИК: "KZ45914012203KZ005PJ", КБе: "17" });
+    expect(p.Получатели[0]).toMatchObject({
+      ТипРегистрации: "ЮридическоеЛицо",
+      ИИК: "KZ45914012203KZ005PJ",
+      КБе: "17",
+    });
     // организация — юрлицо: исполнитель «ЮридическоеЛицо»
     const g = esfMake();
     g.store["Catalog_Организации"]![0]!["ЮрФизЛицо"] = "ЮрЛицо";

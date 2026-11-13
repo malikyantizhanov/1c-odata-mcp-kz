@@ -14,6 +14,7 @@ import { registerDocumentTools } from "../tools/documents.js";
 import { registerServicesReceiptTool } from "../tools/services-receipt.js";
 import { registerPoaKittingTools } from "../tools/write-poa-kitting.js";
 import { registerRegisterTools } from "../tools/registers.js";
+import { registerAccountCardTools } from "../tools/account-card.js";
 import { registerCashflowTools } from "../tools/cashflow.js";
 import { registerSalesTools } from "../tools/sales.js";
 import { registerOrganizationTools } from "../tools/organization.js";
@@ -238,6 +239,7 @@ export function createServer(ctx: ServerContext, opts: ServerOptions = {}): McpS
   registerCounterpartyTools(server, ctx);
   registerDocumentTools(server, ctx);
   registerRegisterTools(server, ctx);
+  registerAccountCardTools(server, ctx);
   registerCashflowTools(server, ctx);
   registerSalesTools(server, ctx);
   registerOrganizationTools(server, ctx);

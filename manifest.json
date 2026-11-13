@@ -4,7 +4,7 @@
   "display_name": "1С:Предприятие через OData",
   "version": "0.7.32",
   "description": "MCP-сервер для 1С:Предприятие через OData: аналитика (дебиторка, остатки, продажи, деньги, ОСВ, проводки) и создание/изменение документов — на естественном языке.",
-  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 117 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
+  "long_description": "Подключает любой MCP-клиент (Claude, Cursor, VS Code и др.) к базе 1С:Предприятие через стандартный интерфейс OData. Ничего не устанавливается внутри 1С. По умолчанию только чтение — 118 инструментов: аналитика (дебиторка, остатки, продажи, движение денег, налоги, ОСВ по счёту, проводки документа, хронология для аудита), справочники и документы. Запись включается отдельно (readOnly=false) и всегда работает в режиме предпросмотра — сначала показывает, что будет создано/изменено, и пишет только после подтверждения.",
   "author": {
     "name": "evilbruce666",
     "url": "https://github.com/evilbruce666"
@@ -2545,6 +2545,164 @@
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",
         "additionalProperties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "read.accounting.get_account_card",
+      "title": "Карточка счёта",
+      "description": "Движения регистра бухгалтерии по счёту (код или префикс субсчетов: «1030», «1010», «3350») за период — по документам, новые первыми: дата, вид и ссылка документа, оборот Дт и Кт (тенге и валюта), содержание. Отбор по значению субконто: subconto — Ref_Key (банковский счёт организации из Catalog_БанковскиеСчета с владельцем-организацией, контрагент, сотрудник…). lastDate — дата последней операции. Отвечает на «когда была последняя операция по счёту Kaspi / по долларовому счёту». Проводки за период читаются целиком — для «последней операции» начинайте с короткого периода. Сальдо — read.accounting.get_account_turnover.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "database": {
+            "description": "Имя базы 1С из list_databases. Без указания — база по умолчанию.",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Название организации (юрлица) для фильтра. Без указания — все организации базы.",
+            "type": "string"
+          },
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "description": "Код счёта или префикс субсчетов, напр. 1030"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата начала периода (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+            "description": "Дата конца периода (YYYY-MM-DD)"
+          },
+          "subconto": {
+            "description": "Ref_Key значения субконто для отбора",
+            "type": "string",
+            "maxLength": 40
+          },
+          "limit": {
+            "default": 20,
+            "description": "Сколько последних документов вернуть",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "account",
+          "from",
+          "to"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "organization": {
+            "type": "string"
+          },
+          "period": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Коды счетов, вошедших в отбор (счёт и субсчета)"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                },
+                "documentRef": {
+                  "type": "string"
+                },
+                "documentType": {
+                  "type": "string"
+                },
+                "debit": {
+                  "type": "number"
+                },
+                "credit": {
+                  "type": "number"
+                },
+                "currencyDebit": {
+                  "type": "number"
+                },
+                "currencyCredit": {
+                  "type": "number"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "documentRef",
+                "documentType",
+                "debit",
+                "credit"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "lastDate": {
+            "description": "Дата последней операции за период или null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "documents": {
+            "type": "number",
+            "description": "Всего документов с движениями за период"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account",
+          "period",
+          "accounts",
+          "rows",
+          "lastDate",
+          "documents",
+          "truncated"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,

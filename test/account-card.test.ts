@@ -90,6 +90,32 @@ describe("accountCard", () => {
     expect(reg).not.toContain("$filter");
   });
 
+  it("валютный платёж и курсовая разница под одним документом — основное движение (списание), а не курсовая", async () => {
+    const USD = "aaaa0004-0000-0000-0000-000000000000";
+    const { conn } = fakeConn([
+      rec("p155", "2026-11-04T12:00:00", 12238020, { cr: [A1030, USD] }, { ВалютнаяСуммаCr: 27000 }),
+      rec("p155", "2026-11-04T12:00:00", 60556.89, { dr: [A1030, USD] }), // курсовая разница — тем же документом
+      rec("p100", "2026-10-01T12:00:00", 500, { dr: [A1030, USD] }),
+    ]);
+    const card = await accountCard(conn, {
+      account: "1030",
+      from: "2026-10-01",
+      to: "2026-11-13",
+      limit: 5,
+      org: ORG,
+    });
+    expect(card.lastBySubconto[0]).toMatchObject({
+      subconto: USD,
+      date: "2026-11-04",
+      documentRef: "p155",
+      side: "credit",
+      amount: 12238020,
+      currencyAmount: 27000,
+      lastDebitDate: "2026-11-04",
+      lastCreditDate: "2026-11-04",
+    });
+  });
+
   it("без субконто — все движения счёта; limit ограничивает число документов", async () => {
     const { conn } = fakeConn([
       rec("d1", "2026-10-20T10:00:00", 10, { cr: [A1030, KASPI] }),

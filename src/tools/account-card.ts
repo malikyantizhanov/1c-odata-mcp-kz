@@ -97,40 +97,84 @@ export async function accountCard(conn: Connection, p: AccountCardParams): Promi
   const hasSub = (r: ODataEntity, side: "Dr" | "Cr"): boolean =>
     !sub || sideFields(side).some((f) => str(r[f]).toLowerCase() === sub);
   const byDoc = new Map<string, AccountCardRow & { period: string }>();
-  const bySub = new Map<string, SubcontoLast & { period: string }>();
+  // Последний документ по каждому значению субконто: все его проводки по счёту — суммами по Дт и Кт отдельно.
+  // У валютного платежа под одним документом и списание, и курсовая разница (прод 13.11.2026, Ю-Агро: ордер на
+  // списание 27 000 USD = 12 238 020 ₸ и Дт 60 556,89 ₸ курсовой разницы) — основное движение — большая сторона.
+  interface SubAcc {
+    period: string;
+    documentRef: string;
+    documentType: string;
+    debit: number;
+    credit: number;
+    curDebit: number;
+    curCredit: number;
+    content: string;
+    lastDebitDate: string;
+    lastCreditDate: string;
+  }
+  const bySub = new Map<string, SubAcc>();
   const noteSub = (r: ODataEntity, side: "Dr" | "Cr", period: string): void => {
-    const amount = round2(Number(r["Сумма"] ?? 0));
-    const cur = round2(Number(r[`ВалютнаяСумма${side}`] ?? 0));
-    const kind = side === "Dr" ? "debit" : "credit";
+    const amount = Number(r["Сумма"] ?? 0);
+    const cur = Number(r[`ВалютнаяСумма${side}`] ?? 0);
+    const doc = str(r["Recorder"]);
     for (const f of sideFields(side)) {
       const v = str(r[f]).toLowerCase();
       if (!GUID_RE.test(v) || v === EMPTY) continue;
-      const prev = bySub.get(v);
-      const sideKey = side === "Dr" ? "lastDebitDate" : "lastCreditDate";
-      const base = prev ?? {
-        subconto: v,
+      const a: SubAcc = bySub.get(v) ?? {
         period: "",
-        date: "",
         documentRef: "",
         documentType: "",
-        side: kind,
-        amount: 0,
+        debit: 0,
+        credit: 0,
+        curDebit: 0,
+        curCredit: 0,
+        content: "",
+        lastDebitDate: "",
+        lastCreditDate: "",
       };
-      if (!base[sideKey] || period.slice(0, 10) > base[sideKey]) base[sideKey] = period.slice(0, 10);
-      if (period > base.period) {
-        Object.assign(base, {
+      const dateKey = side === "Dr" ? "lastDebitDate" : "lastCreditDate";
+      if (period.slice(0, 10) > a[dateKey]) a[dateKey] = period.slice(0, 10);
+      if (period > a.period) {
+        Object.assign(a, {
           period,
-          date: period.slice(0, 10),
-          documentRef: str(r["Recorder"]),
+          documentRef: doc,
           documentType: str(r["Recorder_Type"]).replace(/^StandardODATA\./, ""),
-          side: kind,
-          amount,
-          ...(cur ? { currencyAmount: cur } : { currencyAmount: undefined }),
-          ...(str(r["Содержание"]) ? { content: str(r["Содержание"]) } : { content: undefined }),
+          debit: 0,
+          credit: 0,
+          curDebit: 0,
+          curCredit: 0,
+          content: "",
         });
       }
-      bySub.set(v, base);
+      if (period === a.period && doc === a.documentRef) {
+        if (side === "Dr") {
+          a.debit += amount;
+          a.curDebit += cur;
+        } else {
+          a.credit += amount;
+          a.curCredit += cur;
+        }
+        if (!a.content && str(r["Содержание"])) a.content = str(r["Содержание"]);
+      }
+      bySub.set(v, a);
     }
+  };
+  const subLast = (v: string, a: SubAcc): SubcontoLast & { period: string } => {
+    const side = a.debit >= a.credit ? "debit" : "credit";
+    const cur = round2(side === "debit" ? a.curDebit : a.curCredit);
+    return {
+      subconto: v,
+      period: a.period,
+      date: a.period.slice(0, 10),
+      documentRef: a.documentRef,
+      documentType: a.documentType,
+      side,
+      amount: round2(side === "debit" ? a.debit : a.credit),
+      ...(cur ? { currencyAmount: cur } : {}),
+      ...(a.content ? { content: a.content } : {}),
+      ...(a.lastDebitDate ? { lastDebitDate: a.lastDebitDate } : {}),
+      ...(a.lastCreditDate ? { lastCreditDate: a.lastCreditDate } : {}),
+    };
   };
   for (const r of records) {
     if (r["Active"] === false) continue;
@@ -167,12 +211,11 @@ export async function accountCard(conn: Connection, p: AccountCardParams): Promi
   }
   const all = [...byDoc.values()].sort((a, b) => b.period.localeCompare(a.period));
   const rows = all.slice(0, p.limit).map(({ period: _p, ...r }) => ({ ...r, date: _p.slice(0, 10) }));
-  const lastBySubconto = [...bySub.values()]
+  const lastBySubconto: SubcontoLast[] = [...bySub.entries()]
+    .map(([v, a]) => subLast(v, a))
     .sort((a, b) => b.period.localeCompare(a.period))
     .slice(0, LAST_BY_SUBCONTO_MAX)
-    .map(({ period: _p, ...s }) =>
-      Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)),
-    ) as unknown as SubcontoLast[];
+    .map(({ period: _p, ...s }) => s);
   return {
     accounts: accounts.map((a) => a.code),
     rows,

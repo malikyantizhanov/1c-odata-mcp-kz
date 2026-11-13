@@ -19,6 +19,7 @@ export const ACCOUNT_CARD_TOOL = "read.accounting.get_account_card";
 
 const GUID_RE = /^\{?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}?$/;
 const MAX_RECORDS = 20000;
+const EMPTY = "00000000-0000-0000-0000-000000000000";
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const sideFields = (side: "Dr" | "Cr"): string[] => [1, 2, 3].map((i) => `ExtDimension${side}${i}`);
@@ -45,13 +46,32 @@ export interface AccountCardParams {
   subconto?: string | undefined;
 }
 
+/** Последнее движение по одному значению субконто счёта (банковскому счёту, кассе, контрагенту…). */
+export interface SubcontoLast {
+  subconto: string;
+  date: string;
+  documentRef: string;
+  documentType: string;
+  /** debit — поступление на счёт (Дт), credit — списание (Кт). */
+  side: "debit" | "credit";
+  amount: number;
+  currencyAmount?: number;
+  content?: string;
+  lastDebitDate?: string;
+  lastCreditDate?: string;
+}
+
 export interface AccountCard {
   accounts: string[];
   rows: AccountCardRow[];
   lastDate: string | null;
   documents: number;
+  /** Последнее движение по каждому значению субконто счёта за период — «по какому счёту когда была последняя операция». */
+  lastBySubconto: SubcontoLast[];
   truncated: boolean;
 }
+
+const LAST_BY_SUBCONTO_MAX = 300;
 
 /** Движения по счёту за период, свёрнутые по документам; новые первыми, не больше limit. */
 export async function accountCard(conn: Connection, p: AccountCardParams): Promise<AccountCard> {
@@ -77,6 +97,41 @@ export async function accountCard(conn: Connection, p: AccountCardParams): Promi
   const hasSub = (r: ODataEntity, side: "Dr" | "Cr"): boolean =>
     !sub || sideFields(side).some((f) => str(r[f]).toLowerCase() === sub);
   const byDoc = new Map<string, AccountCardRow & { period: string }>();
+  const bySub = new Map<string, SubcontoLast & { period: string }>();
+  const noteSub = (r: ODataEntity, side: "Dr" | "Cr", period: string): void => {
+    const amount = round2(Number(r["Сумма"] ?? 0));
+    const cur = round2(Number(r[`ВалютнаяСумма${side}`] ?? 0));
+    const kind = side === "Dr" ? "debit" : "credit";
+    for (const f of sideFields(side)) {
+      const v = str(r[f]).toLowerCase();
+      if (!GUID_RE.test(v) || v === EMPTY) continue;
+      const prev = bySub.get(v);
+      const sideKey = side === "Dr" ? "lastDebitDate" : "lastCreditDate";
+      const base = prev ?? {
+        subconto: v,
+        period: "",
+        date: "",
+        documentRef: "",
+        documentType: "",
+        side: kind,
+        amount: 0,
+      };
+      if (!base[sideKey] || period.slice(0, 10) > base[sideKey]) base[sideKey] = period.slice(0, 10);
+      if (period > base.period) {
+        Object.assign(base, {
+          period,
+          date: period.slice(0, 10),
+          documentRef: str(r["Recorder"]),
+          documentType: str(r["Recorder_Type"]).replace(/^StandardODATA\./, ""),
+          side: kind,
+          amount,
+          ...(cur ? { currencyAmount: cur } : { currencyAmount: undefined }),
+          ...(str(r["Содержание"]) ? { content: str(r["Содержание"]) } : { content: undefined }),
+        });
+      }
+      bySub.set(v, base);
+    }
+  };
   for (const r of records) {
     if (r["Active"] === false) continue;
     if (org && str(r["Организация_Key"]).toLowerCase() !== org) continue;
@@ -84,6 +139,8 @@ export async function accountCard(conn: Connection, p: AccountCardParams): Promi
     const cr = keys.has(str(r["AccountCr_Key"])) && hasSub(r, "Cr");
     if (!dr && !cr) continue;
     const period = str(r["Period"]);
+    if (dr) noteSub(r, "Dr", period);
+    if (cr) noteSub(r, "Cr", period);
     const key = `${str(r["Recorder_Type"])}|${str(r["Recorder"])}`;
     const row = byDoc.get(key) ?? {
       date: period.slice(0, 10),
@@ -110,11 +167,18 @@ export async function accountCard(conn: Connection, p: AccountCardParams): Promi
   }
   const all = [...byDoc.values()].sort((a, b) => b.period.localeCompare(a.period));
   const rows = all.slice(0, p.limit).map(({ period: _p, ...r }) => ({ ...r, date: _p.slice(0, 10) }));
+  const lastBySubconto = [...bySub.values()]
+    .sort((a, b) => b.period.localeCompare(a.period))
+    .slice(0, LAST_BY_SUBCONTO_MAX)
+    .map(({ period: _p, ...s }) =>
+      Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)),
+    ) as unknown as SubcontoLast[];
   return {
     accounts: accounts.map((a) => a.code),
     rows,
     lastDate: rows[0]?.date ?? null,
     documents: all.length,
+    lastBySubconto,
     truncated,
   };
 }
@@ -128,7 +192,8 @@ export function registerAccountCardTools(server: McpServer, ctx: ServerContext):
         "Движения регистра бухгалтерии по счёту (код или префикс субсчетов: «1030», «1010», «3350») за период — " +
         "по документам, новые первыми: дата, вид и ссылка документа, оборот Дт и Кт (тенге и валюта), содержание. " +
         "Отбор по значению субконто: subconto — Ref_Key (банковский счёт организации из Catalog_БанковскиеСчета с " +
-        "владельцем-организацией, контрагент, сотрудник…). lastDate — дата последней операции. Отвечает на «когда была " +
+        "владельцем-организацией, контрагент, сотрудник…). lastDate — дата последней операции; lastBySubconto — последняя " +
+        "операция по каждому значению субконто (по всем банковским счетам сразу). Отвечает на «когда была " +
         "последняя операция по счёту Kaspi / по долларовому счёту». Проводки за период читаются целиком — для «последней " +
         "операции» начинайте с короткого периода. Сальдо — read.accounting.get_account_turnover.",
       inputSchema: {
@@ -165,6 +230,24 @@ export function registerAccountCardTools(server: McpServer, ctx: ServerContext):
         ),
         lastDate: z.string().nullable().describe("Дата последней операции за период или null"),
         documents: z.number().describe("Всего документов с движениями за период"),
+        lastBySubconto: z
+          .array(
+            z.object({
+              subconto: z.string(),
+              date: z.string(),
+              documentRef: z.string(),
+              documentType: z.string(),
+              side: z.enum(["debit", "credit"]),
+              amount: z.number(),
+              currencyAmount: z.number().optional(),
+              content: z.string().optional(),
+              lastDebitDate: z.string().optional(),
+              lastCreditDate: z.string().optional(),
+            }),
+          )
+          .describe(
+            "Последнее движение по каждому значению субконто счёта (Ref_Key банковского счёта, кассы…)",
+          ),
         truncated: z.boolean(),
         note: z.string().optional(),
       },

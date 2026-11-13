@@ -2554,7 +2554,7 @@
     {
       "name": "read.accounting.get_account_card",
       "title": "Карточка счёта",
-      "description": "Движения регистра бухгалтерии по счёту (код или префикс субсчетов: «1030», «1010», «3350») за период — по документам, новые первыми: дата, вид и ссылка документа, оборот Дт и Кт (тенге и валюта), содержание. Отбор по значению субконто: subconto — Ref_Key (банковский счёт организации из Catalog_БанковскиеСчета с владельцем-организацией, контрагент, сотрудник…). lastDate — дата последней операции. Отвечает на «когда была последняя операция по счёту Kaspi / по долларовому счёту». Проводки за период читаются целиком — для «последней операции» начинайте с короткого периода. Сальдо — read.accounting.get_account_turnover.",
+      "description": "Движения регистра бухгалтерии по счёту (код или префикс субсчетов: «1030», «1010», «3350») за период — по документам, новые первыми: дата, вид и ссылка документа, оборот Дт и Кт (тенге и валюта), содержание. Отбор по значению субконто: subconto — Ref_Key (банковский счёт организации из Catalog_БанковскиеСчета с владельцем-организацией, контрагент, сотрудник…). lastDate — дата последней операции; lastBySubconto — последняя операция по каждому значению субконто (по всем банковским счетам сразу). Отвечает на «когда была последняя операция по счёту Kaspi / по долларовому счёту». Проводки за период читаются целиком — для «последней операции» начинайте с короткого периода. Сальдо — read.accounting.get_account_turnover.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2685,6 +2685,58 @@
             "type": "number",
             "description": "Всего документов с движениями за период"
           },
+          "lastBySubconto": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subconto": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "documentRef": {
+                  "type": "string"
+                },
+                "documentType": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": [
+                    "debit",
+                    "credit"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "currencyAmount": {
+                  "type": "number"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "lastDebitDate": {
+                  "type": "string"
+                },
+                "lastCreditDate": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "subconto",
+                "date",
+                "documentRef",
+                "documentType",
+                "side",
+                "amount"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Последнее движение по каждому значению субконто счёта (Ref_Key банковского счёта, кассы…)"
+          },
           "truncated": {
             "type": "boolean"
           },
@@ -2699,6 +2751,7 @@
           "rows",
           "lastDate",
           "documents",
+          "lastBySubconto",
           "truncated"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#",

@@ -98,6 +98,23 @@ describe("accountCard", () => {
     const card = await accountCard(conn, { account: "1030", from: "2026-10-01", to: "2026-11-13", limit: 1 });
     expect(card.rows.map((r) => r.documentRef)).toEqual(["d3"]);
     expect(card.documents).toBe(2);
+    // по всем банковским счетам сразу: последняя операция по каждому
+    expect(card.lastBySubconto).toEqual([
+      expect.objectContaining({
+        subconto: HALYK,
+        date: "2026-11-10",
+        side: "debit",
+        amount: 20,
+        lastDebitDate: "2026-11-10",
+      }),
+      expect.objectContaining({
+        subconto: KASPI,
+        date: "2026-10-20",
+        side: "credit",
+        amount: 10,
+        lastCreditDate: "2026-10-20",
+      }),
+    ]);
   });
 
   it("неверный субконто и период наоборот — понятные ошибки", async () => {

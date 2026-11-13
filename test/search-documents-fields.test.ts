@@ -35,17 +35,29 @@ const docs = () => {
 describe("search_documents: поля и отборы", () => {
   it("назначение содержит + вид операции + сумма «до»", async () => {
     const f = docs();
-    const byPurpose = sc(await f.call("read.document.search_documents", { entitySet: PP, purposeContains: "Счет на оплату" }));
+    const byPurpose = sc(
+      await f.call("read.document.search_documents", { entitySet: PP, purposeContains: "Счет на оплату" }),
+    );
     expect(byPurpose["rows"].map((r: { amount: number }) => r["amount"]).sort()).toEqual([14900, 149000]);
-    const byOp = sc(await f.call("read.document.search_documents", { entitySet: PP, operationKind: "ОплатаПокупателя", maxAmount: 20000 }));
+    const byOp = sc(
+      await f.call("read.document.search_documents", {
+        entitySet: PP,
+        operationKind: "ОплатаПокупателя",
+        maxAmount: 20000,
+      }),
+    );
     expect(byOp["rows"].map((r: { amount: number }) => r["amount"])).toEqual([14900]);
   });
 
   it("fields: значения шапки и название контрагента рядом со ссылкой", async () => {
     const f = docs();
-    const res = sc(await f.call("read.document.search_documents", {
-      entitySet: PP, purposeContains: "22664", fields: ["Контрагент_Key", "НазначениеПлатежа", "НетТакогоПоля"],
-    }));
+    const res = sc(
+      await f.call("read.document.search_documents", {
+        entitySet: PP,
+        purposeContains: "22664",
+        fields: ["Контрагент_Key", "НазначениеПлатежа", "НетТакогоПоля"],
+      }),
+    );
     const [row] = res["rows"];
     expect(row["fields"]["НазначениеПлатежа"]).toContain("22664");
     expect(row["fields"]["Контрагент_Key"]).toBe(BUYER);

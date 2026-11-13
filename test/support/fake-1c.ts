@@ -454,8 +454,17 @@ export function matches(row: Row, filter: string | undefined): boolean {
   if (typeof actual === "number" && v.trim() !== "" && Number.isFinite(Number(v))) {
     // числа — числами, как в 1С (строкой «149000» <= «20000»)
     const n = Number(v);
-    return op === "eq" ? actual === n : op === "ne" ? actual !== n : op === "ge" ? actual >= n
-      : op === "le" ? actual <= n : op === "gt" ? actual > n : actual < n;
+    return op === "eq"
+      ? actual === n
+      : op === "ne"
+        ? actual !== n
+        : op === "ge"
+          ? actual >= n
+          : op === "le"
+            ? actual <= n
+            : op === "gt"
+              ? actual > n
+              : actual < n;
   }
   const a = typeof actual === "boolean" ? String(actual) : String(actual ?? "");
   switch (op) {

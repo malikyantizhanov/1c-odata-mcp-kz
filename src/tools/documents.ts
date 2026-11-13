@@ -69,16 +69,24 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           .string()
           .max(100)
           .optional()
-          .describe("Вид операции (ВидОперации) точно, напр. «ОплатаПокупателя», «ПрочиеРасчетыСКонтрагентами»"),
+          .describe(
+            "Вид операции (ВидОперации) точно, напр. «ОплатаПокупателя», «ПрочиеРасчетыСКонтрагентами»",
+          ),
         fields: z
           .array(z.string().max(100))
           .max(20)
           .optional()
           .describe(
-            "Доп. поля шапки в каждой строке (rows[].fields), напр. [\"Контрагент_Key\",\"НазначениеПлатежа\"," +
-              "\"ВидОперации\",\"Комментарий\",\"ДоговорКонтрагента_Key\"]; у Контрагент_Key — ещё counterparty (название)",
+            'Доп. поля шапки в каждой строке (rows[].fields), напр. ["Контрагент_Key","НазначениеПлатежа",' +
+              '"ВидОперации","Комментарий","ДоговорКонтрагента_Key"]; у Контрагент_Key — ещё counterparty (название)',
           ),
-        offset: z.number().int().min(0).max(100000).default(0).describe("Сколько строк пропустить (постранично: nextOffset)"),
+        offset: z
+          .number()
+          .int()
+          .min(0)
+          .max(100000)
+          .default(0)
+          .describe("Сколько строк пропустить (постранично: nextOffset)"),
         limit: z.number().int().positive().max(500).default(50).describe("Сколько документов вернуть"),
       },
       outputSchema: searchDocumentsResultSchema,
@@ -118,7 +126,9 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
             notes.push(`В этом виде документа нет поля ${field} — отбор по нему не применён.`);
             return undefined;
           }
-          return how === "contains" ? contains(field, value.trim()) : cmp(field, "eq", `'${value.trim().replace(/'/g, "''")}'`);
+          return how === "contains"
+            ? contains(field, value.trim())
+            : cmp(field, "eq", `'${value.trim().replace(/'/g, "''")}'`);
         };
         const extraFields = (fields ?? []).filter((f) => {
           if (props.has(f)) return true;
@@ -205,18 +215,27 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           numberWanted != null && numberWanted !== ""
             ? byCp.filter((r) => sameDocNumber(String(r[DOC_FIELDS.number] ?? ""), numberWanted))
             : byCp;
-        const matched = opWanted ? byNumber.filter((r) => String(r["ВидОперации"] ?? "") === opWanted) : byNumber;
+        const matched = opWanted
+          ? byNumber.filter((r) => String(r["ВидОперации"] ?? "") === opWanted)
+          : byNumber;
         const start = clientFiltered ? offset : 0; // без клиентского отбора offset уже применён в $skip
         const page = matched.slice(start, start + limit);
-        const items: Array<DocumentSummary & { fields?: Record<string, unknown>; counterparty?: string }> = page.map((r) => {
-          const base = toSummary(r, entitySet);
-          return extraFields.length ? { ...base, fields: Object.fromEntries(extraFields.map((f) => [f, r[f] ?? null])) } : base;
-        });
+        const items: Array<DocumentSummary & { fields?: Record<string, unknown>; counterparty?: string }> =
+          page.map((r) => {
+            const base = toSummary(r, entitySet);
+            return extraFields.length
+              ? { ...base, fields: Object.fromEntries(extraFields.map((f) => [f, r[f] ?? null])) }
+              : base;
+          });
         if (extraFields.includes(DOC_FIELDS.counterparty)) {
           // название контрагента рядом со ссылкой — сценариям и модели не нужно открывать каждый документ
           const cpSet = resolveEntity(CATALOGS.counterparties, await conn.available());
           const names = cpSet
-            ? await resolveNames(conn, cpSet, items.map((i) => String(i.fields?.[DOC_FIELDS.counterparty] ?? "")))
+            ? await resolveNames(
+                conn,
+                cpSet,
+                items.map((i) => String(i.fields?.[DOC_FIELDS.counterparty] ?? "")),
+              )
             : new Map<string, string>();
           for (const i of items) {
             const key = String(i.fields?.[DOC_FIELDS.counterparty] ?? "");

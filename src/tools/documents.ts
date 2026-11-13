@@ -6,7 +6,8 @@ import { ok, guard, withTruncationNote, databaseField, organizationField } from 
 import { fetchAll } from "../odata/pagination.js";
 import { and, cmp, contains, odataGuid, buildQuery } from "../odata/query.js";
 import { sameDocNumber } from "./print.js";
-import { DOC_FIELDS } from "../config/mapping.js";
+import { CATALOGS, DOC_FIELDS, resolveEntity } from "../config/mapping.js";
+import { resolveNames } from "../odata/accounting.js";
 import { resolveOrganization } from "../odata/orgs.js";
 import { ensurePublished } from "../odata/publication.js";
 import type { DocumentSummary } from "../types/domain.js";
@@ -57,6 +58,27 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
         counterpartyRef: z.string().optional().describe("Ref_Key контрагента для фильтра"),
         postedOnly: z.boolean().default(false).describe("Только проведённые документы"),
         minAmount: z.number().optional().describe("Минимальная сумма документа"),
+        maxAmount: z.number().optional().describe("Максимальная сумма документа"),
+        purposeContains: z
+          .string()
+          .max(200)
+          .optional()
+          .describe("Подстрока назначения платежа (НазначениеПлатежа) — у платёжных документов"),
+        commentContains: z.string().max(200).optional().describe("Подстрока комментария документа"),
+        operationKind: z
+          .string()
+          .max(100)
+          .optional()
+          .describe("Вид операции (ВидОперации) точно, напр. «ОплатаПокупателя», «ПрочиеРасчетыСКонтрагентами»"),
+        fields: z
+          .array(z.string().max(100))
+          .max(20)
+          .optional()
+          .describe(
+            "Доп. поля шапки в каждой строке (rows[].fields), напр. [\"Контрагент_Key\",\"НазначениеПлатежа\"," +
+              "\"ВидОперации\",\"Комментарий\",\"ДоговорКонтрагента_Key\"]; у Контрагент_Key — ещё counterparty (название)",
+          ),
+        offset: z.number().int().min(0).max(100000).default(0).describe("Сколько строк пропустить (постранично: nextOffset)"),
         limit: z.number().int().positive().max(500).default(50).describe("Сколько документов вернуть"),
       },
       outputSchema: searchDocumentsResultSchema,
@@ -72,12 +94,37 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
       counterpartyRef,
       postedOnly,
       minAmount,
+      maxAmount,
+      purposeContains,
+      commentContains,
+      operationKind,
+      fields,
+      offset = 0,
       limit = 50,
     }) =>
       guard("read.document.search_documents", async () => {
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
         const orgKey = organization ? (await resolveOrganization(conn, organization)).ref : undefined;
+        // поля шапки этого вида: отборы и доп. поля — только по существующим (иначе 1С ответит 400/500)
+        const wantsFields = !!(purposeContains || commentContains || operationKind || fields?.length);
+        const props = wantsFields
+          ? new Set(((await conn.getMetadata()).entities.get(entitySet)?.properties ?? []).map((p) => p.name))
+          : new Set<string>();
+        const notes: string[] = [];
+        const fieldFilter = (field: string, value: string | undefined, how: "contains" | "eq") => {
+          if (!value?.trim()) return undefined;
+          if (!props.has(field)) {
+            notes.push(`В этом виде документа нет поля ${field} — отбор по нему не применён.`);
+            return undefined;
+          }
+          return how === "contains" ? contains(field, value.trim()) : cmp(field, "eq", `'${value.trim().replace(/'/g, "''")}'`);
+        };
+        const extraFields = (fields ?? []).filter((f) => {
+          if (props.has(f)) return true;
+          notes.push(`Поля ${f} нет в ${entitySet} — пропущено.`);
+          return false;
+        });
 
         // Контрагент бывает типизированным (Контрагент_Key — фильтруем на сервере)
         // или полиморфным (Контрагент: Edm.String — в 1С серверный eq/substringof по
@@ -120,15 +167,28 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
           numberServer,
           postedOnly ? cmp(DOC_FIELDS.posted, "eq", "true") : undefined,
           typeof minAmount === "number" ? cmp(DOC_FIELDS.amount, "ge", String(minAmount)) : undefined,
+          typeof maxAmount === "number" ? cmp(DOC_FIELDS.amount, "le", String(maxAmount)) : undefined,
+          fieldFilter("НазначениеПлатежа", purposeContains, "contains"),
+          fieldFilter("Комментарий", commentContains, "contains"),
         );
+        // Вид операции — на коннекторе, как в get_payments_breakdown: серверный eq по перечислению в 1С ненадёжен
+        let opWanted: string | undefined;
+        if (operationKind?.trim()) {
+          if (props.has("ВидОперации")) opWanted = operationKind.trim();
+          else notes.push("В этом виде документа нет поля ВидОперации — отбор по нему не применён.");
+        }
 
         // При клиентской фильтрации тянем больше строк (до maxRows), затем режем до limit.
-        const clientFiltered = cpClientRef || numberWanted;
-        const fetchMax = clientFiltered ? conn.behavior.maxRows : limit;
+        const clientFiltered = cpClientRef || numberWanted || opWanted;
+        const fetchMax = clientFiltered ? conn.behavior.maxRows : limit + 1; // +1 — узнать, есть ли следующая страница
         const { rows, truncated } = await fetchAll(
           conn.client,
           entitySet,
-          { filter: filter || undefined, orderby: `${DOC_FIELDS.date} desc` },
+          {
+            filter: filter || undefined,
+            orderby: `${DOC_FIELDS.date} desc`,
+            ...(clientFiltered ? {} : { skip: offset }),
+          },
           conn.behavior.pageSize,
           fetchMax,
         );
@@ -141,14 +201,37 @@ export function registerDocumentTools(server: McpServer, ctx: ServerContext): vo
                   .toLowerCase() === cpClientRef,
             )
           : rows;
-        const matched =
+        const byNumber =
           numberWanted != null && numberWanted !== ""
             ? byCp.filter((r) => sameDocNumber(String(r[DOC_FIELDS.number] ?? ""), numberWanted))
             : byCp;
-        const items = matched.slice(0, limit).map((r) => toSummary(r, entitySet));
-        const wasTruncated = truncated || matched.length > limit;
-        const result = withTruncationNote(items, wasTruncated, limit);
-        return ok(cpNote ? { ...result, counterpartyFilter: cpNote } : result);
+        const matched = opWanted ? byNumber.filter((r) => String(r["ВидОперации"] ?? "") === opWanted) : byNumber;
+        const start = clientFiltered ? offset : 0; // без клиентского отбора offset уже применён в $skip
+        const page = matched.slice(start, start + limit);
+        const items: Array<DocumentSummary & { fields?: Record<string, unknown>; counterparty?: string }> = page.map((r) => {
+          const base = toSummary(r, entitySet);
+          return extraFields.length ? { ...base, fields: Object.fromEntries(extraFields.map((f) => [f, r[f] ?? null])) } : base;
+        });
+        if (extraFields.includes(DOC_FIELDS.counterparty)) {
+          // название контрагента рядом со ссылкой — сценариям и модели не нужно открывать каждый документ
+          const cpSet = resolveEntity(CATALOGS.counterparties, await conn.available());
+          const names = cpSet
+            ? await resolveNames(conn, cpSet, items.map((i) => String(i.fields?.[DOC_FIELDS.counterparty] ?? "")))
+            : new Map<string, string>();
+          for (const i of items) {
+            const key = String(i.fields?.[DOC_FIELDS.counterparty] ?? "");
+            const name = names.get(key) ?? names.get(key.toLowerCase());
+            if (name) i.counterparty = name;
+          }
+        }
+        const hasMore = truncated || matched.length > start + limit;
+        const result = withTruncationNote(items, hasMore, limit);
+        return ok({
+          ...result,
+          ...(hasMore ? { nextOffset: offset + items.length } : {}),
+          ...(cpNote ? { counterpartyFilter: cpNote } : {}),
+          ...(notes.length ? { filterNotes: notes } : {}),
+        });
       }),
   );
 

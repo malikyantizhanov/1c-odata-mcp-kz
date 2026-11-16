@@ -51,6 +51,7 @@ import {
 } from "./currency-kz.js";
 import { printInvoice, printTarget } from "./print.js";
 import { writeBlockedMessage } from "../write-status.js";
+import { docDate, kzNow } from "../odata/kz-time.js";
 
 /**
  * Счёт на оплату покупателю «в один вызов» (Казахстан). confirm=false — один вызов: параллельные чтения, один
@@ -79,24 +80,10 @@ export const normName = (s: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Сегодня и сейчас по Алматы (Asia/Almaty) — дата счёта по умолчанию, независимо от часового пояса хоста. */
+/** Сегодня и сейчас по Алматы (UTC+05:00, odata/kz-time) — независимо от часового пояса хоста. */
 export function almatyNow(now = new Date()): { date: string; dateTime: string } {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Almaty",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    })
-      .formatToParts(now)
-      .map((p) => [p.type, p.value]),
-  );
-  const date = `${parts["year"]}-${parts["month"]}-${parts["day"]}`;
-  return { date, dateTime: `${date}T${parts["hour"]}:${parts["minute"]}:${parts["second"]}` };
+  const { date, dateTime } = kzNow(now);
+  return { date, dateTime };
 }
 
 /** Id шага составной операции: детерминированный UUID (вариант RFC 4122, версия 8) из operationId и имени шага. */
@@ -769,7 +756,7 @@ export async function planQuickInvoice(
   });
   const today = almatyNow();
   const date = input.date ?? today.date;
-  const dateTime = input.date ? `${input.date}T00:00:00` : today.dateTime;
+  const dateTime = docDate(input.date);
   const available = await conn.available();
   const [invoiceSet, cpSet, nomSet, orgSet] = await Promise.all([
     requireEntity(conn, DOCUMENTS.customerInvoice, "Документ «Счёт на оплату покупателю»"),

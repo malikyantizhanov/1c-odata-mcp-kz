@@ -160,7 +160,7 @@ describe("write.document.create_document в казахстанской базе"
     expect(sc["payload"]).toEqual({
       ПериодРегистрации: "2026-09-01T00:00:00",
       Комментарий: "Зарплата за сентябрь",
-      Date: "2026-09-30T00:00:00",
+      Date: expect.stringMatching(/^2026-09-30T\d{2}:\d{2}:\d{2}$/), // время создания по Алматы, не полночь
       Posted: false,
       Организация_Key: ORG,
       Начисления: [

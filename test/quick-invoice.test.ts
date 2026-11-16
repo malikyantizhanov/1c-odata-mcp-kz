@@ -264,7 +264,7 @@ describe("quick_invoice: создание (confirm=true)", () => {
       ],
     });
     expect(body).not.toHaveProperty("Товары");
-    expect(String(body["Date"])).toMatch(/^2026-10-08T00:00:00$/);
+    expect(String(body["Date"])).toMatch(/^2026-10-08T\d{2}:\d{2}:\d{2}$/); // время создания по Алматы, не полночь
     expect(out).toMatchObject({
       created: true,
       invoice: { number: expect.stringMatching(/^\d+$/), total: 1550000, posted: false, date: "2026-10-08" },

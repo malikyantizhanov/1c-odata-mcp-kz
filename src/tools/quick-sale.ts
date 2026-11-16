@@ -39,6 +39,7 @@ import {
   type QuickInput,
   type QuickPlan,
 } from "./quick-invoice.js";
+import { docDate } from "../odata/kz-time.js";
 
 /**
  * Реализация товаров и услуг «в один вызов» (Казахстан): на основании счёта на оплату покупателю или напрямую
@@ -435,7 +436,7 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
     );
   const today = almatyNow();
   const date = input.date ?? today.date;
-  const dateTime = input.date ? `${input.date}T00:00:00` : today.dateTime;
+  const dateTime = docDate(input.date);
   const [saleSet, meta] = await Promise.all([
     requireEntity(conn, DOCUMENTS.sales, "Документ «Реализация товаров и услуг»"),
     conn.getMetadata(),
@@ -727,7 +728,8 @@ export async function planQuickSale(conn: Connection, input: QuickSaleInput): Pr
 
   const kind = operationKind(goods.length, services.length);
   header["ВидОперации"] = kind;
-  if (header["СпособВыпискиАктовВыполненныхРабот"] === "ВБумажномВиде") header["ДатаПодписанияГЗ"] = dateTime;
+  if (header["СпособВыпискиАктовВыполненныхРабот"] === "ВБумажномВиде")
+    header["ДатаПодписанияГЗ"] = `${dateTime.slice(0, 10)}T00:00:00`; // дата, без времени
   // Отчётный период услуг (реквизиты шапки документа) — колонка 3 «Дата выполнения работ (оказания услуг)» Р-1.
   for (const [field, value] of [
     ["ДатаНачалаОтчетногоПериода", input.periodStart],

@@ -114,7 +114,7 @@ describe("tax_invoice_from_sale: перенос полей", () => {
     expect(out).toMatchObject({ created: true, taxInvoice: { total: 672.64, posted: false } });
     const body = f.posts.find((p) => p.set === SF_SET)!.body;
     expect(body).toMatchObject({
-      Date: "2026-10-14T00:00:00",
+      Date: expect.stringMatching(/^2026-10-14T\d{2}:\d{2}:\d{2}$/), // время создания по Алматы, не полночь
       Организация_Key: ORG,
       Поставщик_Key: ORG,
       Грузоотправитель: ORG,

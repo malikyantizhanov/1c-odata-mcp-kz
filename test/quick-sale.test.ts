@@ -252,7 +252,7 @@ describe("quick_sale: план на основании счёта (confirm=false
     expect(f.posts[0]!.set).toBe(SALE_SET);
     const body = f.posts[0]!.body;
     expect(body).toMatchObject({
-      Date: "2026-10-08T00:00:00",
+      Date: expect.stringMatching(/^2026-10-08T\d{2}:\d{2}:\d{2}$/), // время создания по Алматы, не полночь
       Posted: false,
       Организация_Key: ORG,
       Контрагент_Key: BUYER,

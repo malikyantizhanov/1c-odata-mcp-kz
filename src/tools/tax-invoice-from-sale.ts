@@ -26,6 +26,7 @@ import { EXCHANGE_FIELDS, fitToMetadata } from "./esf-create.js";
 import { findSaleByNumber } from "./print-sale.js";
 import { almatyNow, docNumber, subOperationId, subRequestHash, writeBlocked } from "./quick-invoice.js";
 import { isKazakhstan, vatRateRefs } from "./write-kz.js";
+import { docDate } from "../odata/kz-time.js";
 
 /**
  * Счёт-фактура выданный на основании проведённой реализации (Казахстан) — как «Ввести на основании» в 1С.
@@ -487,7 +488,7 @@ export async function planTaxInvoiceFromSale(
     `Создан по реализации № ${number} от ${ru(saleDate)}` +
     (toTenge && saleCurrency ? `; курс ${saleCurrency.name} ${rate.rate} на ${ru(turnoverDate)}` : "");
   const payload: Record<string, unknown> = {
-    Date: input.date ? `${input.date}T00:00:00` : today.dateTime,
+    Date: docDate(input.date),
     Организация_Key: orgRef,
     Поставщик_Key: orgRef,
     Грузоотправитель: orgRef,

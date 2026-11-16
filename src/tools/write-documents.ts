@@ -9,7 +9,7 @@ import { and, buildQuery, cmp, odataGuid } from "../odata/query.js";
 import { createResultSchema, patchResultSchema } from "../schemas/output.js";
 import type { EntityMeta, ODataEntity } from "../types/odata.js";
 import { databaseField, guard, organizationField } from "./_shared.js";
-import { confirmField, createOrPreview, odataDate, patchOrPreview, resolveOrg } from "./write.js";
+import { confirmField, createOrPreview, patchOrPreview, resolveOrg } from "./write.js";
 import { isKazakhstan } from "./write-kz.js";
 import { fillCompositeTypes, fillSubcontoTypes } from "./subconto.js";
 import { fillSettlementRates } from "./settlement-rate.js";
@@ -22,6 +22,7 @@ import {
   resolveAccountCodes,
   vatRateNotes,
 } from "./kz-flow.js";
+import { docDate } from "../odata/kz-time.js";
 
 /**
  * Общая запись документов казахстанской базы: создать, изменить шапку и табличные части. Проведение —
@@ -278,7 +279,7 @@ export async function prepareDocument(
   const header = normalizeFields(em, fields, entitySet);
   const hasOrg = em.properties.some((p) => p.name === "Организация_Key");
   const org = hasOrg && !header["Организация_Key"] ? await resolveOrg(conn, organization) : undefined;
-  const when = date ? (DATE_ONLY.test(date) ? `${date}T00:00:00` : date) : odataDate(new Date());
+  const when = docDate(date);
   let payload: Record<string, unknown> = {
     ...header,
     Date: when,

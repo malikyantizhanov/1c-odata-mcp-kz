@@ -9,7 +9,7 @@ import { buildQuery, cmp } from "../odata/query.js";
 import { createResultSchema } from "../schemas/output.js";
 import type { ODataEntity } from "../types/odata.js";
 import { databaseField, dateField, guard } from "./_shared.js";
-import { confirmField, createOrPreview, odataDate } from "./write.js";
+import { confirmField, createOrPreview } from "./write.js";
 import {
   bankDetails,
   buyerParty,
@@ -26,6 +26,7 @@ import {
   supplierRow,
   type FillCtx,
 } from "./esf-fill.js";
+import { docDate } from "../odata/kz-time.js";
 
 /**
  * Черновики исходящих ЭСФ и ЭАВР по документу-основанию. Через OData нельзя ни подписать, ни отправить
@@ -244,12 +245,6 @@ async function scanDocs(conn: Connection, set: string, select: string[], warning
   return rows;
 }
 
-const today = () => {
-  const d = new Date();
-  d.setMilliseconds(0);
-  return d;
-};
-
 export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): void {
   server.registerTool(
     "write.esf.create_draft",
@@ -422,7 +417,7 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
             "Версия бланка ЭСФ не определена (в базе ещё нет ЭСФ) — проверьте её в 1С при открытии черновика.",
           );
 
-        const esfDate = date ? `${date}T${odataDate(today()).slice(11)}` : odataDate(today());
+        const esfDate = docDate(date);
         let esfNumber = number;
         if (esfNumber) checks.push(`номер ${esfNumber} — задан вручную`);
         else {
@@ -609,7 +604,7 @@ export function registerEsfCreateTools(server: McpServer, ctx: ServerContext): v
         else if (goods === 0) checks.push(`сумма ${fmt(total)} согласуется с реализацией`);
 
         const payload = clean({
-          Date: date ? `${date}T${odataDate(today()).slice(11)}` : odataDate(today()),
+          Date: docDate(date),
           Организация_Key: guidOf(org!),
           Направление: "Исходящий",
           ТипАВР: "Первичный",

@@ -25,7 +25,8 @@ import {
   type EsfVerdict,
   type NoticeTotals,
 } from "./vat-notices.js";
-import { confirmField, createOrPreview, odataDate } from "./write.js";
+import { confirmField, createOrPreview } from "./write.js";
+import { docDate as docDateKz } from "../odata/kz-time.js";
 
 /**
  * Черновик извещения об отнесении в зачёт НДС (Document_ИзвещениеОбОтнесенииВЗачетНДС) по входящим ЭСФ квартала.
@@ -525,7 +526,7 @@ export function registerVatNoticeDraftTools(server: McpServer, ctx: ServerContex
             `${summary.inUnpostedNotice} ЭСФ квартала уже есть в непроведённых извещениях — в черновик не включены (дубль не создаём).`,
           );
 
-        const docDate = date ? `${date}T${odataDate(new Date()).slice(11)}` : odataDate(new Date());
+        const docDate = docDateKz(date);
         const planned = await planNoticeNumber(conn, set, docDate);
         const docNumber = number ?? planned.number;
         if (number && planned.taken.has(number))

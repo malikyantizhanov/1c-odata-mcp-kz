@@ -11,7 +11,8 @@ import type { ODataEntity } from "../types/odata.js";
 import { databaseField, dateField, guard } from "./_shared.js";
 import { fitToMetadata } from "./esf-create.js";
 import { checkEsfNumber, planEsfNumber, splitNumber } from "./esf-fill.js";
-import { confirmField, createOrPreview, odataDate, stripForCopy } from "./write.js";
+import { confirmField, createOrPreview, stripForCopy } from "./write.js";
+import { docDate, kzNow } from "../odata/kz-time.js";
 
 /**
  * Черновик исходящей СНТ (сопроводительной накладной на товары) по реализации — по образцу прошлой СНТ этому же
@@ -178,7 +179,7 @@ export function registerSntCreateTools(server: McpServer, ctx: ServerContext): v
           );
         checks.push(`образец — СНТ № ${str(sample["Number"])} от ${day(sample["Date"])}`);
 
-        const docDay = date ?? odataDate(new Date()).slice(0, 10);
+        const docDay = date ?? kzNow().date;
         const planned = await planEsfNumber(conn, set, docDay, org!);
         const busy = await checkEsfNumber(conn, set, planned.number, docDay, org!);
         if (busy.refuse) throw new InputError(busy.refuse.replace("исходящим ЭСФ", "исходящей СНТ"));
@@ -266,7 +267,7 @@ export function registerSntCreateTools(server: McpServer, ctx: ServerContext): v
 
         Object.assign(payload, {
           Number: planned.number,
-          Date: `${docDay}T${odataDate(new Date()).slice(11)}`,
+          Date: docDate(docDay),
           Статус: "Черновик",
           Состояние: "Сформирован",
           ТипСНТ: "Первичная",

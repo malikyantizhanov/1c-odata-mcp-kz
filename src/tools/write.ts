@@ -3283,7 +3283,10 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
         "Копия создаётся НЕПРОВЕДЁННОЙ, с новым номером (1С нумерует сама) и датой (по умолчанию сегодня). " +
         "Правки: date — дата; fields — реквизиты шапки техническими именами (как в update_entity); " +
         "lines — правки строк по номеру (напр. количество и содержание). Сумма документа " +
-        "пересчитывается по строкам, если не задана явно в fields. По умолчанию dry-run; запись — при confirm=true.",
+        "пересчитывается по строкам, если не задана явно в fields. changes — то же, что date + fields одним объектом " +
+        "(ключ Date — дата копии). У ручной операции (Document_ОперацияБух) проводки НЕ копируются — после копии " +
+        "запишите их write.accounting.set_operation_entries (documentRef — ref копии). " +
+        "По умолчанию dry-run; запись — при confirm=true.",
       inputSchema: {
         database: databaseField,
         entitySet: z
@@ -3312,18 +3315,29 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
           )
           .optional()
           .describe("Правки строк табличной части по номеру (остальные строки копируются как есть)"),
+        changes: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+          .optional()
+          .describe(
+            'Правки копии одним объектом: {"Date":"ГГГГ-ММ-ДД", техническоеИмя: значение} — Date идёт в дату, ' +
+              "остальное — в реквизиты шапки (как fields; fields важнее)",
+          ),
         confirm: confirmField,
       },
       outputSchema: createResultSchema,
     },
-    ({ database, entitySet, ref, date, fields, lines, confirm }) =>
+    ({ database, entitySet, ref, date, fields, lines, changes, confirm }) =>
       guard("write.document.copy_document", async () => {
         const conn = ctx.db(database);
         ensurePublished(await conn.available(), entitySet);
         const guid = ref.replace(/[{}']/g, "");
         const source = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({})}`);
         const payload = stripForCopy(source);
-        payload["Date"] = docDate(date);
+        // changes — правки одним объектом (так их пишут модели): Date → дата копии, остальное — в реквизиты шапки.
+        // Раньше ключ был неизвестен и молча отбрасывался: копии вставали «сегодня» с суммами образца (прод 17.11.2026).
+        const { Date: changedDate, date: changedDay, ...changedFields } = changes ?? {};
+        const changedWhen = changedDate ?? changedDay;
+        payload["Date"] = docDate(date ?? (typeof changedWhen === "string" ? changedWhen : undefined));
         payload["Posted"] = false;
 
         if (lines?.length) {
@@ -3349,7 +3363,7 @@ export function registerWriteTools(server: McpServer, ctx: ServerContext): void 
             );
         }
         // Реквизиты шапки применяем последними — явное указание важнее пересчёта.
-        Object.assign(payload, fields ?? {});
+        Object.assign(payload, changedFields, fields ?? {});
         return createOrPreview(conn, entitySet, payload, confirm);
       }),
   );

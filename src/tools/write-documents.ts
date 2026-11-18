@@ -341,6 +341,62 @@ export interface PrepareDocumentPatchArgs {
   tables?: Record<string, Array<Record<string, Scalar>>>;
 }
 
+/** Колонки прежней строки, которые не переносим: 1С/вызывающий считают их заново, либо это служебная ссылка. */
+const NOT_KEPT_ROW_FIELDS = new Set(["LineNumber", "Сумма", "СуммаНДС", "СуммаСНДС", "Ref_Key"]);
+const emptyValue = (v: unknown): boolean =>
+  v === null ||
+  v === undefined ||
+  v === "" ||
+  v === false ||
+  v === 0 ||
+  v === EMPTY_REF ||
+  /Undefined$/.test(String(v));
+
+/**
+ * Правка табличной части заменяет строки целиком: колонка, которой нет в новой строке, в 1С пропадала. Прод
+ * 18.11.2026 (ИП «Business Education», счёт № 497): «измени сумму на 350 000» переписал строку «Услуги» без
+ * «Содержания» — в печатной форме счёта строка вышла без наименования. Для строки N переносим из прежней строки N
+ * колонки, которых в новой строке нет (та же номенклатура или новая строка её не задаёт); явное null/"" — очистка.
+ * Суммы не переносим (NOT_KEPT_ROW_FIELDS). → заметки о сохранённом.
+ */
+async function keepRowColumns(
+  conn: Connection,
+  em: EntityMeta,
+  entitySet: string,
+  guid: string,
+  patch: Record<string, unknown>,
+): Promise<string[]> {
+  const tables = tableNames(em).filter((t) => Array.isArray(patch[t]));
+  if (!tables.length) return [];
+  let cur: ODataEntity;
+  try {
+    cur = await conn.client.getEntity(`${entitySet}(guid'${guid}')${buildQuery({ select: tables })}`);
+  } catch {
+    return []; // строки не прочитались — правка как раньше
+  }
+  const kept: string[] = [];
+  for (const t of tables) {
+    const old = (Array.isArray(cur[t]) ? cur[t] : []) as ODataEntity[];
+    (patch[t] as Array<Record<string, unknown>>).forEach((row, i) => {
+      const prev = old[i];
+      if (!prev) return;
+      const nom = row["Номенклатура_Key"];
+      const was = prev["Номенклатура_Key"];
+      if (nom !== undefined && was !== undefined && String(nom).toLowerCase() !== String(was).toLowerCase())
+        return;
+      const names: string[] = [];
+      for (const [k, v] of Object.entries(prev)) {
+        const base = k.endsWith("_Type") ? k.slice(0, -5) : k;
+        if (NOT_KEPT_ROW_FIELDS.has(k) || k.includes("@") || k in row || base in row) continue;
+        row[k] = v;
+        if (!k.endsWith("_Type") && !emptyValue(v)) names.push(k);
+      }
+      if (names.length) kept.push(`${t}, строка ${i + 1}: ${names.join(", ")}`);
+    });
+  }
+  return kept.length ? [`Из прежних строк сохранено (в правке их не было): ${kept.join("; ")}.`] : [];
+}
+
 /**
  * Собирает patch документа казахстанской базы: проверка полей по $metadata, счета по кодам, типы субконто, предупреждения.
  * Проведённый и помеченный на удаление документ — InputError. Запись — patchOrPreview.
@@ -374,6 +430,7 @@ export async function prepareDocumentPatch(
     );
   }
   const notes: string[] = [];
+  notes.push(...(await keepRowColumns(conn, em, entitySet, guid, patch)));
   if (entitySet === "Document_ПлатежноеПоручениеИсходящее") {
     const codes = Object.keys(patch).some(
       (k) => k === "КодБК" || k === "КодНазначенияПлатежа" || k === "ВидОперации",

@@ -198,6 +198,30 @@ describe("view у правки (PP)", () => {
   });
 });
 
+describe("view у изменения строк: итог по документу", () => {
+  it("«Сумма включает НДС» — из документа, если в правке её нет: итог = сумма строк", async () => {
+    // прод 18.11.2026, счёт № 497: итог карточки 398 275,86 = 350 000 + НДС сверху, а НДС входил в сумму
+    const DOC = id(497);
+    const store = baseStore();
+    store[INVOICE_SET] = [{ Ref_Key: DOC, СуммаВключаетНДС: true, Posted: false, DeletionMark: false }];
+    const f = fake1C({ store, entities: invoiceEntities });
+    const row = { Номенклатура_Key: SERVICE, Количество: 1, Цена: 350000, Сумма: 350000, СуммаНДС: 48275.86 };
+    const res = await patchOrPreview(
+      f.conn,
+      INVOICE_SET,
+      DOC,
+      { Услуги: [{ LineNumber: 1, ...row }] },
+      false,
+    );
+    expect(res.isError).toBeFalsy();
+    expect((sc(res)["view"] as Record<string, any>)["totals"]).toMatchObject({
+      sum: 350000,
+      vat: 48275.86,
+      total: 350000,
+    });
+  });
+});
+
 describe("view у ЭСФ/ЭАВР (EP)", () => {
   it("предпросмотр связи: changes с названиями документов", async () => {
     const CTR = id(310);

@@ -284,10 +284,13 @@ export async function buildPreviewView(
     }
   const headerTotal = Number((data as Record<string, unknown>)["СуммаДокумента"]);
   const headerVat = Number((data as Record<string, unknown>)["СуммаНДС"]);
+  // Правка строк: в патче нет «Сумма включает НДС» — берём из документа (прод 18.11.2026, счёт № 497: итог карточки
+  // 350 000 + НДС сверху = 398 275,86, хотя НДС в документе входит в сумму)
+  const includesVat = (data["СуммаВключаетНДС"] ?? before?.["СуммаВключаетНДС"]) === true;
   const total = Number.isFinite(headerTotal)
     ? headerTotal
     : sum || vat || Number.isFinite(headerVat)
-      ? round2(sum + (data["СуммаВключаетНДС"] === true ? 0 : vat))
+      ? round2(sum + (includesVat ? 0 : vat))
       : NaN;
   if (Number.isFinite(total) || sum || vat)
     view = {

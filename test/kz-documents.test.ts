@@ -30,6 +30,7 @@ function connection({
   deleted = false,
   accrued = false,
   singlePayment = false,
+  rows = undefined as Array<Record<string, unknown>> | undefined,
 } = {}) {
   const entities = new Map<string, { entitySet: string; properties: ReturnType<typeof prop>[] }>([
     [
@@ -108,7 +109,11 @@ function connection({
     client: {
       prepareCreate: vi.fn(async () => undefined),
       patch,
-      getEntity: async () => ({ Posted: posted, DeletionMark: deleted }),
+      getEntity: async () => ({
+        Posted: posted,
+        DeletionMark: deleted,
+        ...(rows ? { Начисления: rows } : {}),
+      }),
       getCollection: async (path: string) => ({
         value: path.startsWith("Catalog_Организации")
           ? [{ Ref_Key: ORG, Description: "ТОО Тест" }]
@@ -275,6 +280,50 @@ describe("write.document.update_document", () => {
     expect(res.isError).toBeFalsy();
     expect(sc["fields"]).toEqual({
       Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000, LineNumber: 1 }],
+    });
+  });
+
+  it("правка строки не теряет колонки прежней строки, которых в правке нет; суммы и явная очистка — не переносятся", async () => {
+    // прод 18.11.2026, счёт № 497: «измени сумму» переписал строку «Услуги» без «Содержания» — наименование пропало
+    const was = [
+      {
+        Ref_Key: DOC,
+        LineNumber: 1,
+        Сотрудник_Key: EMPLOYEE,
+        Результат: 600000,
+        ДатаНачала: "2026-09-01T00:00:00",
+      },
+    ];
+    const { sc } = await call(
+      "write.document.update_document",
+      {
+        entitySet: ACCRUALS,
+        ref: DOC,
+        tables: { Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000 }] },
+      },
+      { rows: was },
+    );
+    expect(sc["fields"]).toEqual({
+      Начисления: [
+        { Сотрудник_Key: EMPLOYEE, Результат: 650000, LineNumber: 1, ДатаНачала: "2026-09-01T00:00:00" },
+      ],
+    });
+    expect(sc["notes"]).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("сохранено (в правке их не было): Начисления, строка 1: ДатаНачала"),
+      ]),
+    );
+    const cleared = await call(
+      "write.document.update_document",
+      {
+        entitySet: ACCRUALS,
+        ref: DOC,
+        tables: { Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000, ДатаНачала: null }] },
+      },
+      { rows: was },
+    );
+    expect(cleared.sc["fields"]).toEqual({
+      Начисления: [{ Сотрудник_Key: EMPLOYEE, Результат: 650000, ДатаНачала: null, LineNumber: 1 }],
     });
   });
 

@@ -127,3 +127,48 @@ describe("fromReadable: запись в понятных полях", () => {
     );
   });
 });
+
+describe("fromReadable: значение перечисления в составном поле", () => {
+  // прод 16.11.2026: «Вид платежа» = «Налог» в СубконтоДтБУ2 платёжки — «не известен справочник — передайте guid»
+  const PP = {
+    entitySet: "Document_ПлатежноеПоручениеИсходящее",
+    properties: [p("СубконтоДтБУ2"), p("СубконтоДтБУ2_Type"), p("Комментарий")],
+  };
+  const XML =
+    '<EnumType Name="ВидыПлатежейВБюджетИФонды" UnderlyingType="Edm.Int32"><Member Name="Налог"/>' +
+    '<Member Name="ПениАкт"/><Member Name="Штраф"/></EnumType>' +
+    '<EnumType Name="ВидыШтрафов" UnderlyingType="Edm.Int32"><Member Name="Штраф"/></EnumType>';
+  const withEnums = { ...conn, client: { ...conn.client, getText: async () => XML } };
+
+  it("«Налог» — значение и тип перечисления, как хранит 1С", async () => {
+    const out = await fromReadable(withEnums as never, PP as never, { СубконтоДтБУ2: "Налог" }, {});
+    expect(out.fields).toEqual({
+      СубконтоДтБУ2: "Налог",
+      СубконтоДтБУ2_Type: "StandardODATA.ВидыПлатежейВБюджетИФонды",
+    });
+    const typed = await fromReadable(
+      withEnums as never,
+      PP as never,
+      { СубконтоДтБУ2: { name: "пениакт", type: "StandardODATA.ВидыПлатежейВБюджетИФонды" } },
+      {},
+    );
+    expect(typed.fields["СубконтоДтБУ2"]).toBe("ПениАкт");
+  });
+
+  it("значение в нескольких перечислениях или не из списка — понятная ошибка; без $metadata — как раньше", async () => {
+    await expect(
+      fromReadable(withEnums as never, PP as never, { СубконтоДтБУ2: "Штраф" }, {}),
+    ).rejects.toThrow(/нескольких перечислениях/);
+    await expect(
+      fromReadable(
+        withEnums as never,
+        PP as never,
+        { СубконтоДтБУ2: { name: "Взнос", type: "ВидыПлатежейВБюджетИФонды" } },
+        {},
+      ),
+    ).rejects.toThrow(/Допустимые: Налог, ПениАкт, Штраф/);
+    await expect(fromReadable(conn as never, PP as never, { СубконтоДтБУ2: "Налог" }, {})).rejects.toThrow(
+      /не известен справочник/,
+    );
+  });
+});

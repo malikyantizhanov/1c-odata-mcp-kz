@@ -1,6 +1,7 @@
 import type { Connection } from "../context.js";
 import { InputError } from "../errors.js";
 import { catalogFields } from "../odata/catalog-fields.js";
+import { enumValue } from "../odata/enums.js";
 import { fetchAll } from "../odata/pagination.js";
 import { and, cmp, contains, odataGuid } from "../odata/query.js";
 import { HEADER_FROM, ROW_FROM, TABLES_FROM } from "../odata/vocab.js";
@@ -116,6 +117,16 @@ async function field(
   let guid: string;
   if (GUID_RE.test(text)) guid = norm(text);
   else {
+    if (refField === base && (!target || obj?.type)) {
+      // составное поле со значением перечисления («Налог» в «Виде платежа»): guid у перечисления нет — пишем
+      // значение и тип, как их хранит 1С (odata/enums.ts)
+      const en = await enumValue(conn, text, obj?.type, `${where}, ${name}`);
+      if (en) {
+        out[base] = en.member;
+        out[`${base}_Type`] = `StandardODATA.${en.type}`;
+        return;
+      }
+    }
     if (!target) throw new InputError(`${where}: для ${name} не известен справочник — передайте guid.`);
     guid = norm(
       await findRef(
